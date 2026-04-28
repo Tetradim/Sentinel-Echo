@@ -287,6 +287,122 @@ npx expo start
 
 ---
 
+## Tutorial: Quick Start Guide
+
+### Prerequisites
+- Python 3.11+
+- Node.js 20+
+- Docker (optional, for containerized setup)
+- A Discord account
+- A brokerage account (Alpaca recommended for testing)
+
+### Step 1: Clone and Setup
+
+```bash
+# Clone the repository
+git clone https://github.com/Tetradim/Consolidation.git
+cd Consolidation
+
+# Copy environment template
+cp .env.example .env
+```
+
+### Step 2: Configure Discord Bot
+
+1. Go to [Discord Developer Portal](https://discord.com/developers/applications)
+2. Create new application > Add Bot
+3. Enable **Message Content Intent** (required for alert parsing)
+4. Copy Bot Token
+5. Set `DISCORD_BOT_TOKEN` in .env
+
+### Step 3: Configure Broker (Alpaca Recommended)
+
+1. Sign up at [alpaca.markets](https://alpaca.markets)
+2. Generate API keys (paper trading for testing)
+3. Set in .env:
+```env
+ALPACA_API_KEY=your_key
+ALPACA_API_SECRET=your_secret
+ALPACA_PAPER=true
+```
+
+### Step 4: Start the Bot
+
+**Option A: Docker (Recommended)**
+```bash
+docker-compose up -d
+```
+
+**Option B: Manual**
+```bash
+# Terminal 1: Backend
+cd backend
+pip install -r requirements.txt
+python -m backend
+
+# Terminal 2: Frontend
+cd frontend
+npm install
+npx expo start
+```
+
+### Step 5: Verify Setup
+
+1. Open the frontend (http://localhost:8081)
+2. Check Dashboard status shows:
+   - Discord: Connected (green)
+   - Broker: Connected (green)
+3. Send a test alert in Discord:
+```
+BTO AAPL 150C May 17 2024
+```
+4. Verify the alert appears in the Alerts tab
+
+### Troubleshooting
+
+| Issue | Solution |
+|-------|---------|
+| Discord not connecting | Check bot token, enable Message Intent |
+| Broker not connecting | Verify API keys, check paper/live mode |
+| Alerts not parsing | Check format matches supported parsers |
+| Positions not showing | Verify broker account has positions |
+
+### Common Alert Formats
+
+**Standard:**
+```
+BTO AAPL 150C May 17 2024
+STC TSLA 200P Jun 21 2024
+```
+
+**With Quantity:**
+```
+BTO NVDA 800C 10 contracts May 17
+```
+
+**With Strike Type:**
+```
+BTO MSFT 380 call Jun 21 2024
+STC AMD 120 put Aug 16
+```
+
+### Advanced Configuration
+
+#### Custom Risk Limits
+```env
+MAX_POSITION_SIZE=1000
+MAX_POSITIONS_PER_TICKER=3
+DAILY_LOSS_LIMIT=500
+```
+
+#### Custom Strike Selection
+Set in frontend > Strikes tab:
+- ATM: At the money
+- OTM: Out of the money
+- Delta: Target specific delta (0.3, 0.5, 0.7)
+
+---
+
 ## Configuration
 
 ### Environment Variables
@@ -388,6 +504,56 @@ When selecting strikes, choose from:
 | **Risk/Reward** | Fixed risk/reward ratio |
 | **High IV** | Highest implied volatility |
 | **Liquidity** | Most liquid strikes |
+
+---
+
+## External Integrations
+
+### TradingView Webhooks
+
+1. In TradingView, create alert with webhook URL:
+   ```
+   https://your-domain.com/api/tradingview/webhook
+   ```
+2. Set webhook secret in .env:
+   ```
+   TRADINGVIEW_WEBHOOK_SECRET=your_secret
+   ```
+3. Alert format:
+   ```json
+   {
+     "ticker": "AAPL",
+     "action": "buy",
+     "price": 150.00,
+     "quantity": 10
+   }
+   ```
+
+### Slack Notifications
+
+1. Create Slack App with Incoming Webhooks
+2. Set webhook URL in .env:
+   ```
+   SLACK_WEBHOOK_URL=https://hooks.slack.com/services/xxx
+   ```
+3. Notifications sent:
+   - Trade executed
+   - Daily P&L report
+   - Risk warnings
+
+### Telegram Bot
+
+1. Create bot via @BotFather
+2. Get chat ID from @userinfobot
+3. Set in .env:
+   ```
+   TELEGRAM_BOT_TOKEN=your_bot_token
+   TELEGRAM_CHAT_ID=your_chat_id
+   ```
+4. Receive:
+   - Trade alerts
+   - Daily reports
+   - Bot status
 
 ---
 
