@@ -7,6 +7,8 @@ from .settings import router as settings_router, set_db as set_settings_db, chec
 from .discord import router as discord_router, set_db as set_discord_db, set_discord_bot, get_discord_bot
 from .profiles import router as profiles_router, set_db as set_profiles_db
 from .trading import router as trading_router, set_db as set_trading_db
+# Advanced analytics routes
+from .analytics import router as analytics_router
 
 
 def init_routes(database):
@@ -25,6 +27,7 @@ __all__ = [
     'discord_router',
     'profiles_router',
     'trading_router',
+    'analytics_router',
     'init_routes',
     'bot_status',
     'update_bot_status',
