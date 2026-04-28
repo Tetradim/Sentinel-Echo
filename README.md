@@ -511,6 +511,289 @@ pytest tests/ -v --cov=. --cov-report=html
 
 ---
 
+## Roadmap: Planned Upgrades and Enhancements
+
+This is a living document of planned improvements across all features and tabs of the Consolidation Trading Bot.
+
+---
+
+## Tab-by-Tab Enhancement Plan
+
+### 1. Dashboard (/)
+
+**Current Features:**
+- Bot status (Discord/broker connection)
+- Portfolio summary (total P&L, win rate, open positions)
+- Recent alerts and trades list
+- Shutdown status (max losses, daily limits)
+- Quick stats cards
+
+**Planned Enhancements:**
+- Real-time P&L Chart - Live updating chart with intraday/weekly/monthly views
+- Interactive Charts - Tap on positions to view detailed Greeks analysis
+- Custom Dashboard Widgets - User-selectable widgets and layout
+- Multiple Portfolio Views - Switch between simulated and live accounts
+- Performance Analytics - Sharpe ratio, max drawdown, win/loss streaks
+- Market Status Overlay - NASDAQ/open/closed indicator
+- Quick Actions - One-tap enable/disable auto-trading
+- Push Notifications - Critical alerts when not in app
+- Dark/Light Theme Toggle - User preference for appearance
+
+### 2. Alerts (/alerts)
+
+**Current Features:**
+- List of received Discord alerts
+- Alert processing status (processed/executed)
+- Filter by ticker, date, status
+- Alert confidence scoring
+
+**Planned Enhancements:**
+- Alert Replay - Re-process past alerts with current settings
+- Alert Templates - Save common alert formats for quick testing
+- Manual Alert Entry - Manually trigger alerts for testing
+- Alert Statistics - Charts showing alerts by hour/day/analyst
+- Analyst Ratings - Track performance per analyst
+- Alert Export - CSV/JSON export for analysis
+- Sound Alerts - Audio notification for new alerts
+
+### 3. Trades (/trades)
+
+**Current Features:**
+- Trade history with entry/exit prices
+- P&L per trade (realized/unrealized)
+- Filter by status, date, broker
+- Trade details view
+
+**Planned Enhancements:**
+- Trade Journal - Add notes to individual trades
+- Trade Tagging - Tag trades by strategy/sector
+- Advanced Filtering - Filter by multiple criteria
+- Trade Export - CSV export with all fields
+- Trade Replay - Visual replay of trade lifecycle
+- Commission Tracking - Track fees per broker
+- Trade Notes - Attach screenshots/memos to trades
+
+### 4. Positions (/positions)
+
+**Current Features:**
+- Open positions list
+- Position details (entry, current, P&L)
+- Greeks display (Delta, Gamma, Theta, Vega)
+- Position actions (close, adjust stop)
+
+**Planned Enhancements:**
+- Position Strategy View - Group by strategy type
+- Greeks Dashboard - Aggregate Greeks for portfolio
+- Position Alerts - Notify on delta/gamma thresholds
+- Position Roll - Roll positions to next expiration
+- Partial Close - Close percentage of position
+- Position Timer - Days to expiration countdown
+- IV Rank Display - Implied volatility rank
+- Delta Hedging - Auto-hedge delta exposure
+
+### 5. Risk Settings (/risk-settings)
+
+**Current Features:**
+- Max position size
+- Max positions per ticker
+- Daily loss limits
+- Drawdown limits
+- Correlation limits
+
+**Planned Enhancements:**
+- Advanced Risk Metrics - VaR, Conditional VaR
+- Sector Exposure Limits - Limits per sector (Tech, Energy, etc.)
+- Time-Based Limits - Different limits by time of day
+- Broker-Specific Limits - Per-broker position limits
+- Risk Score Display - Overall portfolio risk score
+- Stress Testing - Simulate market scenarios
+
+### 6. Trading Settings (/trading-settings)
+
+**Current Features:**
+- Default quantity
+- Order type preferences
+- Profit target %
+- Stop loss %
+- Trailing stop settings
+
+**Planned Enhancements:**
+- Multiple Strategies - Save/use different strategies per market
+- Time-Based Execution - Only trade during specific hours
+- Market Condition Filters - Skip on high VIX, specific hours
+- Order Type Presets - Quick switch between order types
+- Custom Bracket Builder - Advanced profit/stop construction
+- DCA Settings - Dollar-cost averaging configuration
+
+### 7. Strike Selection (/strike-selection)
+
+**Current Features:**
+- ATM/OTM/ITM selection
+- Delta targeting
+- Risk/reward mode
+- Liquidity filter
+
+**Planned Enhancements:**
+- IV-Adjusted Strikes - Adjust based on IV rank
+- Historical Strike Analysis - Past performance by strike
+- Strike Recommendations - AI Suggested strikes
+- Custom Formulas - User-defined strike math
+- Strike Watchlist - Monitor specific strikes
+
+### 8. Discord Settings (/discord-settings)
+
+**Current Features:**
+- Channel configuration
+- Alert format parser selection
+- Confidence thresholds
+
+**Planned Enhancements:**
+- Multi-Channel Support - Multiple analyst channels
+- Format A/B Testing - Test multiple parsers
+- Discord Bot Commands - Control via bot commands
+- Alert Feed Customization - Which alerts to process
+- Webhook Integration - Other platforms (Slack, Teams)
+
+### 9. Settings (/settings)
+
+**Current Features:**
+- Profile management
+- Broker configuration
+- Server settings
+- Notification preferences
+
+**Planned Enhancements:**
+- Cloud Sync - Sync settings across devices
+- Config Profiles - Switch between setups
+- Backup/Restore - JSON config backup
+- Remote Control - Control via API
+- Multi-Account - Handle multiple brokerage accounts
+- User Management - Team/clone with permissions
+
+### 10. Broker Configuration (/broker-config)
+
+**Current Features:**
+- Broker connection setup
+- Account info display
+- Paper/live trading toggle
+
+**Planned Enhancements:**
+- Broker Dashboard - Per-broker performance stats
+- Multi-Broker Support - Trade across brokers
+- Broker Health Check - Automated connection monitoring
+- Order Routing - Smart routing to best broker
+
+---
+
+## Backend Enhancement Plan
+
+### Trading Engine
+- Options Chain Caching - Faster strike selection
+- Real-time Greeks - Live Greeks calculation
+- Advanced Order Types - OCO, OTO, TSLA-alike orders
+- Paper Trading Improvements - Simulated fills with slippage
+- Multi-leg Orders - Spreads, straddles, strangles
+
+### Risk Management
+- Real-time VaR - Value at Risk calculation
+- Correlation Matrix - Position correlation analysis
+- Sector Exposure - Sector-level limits
+- Margin Tracking - Detailed margin monitoring
+
+### Alert Processing
+- ML-Based Confidence - AI confidence scoring
+- Alert Deduplication - Cross-channel dedupe
+- Historical Analysis - Per-analyst performance
+
+### Analytics
+- Advanced P&L - Multi-leg analytics
+- Trade Attribution - Factor analysis
+- Benchmark Comparison - vs SPY, QQQ
+
+---
+
+## Integration Enhancement Plan
+
+### Additional Brokers
+- Robinhood - Stocks, Options
+- SoFi - Stocks, Options
+- Webull - Stocks, Options
+- Charles Schwab - Stocks, Options
+- Futures Brokers - CME, CBOE futures
+
+### External Services
+- TradingView Alerts - TV webhook integration
+- Zapier Integration - 5000+ apps
+- Google Sheets - Export to Sheets
+- Excel Add-in - Real-time data in Excel
+
+### Communication
+- Slack Integration - Trade alerts to Slack
+- Telegram Integration - Trade alerts to Telegram
+- Email Notifications - Daily/weekly reports
+- SMS Alerts - Critical trade notifications
+
+---
+
+## Analytics Enhancement Plan
+
+### Dashboard Analytics
+- Custom Charts - Build your own charts
+- Technical Overlays - Indicators on charts
+- Heatmaps - Sector/ticker heatmaps
+
+### Reporting
+- Daily Reports - Auto-generated daily P&L
+- Weekly Statements - Performance summary
+- Tax Reports - 8949 format export
+- Performance Attribution - Factor breakdown
+
+---
+
+## Testing & QA
+
+- Automated Trading Tests - Backtest strategies
+- Paper Trading Mode - Full simulation mode
+- Strategy Backtesting - Historical validation
+- Parser Testing - Test alert parsers
+
+---
+
+## Localization
+
+- Multi-language Support - ES, FR, DE, JP, CN
+- Local Currency - Display in various currencies
+- Time Zone Support - Global time zones
+
+---
+
+## Performance & Scale
+
+- Caching Strategy - Redis optimization
+- Database Optimization - Query performance
+- API Rate Limiting - Respect broker limits
+- Connection Pooling - Efficient API usage
+
+---
+
+## Prioritization Guide
+
+When implementing, prioritize by:
+
+1. Safety First - Risk management improvements
+2. User Requested - Most requested features
+3. High Impact - Features used frequently
+4. Low Effort - Quick wins
+5. Foundation - Enables other features
+
+---
+
+## Contributing
+
+See CONTRIBUTING.md for guidelines on submitting enhancements.
+
+---
+
 ## License
 
 MIT License - See LICENSE file for details.
