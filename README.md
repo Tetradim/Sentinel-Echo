@@ -721,6 +721,11 @@ This is a living document of planned improvements across all features and tabs o
 - Analyst Ratings - Track performance per analyst
 - Alert Export - CSV/JSON export for analysis
 - Sound Alerts - Audio notification for new alerts
+- Multi-Channel Support - Process multiple Discord channels
+- Format A/B Testing - Test multiple parsers simultaneously
+- Alert Confidence Threshold - Adjustable confidence cutoff
+- Webhook Alerts - Receive alerts via webhook
+- Smart Parse Fallback - Try multiple formats automatically
 
 ### 3. Trades (/trades)
 
@@ -870,6 +875,25 @@ This is a living document of planned improvements across all features and tabs o
 - ML-Based Confidence - AI confidence scoring
 - Alert Deduplication - Cross-channel dedupe
 - Historical Analysis - Per-analyst performance
+
+### Alert Enhancements
+- Alert Replay - Re-process past alerts with new settings
+- Alert Templates - Save/reuse common formats
+- Manual Alert Entry - Create alerts manually for testing
+- Alert Statistics - Charts by hour/day/analyst
+- Analyst Ratings - Track performance per analyst
+- Alert Export - CSV/JSON export
+- Sound Alerts - Audio notifications
+- Alert Delay - Configurable delay before execution
+- Multi-Channel Support - Process from multiple Discord channels
+- Format A/B Testing - Test multiple parsers
+- Alert Confidence Threshold - Configurable confidence levels
+- Webhook Alerts - Receive alerts via webhook
+- Email Alerts - Email notifications for new alerts
+- SMS Alerts - SMS for critical alerts
+- Alert Prioritization - Priority queue for high-confidence alerts
+- Alert Categorization - Tag/categorize by strategy
+- Smart Parse Fallback - Try multiple formats automatically
 
 ### Analytics
 - Advanced P&L - Multi-leg analytics
