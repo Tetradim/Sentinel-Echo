@@ -32,6 +32,7 @@ from notifications import (
     notify_correlation_block,
 )
 from fill_monitor import monitor_fill
+from fill_reconciliation import OrderContext
 from source_config import resolve_source_config, source_skip_reason
 from trade_lifecycle import build_exit_plans, is_exit_alert
 
@@ -336,33 +337,23 @@ async def process_trade(alert: Alert, parsed: dict):
 
             # ── 4. Fill confirmation monitor ───────────────────────────────
             if trade.status == "pending" and order_id:
-                # Build position record now so it exists for fill monitor to update
-                position = Position(
-                    ticker=alert.ticker,
-                    strike=alert.strike,
-                    option_type=alert.option_type,
-                    expiration=alert.expiration,
-                    entry_price=alert.entry_price,
-                    original_quantity=quantity,
-                    remaining_quantity=quantity,
-                    total_cost=alert.entry_price * quantity * 100,
-                    broker=settings.active_broker.value,
-                    simulated=False,
-                    trade_ids=[trade.id],
-                    highest_price=alert.entry_price
-                )
-                if USE_SQLITE:
-                    from database_sqlite import insert_position
-                    insert_position(position.model_dump())
-                else:
-                    sync_mongo_db.positions.insert_one(position.model_dump())
-
                 try:
                     db_obj = get_db()
                     asyncio.create_task(monitor_fill(
-                        trade_id=trade.id,
-                        order_id=order_id,
-                        expected_qty=quantity,
+                        order_context=OrderContext(
+                            trade_id=trade.id,
+                            order_id=order_id,
+                            side="BUY",
+                            ticker=alert.ticker,
+                            strike=alert.strike,
+                            option_type=alert.option_type,
+                            expiration=alert.expiration,
+                            requested_quantity=quantity,
+                            broker=settings.active_broker.value,
+                            alert_id=alert.id,
+                            alert_price=limit_price,
+                            simulated=False,
+                        ),
                         broker_client=broker_client,
                         db=db_obj,
                         settings=settings_raw,
@@ -485,9 +476,21 @@ async def process_exit_alert(alert: Alert, parsed: dict, settings: Settings, set
             await db_obj.insert_trade(trade.model_dump())
             asyncio.create_task(
                 monitor_fill(
-                    trade_id=trade.id,
-                    order_id=order_id,
-                    expected_qty=sell_qty,
+                    order_context=OrderContext(
+                        trade_id=trade.id,
+                        order_id=order_id,
+                        side="SELL",
+                        ticker=position.ticker,
+                        strike=position.strike,
+                        option_type=position.option_type,
+                        expiration=position.expiration,
+                        requested_quantity=sell_qty,
+                        broker=settings.active_broker.value,
+                        position_id=position.id,
+                        alert_id=alert.id,
+                        alert_price=exit_price,
+                        simulated=False,
+                    ),
                     broker_client=broker_client,
                     db=db_obj,
                     settings=settings_raw,
