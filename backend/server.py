@@ -25,6 +25,7 @@ from discord_ingestion import DiscordIngestionDeps, handle_discord_message
 
 # Import new professional features
 from risk import is_duplicate_alert, calculate_position_size, check_correlation
+from source_config import apply_source_quantity_limits
 from notifications import (
     notify_trade_filled, notify_trade_failed,
     notify_auto_shutdown, notify_discord_disconnected,
@@ -167,6 +168,7 @@ async def process_trade(alert: Alert, parsed: dict):
             max_position_size=settings.max_position_size,
             risk_multiplier=source_config.get("risk_multiplier", 1.0),
         )
+        quantity = apply_source_quantity_limits(quantity, source_config)
 
         # ── 2. Correlation / concentration check ─────────────────────────────
         # We need the async db abstraction here.  In the SQLite path we use

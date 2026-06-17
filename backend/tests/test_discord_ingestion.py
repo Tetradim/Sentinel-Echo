@@ -99,6 +99,31 @@ class DiscordIngestionTests(unittest.TestCase):
         self.assertFalse(result.trade_requested)
         self.assertEqual(deps.trades, [])
 
+    def test_manual_confirmation_source_inserts_alert_without_trade_request(self):
+        from discord_ingestion import handle_discord_message
+
+        deps = FakeDeps(
+            {
+                "auto_trading_enabled": True,
+                "source_overrides": {"alerts": {"require_manual_confirm": True}},
+            }
+        )
+
+        result = asyncio.run(
+            handle_discord_message(
+                message("BTO SPY 500C 6/21 @ 1.25"),
+                channel_ids=["123"],
+                deps=deps,
+                bot_user=types.SimpleNamespace(id="bot"),
+            )
+        )
+
+        self.assertTrue(result.alert_inserted)
+        self.assertFalse(result.trade_requested)
+        self.assertEqual(result.skip_reason, "manual confirmation required")
+        self.assertEqual(deps.alerts[0].ticker, "SPY")
+        self.assertEqual(deps.trades, [])
+
 
 if __name__ == "__main__":
     unittest.main()

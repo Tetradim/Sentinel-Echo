@@ -47,6 +47,27 @@ class AlertParsingTests(unittest.TestCase):
         self.assertEqual(parsed["sell_percentage"], 50.0)
         self.assertEqual(parsed["entry_price"], 1.40)
 
+    def test_keyword_substrings_do_not_trigger_exit_alerts(self):
+        from utils import parse_alert
+
+        for message in (
+            "TRIMMER SPY 500C 6/21 @ 1.40",
+            "WITHOUT SPY 500C 6/21 @ 1.40",
+        ):
+            parsed = parse_alert(message)
+
+            self.assertIsNotNone(parsed)
+            self.assertEqual(parsed["alert_type"], "buy")
+
+    def test_sell_percentage_does_not_treat_calls_as_all_out(self):
+        from utils import parse_alert
+
+        parsed = parse_alert("SELL 50% SPY 500 CALLS 6/21 @ 1.40")
+
+        self.assertIsNotNone(parsed)
+        self.assertEqual(parsed["alert_type"], "sell")
+        self.assertEqual(parsed["sell_percentage"], 50.0)
+
 
 if __name__ == "__main__":
     unittest.main()

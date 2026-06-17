@@ -337,6 +337,8 @@ async def handle_trade_signal(signal: ParsedAlert, context: SignalContext, deps:
 - Add `test_ignore_pattern_skips_watchlist`.
 - Add `test_parser_preset_can_parse_embed_text`.
 
+**2026-06-17 progress:** fixed current parser keyword checks to use token-boundary matching, reducing false-positive exits from substrings such as `TRIMMER`, `WITHOUT`, and `CALLS`. Full parser module extraction remains open.
+
 ### Task 3.2: Add parser workbench endpoint
 
 **Modify:** `backend/routes/discord.py`
@@ -359,6 +361,8 @@ POST /api/discord/parse-preview
 - execution preview: paper/live, quantity, max premium skip reason
 
 **Reason:** Users need safe customization before live trading. Pattern changes should be testable without placing orders.
+
+**2026-06-17 progress:** added the first read-only workbench slice at `POST /discord/parse-preview`. It parses raw alert text, applies configured action/ignore pattern settings plus validated request-scoped parser overrides for preview, resolves source policy, reports policy skip reasons, previews simulation mode, and estimates buy quantity. Bulk alert-pattern updates now reuse the same empty/length validation. Preview now returns parser `confidence` and user-facing `warnings` for fallback buy assumptions, default source policy use, disabled/shutdown states, paper-only sources, invalid source config, ignore matches, unparsed alerts, and `max_contracts` quantity caps. Preview-only custom action canonicalization now replaces the matched keyword with the canonical action so keywords such as `SCALE` do not become fake tickers. Remaining work: extract the configurable parser engine, then wire the same validated parser config into live ingestion.
 
 ---
 
@@ -395,6 +399,7 @@ def resolve_execution_policy(settings: dict, source: SourceIdentity, alert: dict
 - Disabled source blocks all actions.
 - Paper-only forces simulation.
 - [x] Risk multiplier changes quantity.
+- [x] Max contracts caps source quantity.
 - Buy over max premium is skipped.
 - Sell is still allowed when max premium only applies to entries.
 
@@ -405,11 +410,13 @@ def resolve_execution_policy(settings: dict, source: SourceIdentity, alert: dict
 **Plan:**
 - [ ] Replace raw `Dict[str, Dict[str, Any]]` with a Pydantic model.
 - [x] Reject invalid action names.
+- [x] Reject negative max premium and zero/negative risk multiplier.
 - [x] Normalize action names plus ticker allow/block lists before persistence.
+- [x] Add `require_manual_confirm` so a source can be parsed and recorded without automatic trade execution.
 - [ ] Reject invalid regex strings when parser-specific fields move into source policy.
 - [x] Return normalized source overrides so the frontend can display exactly what will run.
 
-**2026-06-17 progress:** implemented an incremental validation slice in `backend/source_config.py`, `backend/routes/settings.py`, and the buy sizing path. Source overrides now support `allowed_actions`, `ticker_allowlist`, `ticker_blocklist`, and applied `risk_multiplier`; invalid action names fail fast at the API boundary.
+**2026-06-17 progress:** implemented an incremental validation slice in `backend/source_config.py`, `backend/routes/settings.py`, and the buy sizing path. Source overrides now support `allowed_actions`, `ticker_allowlist`, `ticker_blocklist`, `max_contracts`, `require_manual_confirm`, and applied `risk_multiplier`; invalid action names, malformed ticker entries, and non-positive numeric risk controls fail fast at the API boundary. Manual-confirm sources still insert parsed alerts but suppress automatic execution requests, and parse preview reports the same gate.
 
 ---
 

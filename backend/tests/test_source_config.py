@@ -53,6 +53,17 @@ class SourceConfigTests(unittest.TestCase):
             "source disabled",
         )
 
+    def test_manual_confirmation_source_allows_insert_but_blocks_auto_request(self):
+        from source_config import resolve_source_config, source_skip_reason
+
+        settings = {"source_overrides": {"alerts": {"require_manual_confirm": True}}}
+        config = resolve_source_config(settings, channel_id="999", channel_name="alerts")
+
+        self.assertTrue(config["require_manual_confirm"])
+        self.assertIsNone(
+            source_skip_reason({"alert_type": "buy", "ticker": "SPY", "entry_price": 1.0}, config)
+        )
+
     def test_allowed_actions_block_unapproved_lifecycle_alerts(self):
         from source_config import resolve_source_config, source_skip_reason
 
@@ -106,6 +117,40 @@ class SourceConfigTests(unittest.TestCase):
 
         with self.assertRaisesRegex(ValueError, "unknown allowed action"):
             normalize_source_overrides({"alerts": {"allowed_actions": ["moon"]}})
+
+    def test_normalize_source_overrides_rejects_invalid_risk_numbers(self):
+        from source_config import normalize_source_overrides
+
+        with self.assertRaisesRegex(ValueError, "max_premium must be greater than 0"):
+            normalize_source_overrides({"alerts": {"max_premium": -1}})
+
+        with self.assertRaisesRegex(ValueError, "risk_multiplier must be greater than 0"):
+            normalize_source_overrides({"alerts": {"risk_multiplier": 0}})
+
+    def test_max_contracts_caps_source_quantity(self):
+        from source_config import apply_source_quantity_limits, resolve_source_config
+
+        settings = {"source_overrides": {"alerts": {"max_contracts": "2"}}}
+        config = resolve_source_config(settings, channel_id="999", channel_name="alerts")
+
+        self.assertEqual(config["max_contracts"], 2)
+        self.assertEqual(apply_source_quantity_limits(5, config), 2)
+        self.assertEqual(apply_source_quantity_limits(1, config), 1)
+
+    def test_normalize_source_overrides_rejects_invalid_max_contracts(self):
+        from source_config import normalize_source_overrides
+
+        with self.assertRaisesRegex(ValueError, "max_contracts must be greater than 0"):
+            normalize_source_overrides({"alerts": {"max_contracts": 0}})
+
+    def test_normalize_source_overrides_rejects_invalid_tickers(self):
+        from source_config import normalize_source_overrides
+
+        with self.assertRaisesRegex(ValueError, "ticker_allowlist contains invalid ticker"):
+            normalize_source_overrides({"alerts": {"ticker_allowlist": ["SPY1"]}})
+
+        with self.assertRaisesRegex(ValueError, "ticker_blocklist contains invalid ticker"):
+            normalize_source_overrides({"alerts": {"ticker_blocklist": ["BAD TICKER"]}})
 
 
 if __name__ == "__main__":

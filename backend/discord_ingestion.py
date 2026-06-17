@@ -85,7 +85,10 @@ async def handle_discord_message(
     deps.insert_alert(alert)
 
     trade_requested = False
-    if _auto_trading_enabled(settings):
+    skip_reason = ""
+    if source_config.get("require_manual_confirm"):
+        skip_reason = "manual confirmation required"
+    elif _auto_trading_enabled(settings):
         await deps.process_trade(alert, parsed)
         trade_requested = True
 
@@ -93,6 +96,7 @@ async def handle_discord_message(
         parsed=parsed,
         alert_inserted=True,
         trade_requested=trade_requested,
+        skip_reason=skip_reason,
     )
 
 

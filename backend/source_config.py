@@ -10,6 +10,8 @@ DEFAULT_SOURCE_CONFIG = {
     "parser_format": "default",
     "max_premium": None,
     "risk_multiplier": 1.0,
+    "max_contracts": None,
+    "require_manual_confirm": False,
     "notes": "",
     "allowed_actions": [],
     "ticker_allowlist": [],
@@ -54,13 +56,31 @@ def normalize_source_config(source_config: Dict[str, Any]) -> Dict[str, Any]:
     config["name"] = str(config.get("name") or "").strip()
     config["enabled"] = bool(config.get("enabled", True))
     config["paper_only"] = bool(config.get("paper_only", False))
+    config["require_manual_confirm"] = bool(config.get("require_manual_confirm", False))
     config["parser_format"] = str(config.get("parser_format") or "default").strip() or "default"
-    config["max_premium"] = _optional_positive_float(config.get("max_premium"))
-    config["risk_multiplier"] = _positive_float(config.get("risk_multiplier"), default=1.0)
+    config["max_premium"] = _optional_positive_float_field(
+        config.get("max_premium"),
+        "max_premium",
+    )
+    config["risk_multiplier"] = _positive_float_field(
+        config.get("risk_multiplier"),
+        "risk_multiplier",
+        default=1.0,
+    )
+    config["max_contracts"] = _optional_positive_int_field(
+        config.get("max_contracts"),
+        "max_contracts",
+    )
     config["notes"] = str(config.get("notes") or "").strip()
     config["allowed_actions"] = _normalize_actions(config.get("allowed_actions"))
-    config["ticker_allowlist"] = _normalize_tickers(config.get("ticker_allowlist"))
-    config["ticker_blocklist"] = _normalize_tickers(config.get("ticker_blocklist"))
+    config["ticker_allowlist"] = _normalize_tickers(
+        config.get("ticker_allowlist"),
+        "ticker_allowlist",
+    )
+    config["ticker_blocklist"] = _normalize_tickers(
+        config.get("ticker_blocklist"),
+        "ticker_blocklist",
+    )
     return config
 
 
@@ -118,6 +138,13 @@ def source_skip_reason(parsed_alert: Dict[str, Any], source_config: Dict[str, An
     return None
 
 
+def apply_source_quantity_limits(quantity: int, source_config: Dict[str, Any]) -> int:
+    max_contracts = source_config.get("max_contracts")
+    if max_contracts is None:
+        return max(1, int(quantity))
+    return max(1, min(int(quantity), int(max_contracts)))
+
+
 def _first_existing_key(overrides: Dict[str, Any], *candidates: str) -> Optional[str]:
     normalized = {_norm(key): key for key in overrides.keys()}
     for candidate in candidates:
@@ -147,10 +174,12 @@ def _normalize_actions(actions: Any) -> list[str]:
     return normalized
 
 
-def _normalize_tickers(tickers: Any) -> list[str]:
+def _normalize_tickers(tickers: Any, field_name: str) -> list[str]:
     normalized = []
     for ticker in _coerce_list(tickers):
         ticker_key = _normalize_ticker(ticker)
+        if ticker_key and not _is_valid_ticker(ticker_key):
+            raise ValueError(f"{field_name} contains invalid ticker: {ticker}")
         if ticker_key and ticker_key not in normalized:
             normalized.append(ticker_key)
     return normalized
@@ -158,6 +187,10 @@ def _normalize_tickers(tickers: Any) -> list[str]:
 
 def _normalize_ticker(ticker: Any) -> str:
     return str(ticker or "").strip().upper().lstrip("$")
+
+
+def _is_valid_ticker(ticker: str) -> bool:
+    return ticker.isalpha() and 1 <= len(ticker) <= 6
 
 
 def _coerce_list(value: Any) -> Iterable[Any]:
@@ -183,3 +216,32 @@ def _optional_positive_float(value: Any) -> Optional[float]:
 def _positive_float(value: Any, *, default: float) -> float:
     parsed = _optional_positive_float(value)
     return parsed if parsed is not None else default
+
+
+def _optional_positive_float_field(value: Any, field_name: str) -> Optional[float]:
+    if value is None or value == "":
+        return None
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        raise ValueError(f"{field_name} must be a number")
+    if parsed <= 0:
+        raise ValueError(f"{field_name} must be greater than 0")
+    return parsed
+
+
+def _positive_float_field(value: Any, field_name: str, *, default: float) -> float:
+    parsed = _optional_positive_float_field(value, field_name)
+    return parsed if parsed is not None else default
+
+
+def _optional_positive_int_field(value: Any, field_name: str) -> Optional[int]:
+    if value is None or value == "":
+        return None
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        raise ValueError(f"{field_name} must be an integer")
+    if parsed <= 0:
+        raise ValueError(f"{field_name} must be greater than 0")
+    return parsed

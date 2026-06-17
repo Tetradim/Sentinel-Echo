@@ -57,15 +57,14 @@ def parse_alert(message: str) -> Optional[dict]:
     """Parse a Discord options alert into a normalized trade signal."""
     try:
         text = " ".join(message.strip().split())
-        upper = text.upper()
 
-        if any(keyword in upper for keyword in AVG_DOWN_KEYWORDS):
+        if _contains_keyword(text, AVG_DOWN_KEYWORDS):
             return _parse_contract_alert(text, "average_down", require_price=False)
 
-        if any(keyword in upper for keyword in SELL_KEYWORDS):
+        if _contains_keyword(text, SELL_KEYWORDS):
             return _parse_sell_alert(text)
 
-        if any(keyword in upper for keyword in BUY_KEYWORDS):
+        if _contains_keyword(text, BUY_KEYWORDS):
             return _parse_contract_alert(text, "buy", require_price=True)
 
         return _parse_contract_alert(text, "buy", require_price=True)
@@ -79,10 +78,9 @@ def _parse_sell_alert(message: str) -> Optional[dict]:
     if not result:
         return None
 
-    upper = message.upper()
-    if "TRIM" in upper:
+    if _contains_keyword(message, ("TRIM", "TRIMMING")):
         result["alert_type"] = "trim"
-    elif "CLOSE" in upper or "EXIT" in upper:
+    elif _contains_keyword(message, ("CLOSE", "CLOSING", "EXIT", "EXITING")):
         result["alert_type"] = "close"
 
     result["sell_percentage"] = _extract_sell_percentage(message)
@@ -169,7 +167,7 @@ def _extract_price(message: str) -> Optional[float]:
 
 def _extract_sell_percentage(message: str) -> float:
     upper = message.upper()
-    if "ALL" in upper or "CLOSE" in upper or "EXIT" in upper:
+    if _contains_keyword(message, ("ALL", "CLOSE", "CLOSING", "EXIT", "EXITING")):
         return 100.0
 
     match = re.search(r"\b(?:SELL|TRIM|STC)?\s*(\d{1,3})\s*%", upper)
@@ -177,14 +175,24 @@ def _extract_sell_percentage(message: str) -> float:
         return min(100.0, max(1.0, float(match.group(1))))
 
     half_terms = ("HALF", "1/2", "ONE HALF")
-    if any(term in upper for term in half_terms):
+    if _contains_keyword(message, half_terms):
         return 50.0
 
     quarter_terms = ("QUARTER", "1/4")
-    if any(term in upper for term in quarter_terms):
+    if _contains_keyword(message, quarter_terms):
         return 25.0
 
     return 100.0
+
+
+def _contains_keyword(message: str, keywords: tuple[str, ...]) -> bool:
+    return any(_keyword_regex(keyword).search(message) for keyword in keywords)
+
+
+def _keyword_regex(keyword: str) -> re.Pattern:
+    parts = [re.escape(part) for part in str(keyword).strip().split()]
+    body = r"\s+".join(parts)
+    return re.compile(rf"(?<![A-Z0-9]){body}(?![A-Z0-9])", re.IGNORECASE)
 
 
 def calculate_pnl(entry_price: float, current_price: float, quantity: int) -> float:
