@@ -92,3 +92,10 @@
 - Researched OWASP ReDoS guidance for user-supplied regular expressions. Key production takeaway: parser customization must reject invalid and risky regex before users can save or preview it.
 - Added shared `ticker_pattern` validation for saved Discord alert patterns and parse-preview overrides, including regex compilation, required ticker capture group, max length, nested-quantifier rejection, and broad wildcard rejection.
 - Added regression coverage for invalid ticker regex, missing ticker capture groups, ReDoS-shaped ticker regex, and preview-only invalid ticker pattern overrides.
+
+## 2026-06-17 22:36 UTC
+
+- Researched DiscordAlertsTrader custom analyst-format support. Key production takeaway: a parser workbench should prove custom source formats against sample messages, not merely store regex settings.
+- Wired validated `ticker_pattern` settings into `/discord/parse-preview` so preview parsing can override a default ticker extraction when the configured regex matches.
+- Added preview metadata for ticker-pattern application, the matched ticker regex, and whether the regex came from saved settings or request overrides.
+- Added regression coverage for a custom analyst-style alert where the default parser would extract the wrong ticker without the configured ticker regex.

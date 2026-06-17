@@ -184,6 +184,40 @@ class DiscordParsePreviewTests(unittest.TestCase):
         self.assertEqual(result["parsed"]["alert_type"], "sell")
         self.assertEqual(result["parsed"]["ticker"], "SPY")
 
+    def test_parse_preview_applies_configured_ticker_pattern(self):
+        from routes import discord as discord_route
+
+        fake_db = FakePreviewDb(
+            {
+                "auto_trading_enabled": True,
+                "simulation_mode": True,
+                "default_quantity": 1,
+                "max_position_size": 1000.0,
+                "source_overrides": {},
+            },
+            patterns={
+                "ticker_pattern": r"ALERT:([A-Z]{1,6})\b",
+            },
+        )
+        discord_route.set_db(fake_db)
+
+        result = asyncio.run(
+            discord_route.preview_discord_alert(
+                {
+                    "raw_text": "BTO ALERT:SPY 500C 6/21 @ 1.25",
+                    "source_key": "alerts",
+                }
+            )
+        )
+
+        self.assertEqual(result["parsed"]["ticker"], "SPY")
+        self.assertTrue(result["parser_metadata"]["ticker_pattern_applied"])
+        self.assertEqual(
+            result["parser_metadata"]["matched_ticker_pattern"],
+            r"ALERT:([A-Z]{1,6})\b",
+        )
+        self.assertEqual(result["parser_metadata"]["ticker_pattern_source"], "settings")
+
     def test_parse_preview_applies_request_pattern_overrides_without_saving(self):
         from routes import discord as discord_route
 

@@ -217,6 +217,9 @@ def _parse_alert_for_preview(
         "ignored": False,
         "explicit_action": False,
         "assumed_action": None,
+        "ticker_pattern_applied": False,
+        "matched_ticker_pattern": None,
+        "ticker_pattern_source": None,
         "confidence": "none",
     }
     case_sensitive = bool(patterns.get("case_sensitive", False))
@@ -267,6 +270,21 @@ def _parse_alert_for_preview(
             break
 
     parsed = parse_alert(canonical_text)
+    ticker_pattern = patterns.get("ticker_pattern")
+    ticker_override = _extract_ticker_with_pattern(
+        raw_text,
+        ticker_pattern,
+        case_sensitive=case_sensitive,
+    )
+    if parsed and ticker_override:
+        parsed["ticker"] = ticker_override
+        metadata["ticker_pattern_applied"] = True
+        metadata["matched_ticker_pattern"] = ticker_pattern
+        metadata["ticker_pattern_source"] = _pattern_source(
+            patterns,
+            "ticker_pattern",
+            ticker_pattern,
+        )
     if parsed and metadata["confidence"] == "none":
         if explicit_action:
             metadata["confidence"] = "medium"
@@ -391,10 +409,32 @@ def _validate_ticker_pattern(pattern: Any) -> str:
 
 
 def _pattern_source(patterns: Dict[str, Any], pattern_type: str, pattern: str) -> str:
+    if pattern_type == "ticker_pattern":
+        return "request" if pattern_type in patterns.get("_override_keys", set()) else "settings"
     if pattern_type not in patterns.get("_override_keys", set()):
         return "settings"
     override_values = {str(item).strip() for item in patterns.get(pattern_type, []) or []}
     return "request" if pattern in override_values else "settings"
+
+
+def _extract_ticker_with_pattern(
+    raw_text: str,
+    pattern: Any,
+    *,
+    case_sensitive: bool,
+) -> str | None:
+    if not pattern:
+        return None
+    flags = 0 if case_sensitive else re.IGNORECASE
+    match = re.search(str(pattern), raw_text, flags)
+    if not match:
+        return None
+
+    ticker = match.groupdict().get("ticker") or match.group(1)
+    ticker = str(ticker or "").strip().upper().lstrip("$")
+    if not re.fullmatch(r"[A-Z]{1,6}", ticker):
+        return None
+    return ticker
 
 
 def _first_matching_pattern(
