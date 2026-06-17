@@ -73,3 +73,9 @@
 - Continued paper-shadow implementation from the dry-run research. Key production takeaway: live comparison requires persisted simulated records, not only a preview flag.
 - Added `backend/paper_shadow.py` to build linked simulated trade and position records for live buy alerts.
 - Wired live buy processing to persist paper-shadow entry records when the source has `paper_shadow` enabled and the bot is not already in simulation mode.
+
+## 2026-06-17 22:21 UTC
+
+- Audited the sell/trim/close lifecycle after adding paper-shadow entry records. Key production takeaway: live broker exits must never target simulated shadow positions.
+- Added an `include_simulated` control to exit planning and wired live exit processing to exclude simulated and `:paper_shadow` positions when the bot is not in simulation mode.
+- Added regression coverage proving live exit plans ignore paper-shadow positions while simulation-mode planning can still include simulated positions.

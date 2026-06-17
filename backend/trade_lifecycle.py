@@ -14,6 +14,8 @@ def is_exit_alert(parsed: Dict[str, Any]) -> bool:
 def build_exit_plans(
     positions: Iterable[Dict[str, Any]],
     parsed_alert: Dict[str, Any],
+    *,
+    include_simulated: bool = True,
 ) -> List[Dict[str, Any]]:
     """Build sell plans for open positions matching an exit alert."""
     if not is_exit_alert(parsed_alert):
@@ -23,6 +25,7 @@ def build_exit_plans(
         position
         for position in positions
         if _is_open_position(position) and _matches_alert(position, parsed_alert)
+        and (include_simulated or not _is_simulated_position(position))
     ]
 
     if not matched:
@@ -57,6 +60,11 @@ def build_exit_plans(
 
 def _is_open_position(position: Dict[str, Any]) -> bool:
     return str(position.get("status", "open")).lower() in {"open", "partial"}
+
+
+def _is_simulated_position(position: Dict[str, Any]) -> bool:
+    broker = str(position.get("broker") or "").lower()
+    return bool(position.get("simulated")) or broker.endswith(":paper_shadow")
 
 
 def _matches_alert(position: Dict[str, Any], parsed_alert: Dict[str, Any]) -> bool:

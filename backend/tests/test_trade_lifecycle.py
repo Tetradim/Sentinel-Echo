@@ -78,6 +78,56 @@ class TradeLifecycleTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             build_exit_plans(positions, alert)
 
+    def test_live_exit_plans_exclude_simulated_shadow_positions(self):
+        from trade_lifecycle import build_exit_plans
+
+        positions = [
+            {
+                "id": "shadow-pos",
+                "ticker": "SPY",
+                "strike": 500.0,
+                "option_type": "CALL",
+                "expiration": "6/21",
+                "entry_price": 1.00,
+                "current_price": 1.50,
+                "remaining_quantity": 1,
+                "status": "open",
+                "simulated": True,
+                "broker": "alpaca:paper_shadow",
+            },
+            {
+                "id": "live-pos",
+                "ticker": "SPY",
+                "strike": 500.0,
+                "option_type": "CALL",
+                "expiration": "6/21",
+                "entry_price": 1.10,
+                "current_price": 1.55,
+                "remaining_quantity": 1,
+                "status": "open",
+                "simulated": False,
+                "broker": "alpaca",
+            },
+        ]
+        alert = {
+            "alert_type": "sell",
+            "ticker": "SPY",
+            "strike": 500.0,
+            "option_type": "CALL",
+            "expiration": "6/21",
+            "sell_percentage": 100.0,
+            "entry_price": 1.60,
+        }
+
+        live_plans = build_exit_plans(positions, alert, include_simulated=False)
+        simulated_plans = build_exit_plans(positions, alert, include_simulated=True)
+
+        self.assertEqual([plan["position"]["id"] for plan in live_plans], ["live-pos"])
+        self.assertEqual(
+            [plan["position"]["id"] for plan in simulated_plans],
+            ["shadow-pos", "live-pos"],
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -377,7 +377,11 @@ async def process_exit_alert(alert: Alert, parsed: dict, settings: Settings, set
     partial_positions = await db_obj.get_positions("partial")
 
     try:
-        exit_plans = build_exit_plans(open_positions + partial_positions, parsed)
+        exit_plans = build_exit_plans(
+            open_positions + partial_positions,
+            parsed,
+            include_simulated=settings.simulation_mode,
+        )
     except ValueError as exc:
         logger.warning("[process_exit_alert] blocked exit alert: %s", exc)
         return False
