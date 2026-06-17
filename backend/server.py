@@ -295,30 +295,27 @@ async def process_trade(alert: Alert, parsed: dict):
                 logger.info(f"[process_trade] applying buffer: ${buffer_applied:.2f} (limit: ${limit_price})")
             
             try:
-                from broker_clients import get_broker_client
-                broker_cfg = settings.broker_configs.get(settings.active_broker.value)
-                if broker_cfg:
-                    broker_client = get_broker_client(settings.active_broker, broker_cfg)
-                    order_result = await broker_client.place_order(
-                        ticker=alert.ticker,
-                        strike=alert.strike,
-                        option_type=alert.option_type,
-                        expiration=alert.expiration,
-                        side="BUY",
-                        quantity=quantity,
-                        price=limit_price,  # Use buffered price
-                    )
-                    order_id = order_result.get("order_id")
-                    if not order_id:
-                        raise ValueError(order_result.get("error", "Broker did not return an order id"))
-                    trade.order_id = order_id
-                    logger.info(
-                        f"[process_trade] placed order {order_id} for "
-                        f"{quantity}x {alert.ticker} ${alert.strike} {alert.option_type}"
-                    )
-                    trade_executed = True
-                else:
-                    raise ValueError(f"No broker config for {settings.active_broker.value}")
+                from order_execution import get_configured_broker_client
+
+                broker_client = get_configured_broker_client(settings_raw, settings.active_broker.value)
+                order_result = await broker_client.place_order(
+                    ticker=alert.ticker,
+                    strike=alert.strike,
+                    option_type=alert.option_type,
+                    expiration=alert.expiration,
+                    side="BUY",
+                    quantity=quantity,
+                    price=limit_price,  # Use buffered price
+                )
+                order_id = order_result.get("order_id")
+                if not order_id:
+                    raise ValueError(order_result.get("error", "Broker did not return an order id"))
+                trade.order_id = order_id
+                logger.info(
+                    f"[process_trade] placed order {order_id} for "
+                    f"{quantity}x {alert.ticker} ${alert.strike} {alert.option_type}"
+                )
+                trade_executed = True
             except Exception as e:
                 trade.status = "failed"
                 trade.error_message = str(e)
@@ -451,13 +448,9 @@ async def process_exit_alert(alert: Alert, parsed: dict, settings: Settings, set
             continue
 
         try:
-            from broker_clients import get_broker_client
+            from order_execution import get_configured_broker_client
 
-            broker_cfg = settings.broker_configs.get(settings.active_broker.value)
-            if not broker_cfg:
-                raise ValueError(f"No broker config for {settings.active_broker.value}")
-
-            broker_client = get_broker_client(settings.active_broker, broker_cfg)
+            broker_client = get_configured_broker_client(settings_raw, settings.active_broker.value)
             order_result = await broker_client.place_order(
                 ticker=position.ticker,
                 strike=position.strike,

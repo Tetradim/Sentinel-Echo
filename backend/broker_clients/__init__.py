@@ -11,6 +11,12 @@ logger = logging.getLogger(__name__)
 DEFAULT_TIMEOUT = aiohttp.ClientTimeout(total=10, connect=5)
 
 
+def _secret_value(value) -> str:
+    if hasattr(value, "get_secret_value"):
+        return value.get_secret_value()
+    return value or ""
+
+
 class OrderValidationError(Exception):
     """Raised when order parameters fail validation"""
     pass
@@ -304,8 +310,8 @@ class IBKRClient(BaseBrokerClient):
 class AlpacaClient(BaseBrokerClient):
     def _get_headers(self):
         return {
-            'APCA-API-KEY-ID': self.config.api_key,
-            'APCA-API-SECRET-KEY': self.config.api_secret
+            'APCA-API-KEY-ID': _secret_value(self.config.api_key),
+            'APCA-API-SECRET-KEY': _secret_value(self.config.api_secret)
         }
     
     async def check_connection(self) -> bool:
@@ -370,11 +376,11 @@ class AlpacaClient(BaseBrokerClient):
 
 class TDAmeritadeClient(BaseBrokerClient):
     def _get_headers(self):
-        return {'Authorization': f'Bearer {self.config.access_token}'}
+        return {'Authorization': f'Bearer {_secret_value(self.config.access_token)}'}
     
     async def check_connection(self) -> bool:
         try:
-            if not self.config.refresh_token:
+            if not _secret_value(self.config.refresh_token):
                 return False
             session = await self._get_session()
             async with session.get(
@@ -393,9 +399,11 @@ class TDAmeritadeClient(BaseBrokerClient):
     async def _refresh_token(self) -> bool:
         try:
             import base64
-            credentials = base64.b64encode(f"{self.config.client_id}:{self.config.api_secret}".encode()).decode()
+            credentials = base64.b64encode(
+                f"{self.config.client_id}:{_secret_value(self.config.api_secret)}".encode()
+            ).decode()
             headers = {'Authorization': f'Basic {credentials}', 'Content-Type': 'application/x-www-form-urlencoded'}
-            data = {'grant_type': 'refresh_token', 'refresh_token': self.config.refresh_token}
+            data = {'grant_type': 'refresh_token', 'refresh_token': _secret_value(self.config.refresh_token)}
             
             session = await self._get_session()
             async with session.post(
@@ -418,7 +426,7 @@ class TDAmeritadeClient(BaseBrokerClient):
 
 class TradierClient(BaseBrokerClient):
     def _get_headers(self):
-        return {'Authorization': f'Bearer {self.config.access_token}', 'Accept': 'application/json'}
+        return {'Authorization': f'Bearer {_secret_value(self.config.access_token)}', 'Accept': 'application/json'}
     
     async def check_connection(self) -> bool:
         try:
@@ -506,11 +514,11 @@ class RobinhoodClient(BaseBrokerClient):
 
 class TradeStationClient(BaseBrokerClient):
     def _get_headers(self):
-        return {'Authorization': f'Bearer {self.config.access_token}'}
+        return {'Authorization': f'Bearer {_secret_value(self.config.access_token)}'}
     
     async def check_connection(self) -> bool:
         try:
-            if not self.config.ts_refresh_token:
+            if not _secret_value(self.config.ts_refresh_token):
                 return False
             session = await self._get_session()
             async with session.get(
@@ -531,8 +539,8 @@ class TradeStationClient(BaseBrokerClient):
             data = {
                 'grant_type': 'refresh_token',
                 'client_id': self.config.ts_client_id,
-                'client_secret': self.config.ts_client_secret,
-                'refresh_token': self.config.ts_refresh_token,
+                'client_secret': _secret_value(self.config.ts_client_secret),
+                'refresh_token': _secret_value(self.config.ts_refresh_token),
                 'redirect_uri': self.config.ts_redirect_uri
             }
             
@@ -557,11 +565,11 @@ class TradeStationClient(BaseBrokerClient):
 
 class ThinkorswimClient(BaseBrokerClient):
     def _get_headers(self):
-        return {'Authorization': f'Bearer {self.config.access_token}'}
+        return {'Authorization': f'Bearer {_secret_value(self.config.access_token)}'}
     
     async def check_connection(self) -> bool:
         try:
-            if not self.config.tos_refresh_token:
+            if not _secret_value(self.config.tos_refresh_token):
                 return False
             session = await self._get_session()
             async with session.get(
@@ -582,7 +590,7 @@ class ThinkorswimClient(BaseBrokerClient):
             import base64
             credentials = base64.b64encode(f"{self.config.tos_consumer_key}:".encode()).decode()
             headers = {'Authorization': f'Basic {credentials}', 'Content-Type': 'application/x-www-form-urlencoded'}
-            data = {'grant_type': 'refresh_token', 'refresh_token': self.config.tos_refresh_token}
+            data = {'grant_type': 'refresh_token', 'refresh_token': _secret_value(self.config.tos_refresh_token)}
             
             session = await self._get_session()
             async with session.post(
@@ -610,12 +618,12 @@ class WealthsimpleClient(BaseBrokerClient):
     
     async def check_connection(self) -> bool:
         try:
-            if not self.config.ws_email or not self.config.ws_password:
+            if not self.config.ws_email or not _secret_value(self.config.ws_password):
                 return False
             
             auth_url = "https://trade-service.wealthsimple.com/auth/login"
             headers = {'Content-Type': 'application/json', 'User-Agent': 'Mozilla/5.0'}
-            auth_data = {'email': self.config.ws_email, 'password': self.config.ws_password}
+            auth_data = {'email': self.config.ws_email, 'password': _secret_value(self.config.ws_password)}
             
             if self.config.ws_otp_code:
                 auth_data['otp'] = self.config.ws_otp_code
