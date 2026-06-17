@@ -171,11 +171,11 @@ backend/
 - Read: `backend/fill_monitor.py:106-180`
 - Read: `backend/database/abstraction.py:651-747`
 
-- [ ] Write `test_rejected_entry_order_does_not_leave_open_position`.
-- [ ] Write `test_filled_entry_order_creates_open_position_from_fill_price`.
-- [ ] Write `test_filled_exit_order_reduces_remaining_quantity_and_closes_when_zero`.
-- [ ] Run: `python -m unittest backend.tests.test_fill_reconciliation -v`
-- [ ] Expected before implementation: tests fail because no reconciliation module exists.
+- [x] Write `test_rejected_entry_order_does_not_leave_open_position`.
+- [x] Write `test_filled_entry_order_creates_open_position_from_fill_price`.
+- [x] Write `test_filled_exit_order_reduces_remaining_quantity_and_closes_when_zero`.
+- [x] Run: `python -m unittest backend.tests.test_fill_reconciliation -v`
+- [x] Expected before implementation: tests fail because no reconciliation module exists.
 
 ### Task 1.2: Create `backend/fill_reconciliation.py`
 
@@ -206,7 +206,10 @@ async def reconcile_order_update(db, context: OrderContext, update: BrokerOrderU
 - BUY `rejected/cancelled`: mark trade failed; do not create an open position.
 - SELL `filled`: update sell trade to `executed`, decrement position, calculate realized P&L from actual fill price, close at zero.
 - SELL `rejected/cancelled`: mark sell trade failed; leave position unchanged.
+- When `alert_id` is available, final alert `trade_executed` and `trade_result` are updated from fill/reject reconciliation rather than broker submission.
 - All transitions are idempotent by `trade_id + order_id + status + filled_qty`.
+
+**2026-06-17 progress:** fill reconciliation now updates the originating alert when broker truth arrives: filled/partial orders set `trade_executed=True` with a fill result, while rejected/cancelled/expired/unconfirmed orders set `trade_executed=False` with the broker or monitor reason. Tests cover filled entry and rejected entry alert updates.
 
 ### Task 1.3: Slim `backend/fill_monitor.py`
 

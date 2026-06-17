@@ -59,6 +59,12 @@ async def reconcile_order_update(
                 "error_message": reason,
             },
         )
+        await _update_alert_status(
+            db,
+            context,
+            trade_executed=False,
+            trade_result=f"failed: {reason}",
+        )
         return ReconciliationResult(trade_status="failed", message=reason)
 
     if status in {"unknown", "error", "unconfirmed"}:
@@ -70,6 +76,12 @@ async def reconcile_order_update(
                 "quantity": context.requested_quantity,
                 "error_message": reason,
             },
+        )
+        await _update_alert_status(
+            db,
+            context,
+            trade_executed=False,
+            trade_result=f"unconfirmed: {reason}",
         )
         return ReconciliationResult(trade_status="unconfirmed", message=reason)
 
@@ -106,6 +118,12 @@ async def _apply_fill(
         )
         position = _entry_position(context, filled_qty, fill_price)
         position_id = await db.insert_position(position)
+        await _update_alert_status(
+            db,
+            context,
+            trade_executed=True,
+            trade_result=_fill_trade_result(trade_status),
+        )
         return ReconciliationResult(
             trade_status=trade_status,
             position_status=position["status"],
@@ -155,6 +173,12 @@ async def _apply_fill(
             "$push": {"trade_ids": context.trade_id},
         },
     )
+    await _update_alert_status(
+        db,
+        context,
+        trade_executed=True,
+        trade_result=_fill_trade_result(trade_status),
+    )
     return ReconciliationResult(
         trade_status=trade_status,
         position_status=position_status,
@@ -195,6 +219,29 @@ def _fill_price(update: BrokerOrderUpdate, context: OrderContext) -> float:
     if price <= 0:
         raise ValueError("Fill reconciliation requires a positive fill price")
     return price
+
+
+async def _update_alert_status(
+    db,
+    context: OrderContext,
+    *,
+    trade_executed: bool,
+    trade_result: str,
+) -> None:
+    if not context.alert_id or not hasattr(db, "update_alert"):
+        return
+    await db.update_alert(
+        context.alert_id,
+        {
+            "processed": True,
+            "trade_executed": trade_executed,
+            "trade_result": trade_result,
+        },
+    )
+
+
+def _fill_trade_result(trade_status: str) -> str:
+    return "partial" if trade_status == "partial" else "filled"
 
 
 def _now() -> str:

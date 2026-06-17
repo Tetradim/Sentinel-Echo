@@ -99,3 +99,9 @@
 - Wired validated `ticker_pattern` settings into `/discord/parse-preview` so preview parsing can override a default ticker extraction when the configured regex matches.
 - Added preview metadata for ticker-pattern application, the matched ticker regex, and whether the regex came from saved settings or request overrides.
 - Added regression coverage for a custom analyst-style alert where the default parser would extract the wrong ticker without the configured ticker regex.
+
+## 2026-06-17 22:43 UTC
+
+- Researched Alpaca order-status behavior. Key production takeaway: broker submission and broker fill are separate states, so user-facing alert execution state should be reconciled from order status.
+- Updated fill reconciliation to write final alert state when an `alert_id` is available: filled/partial orders mark `trade_executed=True`, while rejected/cancelled/expired/unconfirmed orders mark `trade_executed=False` with a reason.
+- Extended fill-reconciliation tests to prove filled entry orders and rejected entry orders update the originating alert from broker truth.

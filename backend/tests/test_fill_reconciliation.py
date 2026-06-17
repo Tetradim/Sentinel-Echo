@@ -11,11 +11,15 @@ sys.path.insert(0, str(BACKEND_DIR))
 class FakeLifecycleDb:
     def __init__(self):
         self.trade_updates = []
+        self.alert_updates = []
         self.positions = {}
         self.inserted_positions = []
 
     async def update_trade(self, trade_id, updates):
         self.trade_updates.append((trade_id, updates))
+
+    async def update_alert(self, alert_id, updates):
+        self.alert_updates.append((alert_id, updates))
 
     async def insert_position(self, position):
         self.positions[position["id"]] = position
@@ -52,6 +56,7 @@ class FillReconciliationTests(unittest.TestCase):
             expiration="6/21",
             requested_quantity=2,
             broker="alpaca",
+            alert_id="alert-entry",
         )
 
         result = asyncio.run(
@@ -65,6 +70,19 @@ class FillReconciliationTests(unittest.TestCase):
         self.assertEqual(result.trade_status, "failed")
         self.assertEqual(db.trade_updates[0][1]["status"], "failed")
         self.assertEqual(db.trade_updates[0][1]["error_message"], "insufficient buying power")
+        self.assertEqual(
+            db.alert_updates,
+            [
+                (
+                    "alert-entry",
+                    {
+                        "processed": True,
+                        "trade_executed": False,
+                        "trade_result": "failed: insufficient buying power",
+                    },
+                )
+            ],
+        )
         self.assertEqual(db.inserted_positions, [])
 
     def test_filled_entry_order_creates_open_position_from_fill_price(self):
@@ -81,6 +99,7 @@ class FillReconciliationTests(unittest.TestCase):
             expiration="6/21",
             requested_quantity=3,
             broker="alpaca",
+            alert_id="alert-entry",
         )
 
         result = asyncio.run(
@@ -95,6 +114,19 @@ class FillReconciliationTests(unittest.TestCase):
         self.assertEqual(result.position_status, "open")
         self.assertEqual(db.trade_updates[0][1]["quantity"], 2)
         self.assertEqual(db.trade_updates[0][1]["entry_price"], 1.35)
+        self.assertEqual(
+            db.alert_updates,
+            [
+                (
+                    "alert-entry",
+                    {
+                        "processed": True,
+                        "trade_executed": True,
+                        "trade_result": "filled",
+                    },
+                )
+            ],
+        )
         position = db.inserted_positions[0]
         self.assertEqual(position["ticker"], "SPY")
         self.assertEqual(position["original_quantity"], 2)
