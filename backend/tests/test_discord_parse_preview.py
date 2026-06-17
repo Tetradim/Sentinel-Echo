@@ -68,6 +68,8 @@ class DiscordParsePreviewTests(unittest.TestCase):
         self.assertTrue(result["execution_preview"]["simulation_mode"])
         self.assertEqual(result["execution_preview"]["quantity"], 1)
         self.assertEqual(result["execution_preview"]["uncapped_quantity"], 2)
+        self.assertEqual(result["execution_preview"]["estimated_premium_cost"], 125.0)
+        self.assertEqual(result["execution_preview"]["uncapped_premium_cost"], 250.0)
         self.assertEqual(result["execution_preview"]["max_contracts"], 1)
         self.assertIn(
             "Source max_contracts capped quantity from 2 to 1.",

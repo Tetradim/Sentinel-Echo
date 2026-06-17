@@ -111,3 +111,9 @@
 - Researched Freqtrade configuration/readiness behavior. Key production takeaway: users need explicit pre-live warnings for configurations that look armed but cannot submit real orders.
 - Extended setup diagnostics with an `auto_live_sources` count that excludes disabled, paper-only, and manual-confirm sources.
 - Added a readiness warning when source overrides exist but none can submit live orders automatically.
+
+## 2026-06-17 22:54 UTC
+
+- Researched standard options contract multiplier behavior. Key production takeaway: preview surfaces should show estimated premium dollars, not only contract counts.
+- Extended `/discord/parse-preview` execution output with `estimated_premium_cost` and `uncapped_premium_cost` for buy and average-down alerts, using the standard 100x options multiplier.
+- Added regression coverage proving source `max_contracts` caps both preview quantity and estimated premium cost while still reporting the uncapped cost.

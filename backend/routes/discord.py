@@ -547,16 +547,21 @@ def _build_execution_preview(
 
     quantity = None
     uncapped_quantity = None
+    estimated_premium_cost = None
+    uncapped_premium_cost = None
     if parsed and str(parsed.get("alert_type", "")).lower() in {"buy", "average_down"}:
         entry_price = parsed.get("entry_price")
         if entry_price:
+            entry_price = float(entry_price)
             uncapped_quantity = calculate_position_size(
-                entry_price=float(entry_price),
+                entry_price=entry_price,
                 default_quantity=int(settings.get("default_quantity", 1)),
                 max_position_size=float(settings.get("max_position_size", 1000.0)),
                 risk_multiplier=source_config.get("risk_multiplier", 1.0),
             )
             quantity = apply_source_quantity_limits(uncapped_quantity, source_config)
+            estimated_premium_cost = round(entry_price * quantity * 100, 2)
+            uncapped_premium_cost = round(entry_price * uncapped_quantity * 100, 2)
 
     return {
         "would_insert_alert": bool(parsed and skip_reason is None),
@@ -567,6 +572,8 @@ def _build_execution_preview(
         "simulation_mode": simulation_mode,
         "quantity": quantity,
         "uncapped_quantity": uncapped_quantity,
+        "estimated_premium_cost": estimated_premium_cost,
+        "uncapped_premium_cost": uncapped_premium_cost,
         "risk_multiplier": source_config.get("risk_multiplier", 1.0),
         "max_contracts": source_config.get("max_contracts"),
         "parser_format": source_config.get("parser_format", "default"),

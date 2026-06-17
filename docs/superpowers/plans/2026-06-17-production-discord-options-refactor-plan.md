@@ -592,10 +592,12 @@ For any sample alert, show:
 - matched source policy
 - action
 - estimated quantity
-- estimated max cost
+- [x] estimated premium cost
 - broker capability decision
 - live/paper/shadow result
 - exact skip reason if blocked
+
+**2026-06-17 progress:** `/discord/parse-preview` now returns capped and uncapped premium-cost estimates for buy and average-down alerts using the standard 100x options multiplier, so users can see estimated dollar exposure after source quantity caps are applied.
 
 ### Feature 7.5: Local execution worker mode
 
