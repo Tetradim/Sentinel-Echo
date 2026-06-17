@@ -412,80 +412,80 @@ def _register_formats():
         identifiers=["IRON", "STRADDLE"],
     )
 
-# ============= ADDITIONAL STRATEGIES (from OctoBot/Nautilus) =============
+    # ============= ADDITIONAL STRATEGIES (from OctoBot/Nautilus) =============
 
-# Format 22: Grid Trading
-ANALYST_FORMATS["grid"] = AnalystFormat(
-    name="Grid Trading",
-    bto_patterns=["GRID BUY", "GRID LEVEL"],
-    stc_patterns=["GRID SELL", "CLOSE GRID"],
-    identifiers=["GRID"],
-)
+    # Format 22: Grid Trading
+    ANALYST_FORMATS["grid"] = AnalystFormat(
+        name="Grid Trading",
+        bto_patterns=["GRID BUY", "GRID LEVEL"],
+        stc_patterns=["GRID SELL", "CLOSE GRID"],
+        identifiers=["GRID"],
+    )
 
-# Format 23: DCA
-ANALYST_FORMATS["dca"] = AnalystFormat(
-    name="DCA",
-    bto_patterns=["DCA", "AVERAGE DOWN", "ACCUMULATE"],
-    stc_patterns=["CLOSE", "TAKE PROFIT"],
-    identifiers=["DCA", "AVERAGE"],
-)
+    # Format 23: DCA
+    ANALYST_FORMATS["dca"] = AnalystFormat(
+        name="DCA",
+        bto_patterns=["DCA", "AVERAGE DOWN", "ACCUMULATE"],
+        stc_patterns=["CLOSE", "TAKE PROFIT"],
+        identifiers=["DCA", "AVERAGE"],
+    )
 
-# Format 24: Scalp
-ANALYST_FORMATS["scalp"] = AnalystFormat(
-    name="Scalp",
-    bto_patterns=["SCALP", "QUICK", "MOMENTUM"],
-    stc_patterns=["TAKEN", "QUICK EXIT"],
-    identifiers=["SCALP"],
-)
+    # Format 24: Scalp
+    ANALYST_FORMATS["scalp"] = AnalystFormat(
+        name="Scalp",
+        bto_patterns=["SCALP", "QUICK", "MOMENTUM"],
+        stc_patterns=["TAKEN", "QUICK EXIT"],
+        identifiers=["SCALP"],
+    )
 
-# Format 25: Swing
-ANALYST_FORMATS["swingtrade"] = AnalystFormat(
-    name="Swing",
-    bto_patterns=["SWING", "MULTI-DAY", "MID-TERM"],
-    stc_patterns=["SWING CLOSE"],
-    identifiers=["SWING"],
-)
+    # Format 25: Swing
+    ANALYST_FORMATS["swingtrade"] = AnalystFormat(
+        name="Swing",
+        bto_patterns=["SWING", "MULTI-DAY", "MID-TERM"],
+        stc_patterns=["SWING CLOSE"],
+        identifiers=["SWING"],
+    )
 
-# Format 26: Trend Following
-ANALYST_FORMATS["trend"] = AnalystFormat(
-    name="Trend Following",
-    bto_patterns=["TREND", "FOLLOW", "BREAKOUT"],
-    stc_patterns=["TREND END", "REVERSAL"],
-    identifiers=["TREND"],
-)
+    # Format 26: Trend Following
+    ANALYST_FORMATS["trend"] = AnalystFormat(
+        name="Trend Following",
+        bto_patterns=["TREND", "FOLLOW", "BREAKOUT"],
+        stc_patterns=["TREND END", "REVERSAL"],
+        identifiers=["TREND"],
+    )
 
-# Format 27: Mean Reversion
-ANALYST_FORMATS["meanreversion"] = AnalystFormat(
-    name="MeanReversion",
-    bto_patterns=["MEAN", "REVERT", "OVERSOOLD"],
-    stc_patterns=["MEAN REVERTED"],
-    identifiers=["MEAN", "REVERT"],
-)
+    # Format 27: Mean Reversion
+    ANALYST_FORMATS["meanreversion"] = AnalystFormat(
+        name="MeanReversion",
+        bto_patterns=["MEAN", "REVERT", "OVERSOOLD"],
+        stc_patterns=["MEAN REVERTED"],
+        identifiers=["MEAN", "REVERT"],
+    )
 
-# Format 28: Volatility
-ANALYST_FORMATS["volatility"] = AnalystFormat(
-    name="Volatility",
-    bto_patterns=["VOLATILITY", "IV CRUSH", "EARNINGS"],
-    stc_patterns=["VOLATILITY PLAYED"],
-    identifiers=["VOL", "IV"],
-)
+    # Format 28: Volatility
+    ANALYST_FORMATS["volatility"] = AnalystFormat(
+        name="Volatility",
+        bto_patterns=["VOLATILITY", "IV CRUSH", "EARNINGS"],
+        stc_patterns=["VOLATILITY PLAYED"],
+        identifiers=["VOL", "IV"],
+    )
 
-# Format 29: News
-ANALYST_FORMATS["news"] = AnalystFormat(
-    name="News Trading",
-    bto_patterns=["NEWS", "CATALYST", "ALERT"],
-    stc_patterns=["NEWS PLAYED"],
-    identifiers=["NEWS", "CATALYST"],
-)
+    # Format 29: News
+    ANALYST_FORMATS["news"] = AnalystFormat(
+        name="News Trading",
+        bto_patterns=["NEWS", "CATALYST", "ALERT"],
+        stc_patterns=["NEWS PLAYED"],
+        identifiers=["NEWS", "CATALYST"],
+    )
 
-# Format 30: Arbitrage
-ANALYST_FORMATS["arb"] = AnalystFormat(
-    name="Arbitrage",
-    bto_patterns=["ARB", "SPREAD", "ARBITRAGE"],
-    stc_patterns=["ARB CLOSE"],
-    identifiers=["ARB", "SPREAD"],
-)
-    
+    # Format 30: Arbitrage
+    ANALYST_FORMATS["arb"] = AnalystFormat(
+        name="Arbitrage",
+        bto_patterns=["ARB", "SPREAD", "ARBITRAGE"],
+        stc_patterns=["ARB CLOSE"],
+        identifiers=["ARB", "SPREAD"],
+    )
+
     # Format 31: China Bull
     ANALYST_FORMATS["chinabull"] = AnalystFormat(
         name="China Bull",

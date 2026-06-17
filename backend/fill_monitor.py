@@ -67,6 +67,8 @@ async def monitor_fill(
     broker_client,
     db,
     settings: dict,
+    poll_interval_secs: int = POLL_INTERVAL_SECS,
+    max_polls: int = MAX_POLLS,
 ):
     """
     Background task: poll broker until the order resolves, then update the
@@ -87,8 +89,8 @@ async def monitor_fill(
 
     partial_since: Optional[datetime] = None
 
-    for poll_num in range(MAX_POLLS):
-        await asyncio.sleep(POLL_INTERVAL_SECS)
+    for poll_num in range(max_polls):
+        await asyncio.sleep(poll_interval_secs)
 
         status_data = await _get_order_status_safe(broker_client, order_id)
         status      = status_data.get("status", "unknown")
@@ -96,7 +98,7 @@ async def monitor_fill(
         fill_price  = float(status_data.get("avg_fill_price", 0.0))
 
         logger.info(
-            f"[fill_monitor] order {order_id} poll {poll_num+1}/{MAX_POLLS}: "
+            f"[fill_monitor] order {order_id} poll {poll_num+1}/{max_polls}: "
             f"status={status} filled={filled_qty}/{expected_qty} price={fill_price}"
         )
 
@@ -142,14 +144,18 @@ async def monitor_fill(
         if status == "unknown":
             logger.info(
                 f"[fill_monitor] broker does not support get_order_status — "
-                f"marking trade {trade_id[:8]} as unconfirmed (assumed filled)"
+                f"marking trade {trade_id[:8]} as unconfirmed"
             )
-            await _mark_trade_executed(db, trade_id, expected_qty, None,
-                                       note="Fill unconfirmed: broker lacks get_order_status")
+            await _mark_trade_unconfirmed(
+                db,
+                trade_id,
+                expected_qty,
+                note="Fill unconfirmed: broker lacks get_order_status",
+            )
             return
 
     # ── Timed out ────────────────────────────────────────────────────────────
-    reason = f"Fill confirmation timed out after {MAX_POLLS * POLL_INTERVAL_SECS}s"
+    reason = f"Fill confirmation timed out after {max_polls * poll_interval_secs}s"
     await _mark_trade_failed(db, trade_id, reason)
     await notify_trade_failed(trade_id, "", 0, "", reason, settings)
     logger.error(f"[fill_monitor] order {order_id} TIMED OUT — marked failed")
@@ -160,16 +166,14 @@ async def monitor_fill(
 async def _mark_trade_executed(db, trade_id: str, filled_qty: int,
                                 fill_price: Optional[float], note: str = ""):
     update = {
-        "$set": {
-            "status":      "executed",
-            "quantity":    filled_qty,
-            "executed_at": datetime.now(timezone.utc).isoformat(),
-        }
+        "status": "executed",
+        "quantity": filled_qty,
+        "executed_at": datetime.now(timezone.utc).isoformat(),
     }
     if fill_price is not None:
-        update["$set"]["entry_price"] = fill_price
+        update["entry_price"] = fill_price
     if note:
-        update["$set"]["error_message"] = note  # repurpose for informational notes
+        update["error_message"] = note  # repurpose for informational notes
     try:
         await db.update_trade(trade_id, update)
     except Exception as e:
@@ -178,12 +182,22 @@ async def _mark_trade_executed(db, trade_id: str, filled_qty: int,
 
 async def _mark_trade_failed(db, trade_id: str, reason: str):
     update = {
-        "$set": {
-            "status":        "failed",
-            "error_message": reason,
-        }
+        "status": "failed",
+        "error_message": reason,
     }
     try:
         await db.update_trade(trade_id, update)
     except Exception as e:
         logger.error(f"[fill_monitor] failed to mark trade {trade_id[:8]} failed: {e}")
+
+
+async def _mark_trade_unconfirmed(db, trade_id: str, quantity: int, note: str):
+    update = {
+        "status": "unconfirmed",
+        "quantity": quantity,
+        "error_message": note,
+    }
+    try:
+        await db.update_trade(trade_id, update)
+    except Exception as e:
+        logger.error(f"[fill_monitor] failed to mark trade {trade_id[:8]} unconfirmed: {e}")

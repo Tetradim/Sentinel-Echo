@@ -22,6 +22,7 @@ from models import Alert, Settings
 
 # Import utilities
 from utils import parse_alert
+from discord_alert_text import build_discord_alert_text
 
 # Import new professional features
 from risk import is_duplicate_alert, calculate_position_size, check_correlation
@@ -31,6 +32,8 @@ from notifications import (
     notify_correlation_block,
 )
 from fill_monitor import monitor_fill
+from source_config import resolve_source_config, source_skip_reason
+from trade_lifecycle import build_exit_plans, is_exit_alert
 
 # Import database abstraction
 from database import init_database, get_db, USE_SQLITE, MongoDBDatabase
@@ -70,6 +73,16 @@ discord_bot = None
 discord_bot_thread = None
 
 
+def _load_settings_sync() -> dict:
+    """Load settings from the sync path used by the Discord bot thread."""
+    if USE_SQLITE:
+        from database_sqlite import get_settings
+        return get_settings()
+
+    settings_doc = sync_mongo_db.settings.find_one({'id': 'main_settings'})
+    return settings_doc if settings_doc else {}
+
+
 # Discord Bot Factory
 def create_discord_bot(token: str, channel_ids: List[str]):
     """Create and configure the Discord bot"""
@@ -91,8 +104,26 @@ def create_discord_bot(token: str, channel_ids: List[str]):
         if channel_ids and str(message.channel.id) not in channel_ids:
             return
         
-        parsed = parse_alert(message.content)
+        alert_text = build_discord_alert_text(message)
+        parsed = parse_alert(alert_text)
         if parsed:
+            settings_for_source = _load_settings_sync()
+            source_config = resolve_source_config(
+                settings_for_source,
+                channel_id=str(message.channel.id),
+                channel_name=getattr(message.channel, "name", ""),
+            )
+            skip_reason = source_skip_reason(parsed, source_config)
+            if skip_reason:
+                logger.info(
+                    "[on_message] source %s skipped alert: %s",
+                    source_config.get("name"),
+                    skip_reason,
+                )
+                return
+            if source_config.get("paper_only"):
+                parsed["_force_simulation"] = True
+            parsed["_source_config"] = source_config
             # ── Duplicate alert detection ──────────────────────────────────
             if is_duplicate_alert(parsed):
                 logger.info(
@@ -109,13 +140,13 @@ def create_discord_bot(token: str, channel_ids: List[str]):
             
             alert = Alert(
                 ticker=parsed.get('ticker', ''),
-                strike=parsed.get('strike', 0),
-                option_type=parsed.get('option_type', 'CALL'),
-                expiration=parsed.get('expiration', ''),
-                entry_price=parsed.get('entry_price', 0),
+                strike=parsed.get('strike') or 0,
+                option_type=parsed.get('option_type') or 'CALL',
+                expiration=parsed.get('expiration') or '',
+                entry_price=parsed.get('entry_price') or 0,
                 alert_type=parsed.get('alert_type', 'buy'),
                 sell_percentage=parsed.get('sell_percentage'),
-                raw_message=message.content
+                raw_message=alert_text
             )
             
             # Use sync database for Discord bot thread
@@ -150,6 +181,11 @@ async def process_trade(alert: Alert, parsed: dict):
     
     settings = Settings(**settings_dict) if settings_dict else Settings()
     settings_raw = settings_dict or {}
+    if parsed.get("_force_simulation"):
+        settings.simulation_mode = True
+        settings_raw = dict(settings_raw)
+        settings_raw["simulation_mode"] = True
+    trade_executed = False
 
     if parsed['alert_type'] == 'buy':
 
@@ -241,6 +277,7 @@ async def process_trade(alert: Alert, parsed: dict):
                 trade.id, trade.ticker, trade.strike, trade.option_type,
                 quantity, trade.entry_price, "BUY (SIM)", settings_raw,
             )
+            trade_executed = True
 
         else:
             # Real order — place with broker, store as "pending", start fill monitor
@@ -271,11 +308,14 @@ async def process_trade(alert: Alert, parsed: dict):
                         price=limit_price,  # Use buffered price
                     )
                     order_id = order_result.get("order_id")
+                    if not order_id:
+                        raise ValueError(order_result.get("error", "Broker did not return an order id"))
                     trade.order_id = order_id
                     logger.info(
                         f"[process_trade] placed order {order_id} for "
                         f"{quantity}x {alert.ticker} ${alert.strike} {alert.option_type}"
                     )
+                    trade_executed = True
                 else:
                     raise ValueError(f"No broker config for {settings.active_broker.value}")
             except Exception as e:
@@ -329,16 +369,146 @@ async def process_trade(alert: Alert, parsed: dict):
                     ))
                 except Exception as e:
                     logger.error(f"[process_trade] failed to start fill monitor: {e}")
+    elif is_exit_alert(parsed):
+        trade_executed = await process_exit_alert(alert, parsed, settings, settings_raw)
+    else:
+        logger.info("[process_trade] unsupported alert_type=%s", parsed.get("alert_type"))
 
     # ── Update alert status ───────────────────────────────────────────────────
     if USE_SQLITE:
         from database_sqlite import update_alert
-        update_alert(alert.id, {'processed': True, 'trade_executed': True})
+        update_alert(alert.id, {'processed': True, 'trade_executed': trade_executed})
     else:
         sync_mongo_db.alerts.update_one(
             {'id': alert.id},
-            {'$set': {'processed': True, 'trade_executed': True}}
+            {'$set': {'processed': True, 'trade_executed': trade_executed}}
         )
+
+
+async def process_exit_alert(alert: Alert, parsed: dict, settings: Settings, settings_raw: dict) -> bool:
+    """Process sell/trim/close alerts against matching open positions."""
+    from models import Trade, Position
+    from routes.settings import check_and_trigger_shutdown
+
+    db_obj = get_db()
+    open_positions = await db_obj.get_positions("open")
+    partial_positions = await db_obj.get_positions("partial")
+
+    try:
+        exit_plans = build_exit_plans(open_positions + partial_positions, parsed)
+    except ValueError as exc:
+        logger.warning("[process_exit_alert] blocked exit alert: %s", exc)
+        return False
+
+    if not exit_plans:
+        logger.info("[process_exit_alert] no matching open position for %s", parsed)
+        return False
+
+    any_submitted = False
+    for plan in exit_plans:
+        position = Position(**plan["position"])
+        sell_qty = plan["quantity"]
+        exit_price = plan["exit_price"]
+        realized_pnl = (exit_price - position.entry_price) * sell_qty * 100
+
+        trade = Trade(
+            alert_id=alert.id,
+            ticker=position.ticker,
+            strike=position.strike,
+            option_type=position.option_type,
+            expiration=position.expiration,
+            entry_price=position.entry_price,
+            exit_price=exit_price,
+            quantity=sell_qty,
+            side="SELL",
+            broker=settings.active_broker.value,
+            simulated=settings.simulation_mode,
+            realized_pnl=realized_pnl,
+        )
+
+        if settings.simulation_mode:
+            trade.status = "simulated"
+            trade.executed_at = datetime.now(timezone.utc)
+            await db_obj.insert_trade(trade.model_dump())
+
+            new_remaining = max(0, position.remaining_quantity - sell_qty)
+            update_data = {
+                "$set": {
+                    "remaining_quantity": new_remaining,
+                    "realized_pnl": position.realized_pnl + realized_pnl,
+                    "current_price": exit_price,
+                    "status": "closed" if new_remaining <= 0 else "partial",
+                },
+                "$push": {"trade_ids": trade.id},
+            }
+            if new_remaining <= 0:
+                update_data["$set"]["closed_at"] = datetime.now(timezone.utc).isoformat()
+
+            await db_obj.update_position(position.id, update_data)
+            await check_and_trigger_shutdown(realized_pnl)
+            await notify_trade_filled(
+                trade.id,
+                trade.ticker,
+                trade.strike,
+                trade.option_type,
+                sell_qty,
+                exit_price,
+                "SELL (SIM)",
+                settings_raw,
+            )
+            any_submitted = True
+            continue
+
+        try:
+            from broker_clients import get_broker_client
+
+            broker_cfg = settings.broker_configs.get(settings.active_broker.value)
+            if not broker_cfg:
+                raise ValueError(f"No broker config for {settings.active_broker.value}")
+
+            broker_client = get_broker_client(settings.active_broker, broker_cfg)
+            order_result = await broker_client.place_order(
+                ticker=position.ticker,
+                strike=position.strike,
+                option_type=position.option_type,
+                expiration=position.expiration,
+                side="SELL",
+                quantity=sell_qty,
+                price=exit_price,
+            )
+            order_id = order_result.get("order_id")
+            if not order_id:
+                raise ValueError(order_result.get("error", "Broker did not return an order id"))
+
+            trade.order_id = order_id
+            trade.status = "pending"
+            await db_obj.insert_trade(trade.model_dump())
+            asyncio.create_task(
+                monitor_fill(
+                    trade_id=trade.id,
+                    order_id=order_id,
+                    expected_qty=sell_qty,
+                    broker_client=broker_client,
+                    db=db_obj,
+                    settings=settings_raw,
+                )
+            )
+            any_submitted = True
+        except Exception as exc:
+            trade.status = "failed"
+            trade.error_message = str(exc)
+            await db_obj.insert_trade(trade.model_dump())
+            logger.error("[process_exit_alert] sell order failed: %s", exc)
+            await notify_trade_failed(
+                trade.id,
+                trade.ticker,
+                trade.strike,
+                trade.option_type,
+                str(exc),
+                settings_raw,
+            )
+
+    return any_submitted
 
 
 def run_discord_bot(token: str, channel_ids: List[str]):

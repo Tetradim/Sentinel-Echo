@@ -1,7 +1,7 @@
 """
 Settings and risk management endpoints
 """
-from fastapi import APIRouter, HTTPException, Header
+from fastapi import APIRouter, Body, HTTPException, Header
 from models import (
     Settings, SettingsUpdate,
     AveragingDownSettingsUpdate, RiskManagementSettingsUpdate,
@@ -11,7 +11,7 @@ from models import (
 from datetime import datetime, timezone
 import logging
 import os
-from typing import Optional
+from typing import Any, Dict, Optional
 # C4: credential encryption at rest
 from utils.credentials import encrypt_broker_configs, decrypt_broker_configs
 
@@ -52,6 +52,20 @@ async def update_settings(update: SettingsUpdate):
     if settings.get('broker_configs'):
         settings['broker_configs'] = decrypt_broker_configs(settings['broker_configs'])
     return settings
+
+
+@router.get("/source-overrides")
+async def get_source_overrides():
+    """Get per-channel/per-analyst source overrides."""
+    settings = await db.get_settings()
+    return settings.get("source_overrides", {})
+
+
+@router.put("/source-overrides")
+async def update_source_overrides(source_overrides: Dict[str, Dict[str, Any]] = Body(...)):
+    """Replace per-source overrides used by Discord alert intake."""
+    await db.update_settings({"source_overrides": source_overrides})
+    return source_overrides
 
 
 # Trading Toggles
