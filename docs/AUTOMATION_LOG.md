@@ -13,3 +13,4 @@
 - Added source override normalization for `allowed_actions`, `ticker_allowlist`, and `ticker_blocklist` so users can make a Discord source entry-only, exit-only, or ticker-scoped before live trading.
 - Updated the `/source-overrides` settings route to reject invalid actions and persist normalized values that the frontend can display exactly as the bot will enforce them.
 - Added tests for action gating, ticker allow/block lists, and route-level validation.
+- Applied source `risk_multiplier` to buy sizing so per-channel sizing changes affect order quantity while still respecting the global max-position dollar cap.

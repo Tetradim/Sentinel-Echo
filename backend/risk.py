@@ -92,6 +92,7 @@ def calculate_position_size(
     entry_price: float,
     default_quantity: int,
     max_position_size: float,
+    risk_multiplier: float = 1.0,
 ) -> int:
     """
     Return the number of contracts to trade.
@@ -99,8 +100,8 @@ def calculate_position_size(
     Options contracts represent 100 shares, so:
         cost_per_contract = entry_price * 100
 
-    We take the floor of (max_position_size / cost_per_contract) then
-    clamp to [1, default_quantity].
+    We adjust default_quantity by risk_multiplier, then take the floor of
+    (max_position_size / cost_per_contract) and clamp to the lower limit.
 
     Examples
     --------
@@ -118,11 +119,21 @@ def calculate_position_size(
         return 1
 
     cost_per_contract = entry_price * 100.0
+
+    try:
+        multiplier = float(risk_multiplier)
+    except (TypeError, ValueError):
+        multiplier = 1.0
+    if multiplier <= 0:
+        multiplier = 1.0
+
+    adjusted_default_quantity = max(1, int(default_quantity * multiplier))
+
     if max_position_size <= 0:
-        return max(1, min(default_quantity, 1))
+        return 1
 
     risk_qty = int(max_position_size / cost_per_contract)
-    quantity  = max(1, min(risk_qty, default_quantity))
+    quantity = max(1, min(risk_qty, adjusted_default_quantity))
 
     logger.info(
         f"[risk] sizing: entry=${entry_price:.2f} cost/contract=${cost_per_contract:.0f} "
