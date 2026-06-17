@@ -20,6 +20,7 @@ import asyncio
 # Import models
 from models import Alert, Settings
 from order_execution import build_client_order_id
+from paper_shadow import build_entry_shadow_records
 
 # Import utilities
 from discord_ingestion import DiscordIngestionDeps, handle_discord_message
@@ -217,6 +218,20 @@ async def process_trade(alert: Alert, parsed: dict):
             broker=settings.active_broker.value,
             simulated=settings.simulation_mode
         )
+
+        if source_config.get("paper_shadow") and not settings.simulation_mode:
+            shadow_trade, shadow_position = build_entry_shadow_records(
+                alert=alert,
+                quantity=quantity,
+                broker=settings.active_broker.value,
+            )
+            if USE_SQLITE:
+                from database_sqlite import insert_trade, insert_position
+                insert_trade(shadow_trade.model_dump(mode="json"))
+                insert_position(shadow_position.model_dump(mode="json"))
+            else:
+                sync_mongo_db.trades.insert_one(shadow_trade.model_dump())
+                sync_mongo_db.positions.insert_one(shadow_position.model_dump())
 
         if settings.simulation_mode:
             # Simulated — no broker call, no fill monitoring needed

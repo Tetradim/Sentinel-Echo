@@ -543,12 +543,13 @@ class BrokerAdapter(ABC):
 
 Every live-eligible alert should optionally create:
 - the actual live execution plan
-- [ ] a parallel paper-shadow execution plan
+- [x] a parallel paper-shadow entry plan
+- [ ] a parallel paper-shadow exit/update plan
 - a comparison record of live fill vs paper fill vs alert price
 
 **Reason:** Freqtrade-style dry-run discipline and DiscordAlertsTrader-style actual P&L tracking.
 
-**2026-06-17 progress:** first backend slice added per-source `paper_shadow` configuration plus parse-preview and setup-diagnostics visibility. Execution-time shadow trade/position persistence and live-vs-paper comparison records remain open.
+**2026-06-17 progress:** first backend slice added per-source `paper_shadow` configuration plus parse-preview and setup-diagnostics visibility. Execution-time live buy handling now persists linked simulated trade and position records for paper-shadow sources. Paper-shadow exits/updates and live-vs-paper comparison records remain open.
 
 ### Feature 7.2: Analyst/source scorecards
 

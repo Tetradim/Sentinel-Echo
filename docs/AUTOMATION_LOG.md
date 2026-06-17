@@ -67,3 +67,9 @@
 - Added per-source `paper_shadow` normalization so users can mark a source for live-plus-paper comparison without blocking normal alert policy.
 - Extended `/discord/parse-preview` with `would_create_paper_shadow` and a warning when paper-shadow recording is enabled for a live-capable source.
 - Extended setup diagnostics with a paper-shadow source count so users can confirm which source overrides are configured for shadow experimentation.
+
+## 2026-06-17 22:17 UTC
+
+- Continued paper-shadow implementation from the dry-run research. Key production takeaway: live comparison requires persisted simulated records, not only a preview flag.
+- Added `backend/paper_shadow.py` to build linked simulated trade and position records for live buy alerts.
+- Wired live buy processing to persist paper-shadow entry records when the source has `paper_shadow` enabled and the bot is not already in simulation mode.
