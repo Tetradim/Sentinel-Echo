@@ -562,15 +562,17 @@ Track per-source:
 ### Feature 7.3: Setup diagnostics wizard
 
 Add an endpoint and UI workflow that checks:
-- Discord token present
-- Message Content intent likely working
+- [x] Discord token present
+- [x] Message Content intent requested in code and portal check required
 - monitored channel ids valid
 - bot can see messages/embeds
 - active broker connected
-- broker supports options/fill status
-- paper/live mode explicitly armed
+- [x] broker supports options/fill status
+- [x] paper/live mode explicitly armed
 
 **Reason:** Discord docs make Message Content intent a common failure point, and live options require explicit broker readiness.
+
+**2026-06-17 progress:** added `GET /diagnostics/setup` as the first backend slice. It reports Discord token/channel state, source override counts, broker order-status support, auto-trading/simulation/shutdown state, and actionable warnings without exposing secrets. UI workflow and live Discord permission checks remain open.
 
 ### Feature 7.4: Execution preview before arming live trading
 

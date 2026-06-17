@@ -54,3 +54,9 @@
 - Researched Tradier order-status references. Key production takeaway: Tradier exposes `exec_quantity`, `avg_fill_price`, and rejection details on account order lookup, so the bot can use the same fill-monitor path for Tradier live options orders.
 - Added `TradierClient.get_order_status()` to the active legacy broker path and normalized `partially_filled` to `partial`, `exec_quantity` to `filled_qty`, and `avg_fill_price` to the canonical fill price field.
 - Added Tradier API error extraction so failed status lookups return a usable reason to fill reconciliation instead of silently looking like an unknown fill.
+
+## 2026-06-17 22:10 UTC
+
+- Researched Discord Message Content intent setup references. Key production takeaway: users need a setup surface that distinguishes code-requested intents from Developer Portal approval and shows broker/source/trading readiness before live arming.
+- Added a read-only `GET /diagnostics/setup` health endpoint that reports Discord token/channel state, Message Content intent request status, source override counts, broker order-status support, trading mode, and actionable warnings.
+- Wired health routes into database initialization so diagnostics can inspect persisted settings without returning Discord tokens or broker credentials.
