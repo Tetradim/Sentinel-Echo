@@ -81,6 +81,15 @@ class OrderExecutionTests(unittest.TestCase):
         self.assertEqual(headers["APCA-API-KEY-ID"], "real-key")
         self.assertEqual(headers["APCA-API-SECRET-KEY"], "real-secret")
 
+    def test_live_execution_rejects_broker_without_order_status_support(self):
+        from order_execution import BrokerConfigurationError, require_order_status_support
+
+        class BrokerWithoutStatus:
+            pass
+
+        with self.assertRaises(BrokerConfigurationError):
+            require_order_status_support(BrokerWithoutStatus(), require=True)
+
 
 if __name__ == "__main__":
     unittest.main()

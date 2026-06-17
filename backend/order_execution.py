@@ -44,7 +44,19 @@ def resolve_broker_config(settings: Any, broker_id: Optional[str] = None) -> Dic
     return config
 
 
-def get_configured_broker_client(settings: Any, broker_id: Optional[str] = None):
+def require_order_status_support(client: Any, *, require: bool) -> None:
+    if require and not hasattr(client, "get_order_status"):
+        raise BrokerConfigurationError(
+            "Live execution requires broker order-status support; use paper mode or a supported broker."
+        )
+
+
+def get_configured_broker_client(
+    settings: Any,
+    broker_id: Optional[str] = None,
+    *,
+    require_order_status: bool = False,
+):
     """Create the legacy broker client with decrypted credentials."""
     from broker_clients import get_broker_client
 
@@ -52,4 +64,6 @@ def get_configured_broker_client(settings: Any, broker_id: Optional[str] = None)
     selected_broker = str(broker_id or config_data.get("broker_type") or "").lower()
     broker_type = BrokerType(selected_broker)
     broker_config = BrokerConfig(broker_type=broker_type, **config_data)
-    return get_broker_client(broker_type, broker_config)
+    client = get_broker_client(broker_type, broker_config)
+    require_order_status_support(client, require=require_order_status)
+    return client

@@ -266,7 +266,11 @@ async def process_trade(alert: Alert, parsed: dict):
             try:
                 from order_execution import get_configured_broker_client
 
-                broker_client = get_configured_broker_client(settings_raw, settings.active_broker.value)
+                broker_client = get_configured_broker_client(
+                    settings_raw,
+                    settings.active_broker.value,
+                    require_order_status=True,
+                )
                 order_result = await broker_client.place_order(
                     ticker=alert.ticker,
                     strike=alert.strike,
@@ -419,7 +423,11 @@ async def process_exit_alert(alert: Alert, parsed: dict, settings: Settings, set
         try:
             from order_execution import get_configured_broker_client
 
-            broker_client = get_configured_broker_client(settings_raw, settings.active_broker.value)
+            broker_client = get_configured_broker_client(
+                settings_raw,
+                settings.active_broker.value,
+                require_order_status=True,
+            )
             order_result = await broker_client.place_order(
                 ticker=position.ticker,
                 strike=position.strike,
