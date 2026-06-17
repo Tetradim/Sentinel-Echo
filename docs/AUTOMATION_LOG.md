@@ -105,3 +105,9 @@
 - Researched Alpaca order-status behavior. Key production takeaway: broker submission and broker fill are separate states, so user-facing alert execution state should be reconciled from order status.
 - Updated fill reconciliation to write final alert state when an `alert_id` is available: filled/partial orders mark `trade_executed=True`, while rejected/cancelled/expired/unconfirmed orders mark `trade_executed=False` with a reason.
 - Extended fill-reconciliation tests to prove filled entry orders and rejected entry orders update the originating alert from broker truth.
+
+## 2026-06-17 22:49 UTC
+
+- Researched Freqtrade configuration/readiness behavior. Key production takeaway: users need explicit pre-live warnings for configurations that look armed but cannot submit real orders.
+- Extended setup diagnostics with an `auto_live_sources` count that excludes disabled, paper-only, and manual-confirm sources.
+- Added a readiness warning when source overrides exist but none can submit live orders automatically.

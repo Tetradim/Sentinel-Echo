@@ -579,10 +579,11 @@ Add an endpoint and UI workflow that checks:
 - active broker connected
 - [x] broker supports options/fill status
 - [x] paper/live mode explicitly armed
+- [x] at least one configured source can submit live orders automatically
 
 **Reason:** Discord docs make Message Content intent a common failure point, and live options require explicit broker readiness.
 
-**2026-06-17 progress:** added `GET /diagnostics/setup` as the first backend slice. It reports Discord token/channel state, source override counts, broker order-status support, auto-trading/simulation/shutdown state, and actionable warnings without exposing secrets. UI workflow and live Discord permission checks remain open.
+**2026-06-17 progress:** added `GET /diagnostics/setup` as the first backend slice. It reports Discord token/channel state, source override counts, broker order-status support, auto-trading/simulation/shutdown state, auto-live source count, and actionable warnings without exposing secrets. It now warns when all configured sources are disabled, paper-only, or manual-confirm and therefore cannot auto-submit live orders. UI workflow and live Discord permission checks remain open.
 
 ### Feature 7.4: Execution preview before arming live trading
 

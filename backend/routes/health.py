@@ -89,10 +89,12 @@ async def setup_diagnostics():
     auto_trading_enabled = bool(settings.get("auto_trading_enabled", False))
     simulation_mode = bool(settings.get("simulation_mode", True))
     shutdown_triggered = bool(settings.get("shutdown_triggered", False))
+    auto_live_sources = _auto_live_source_count(normalized_sources)
 
     warnings = _setup_warnings(
         discord_token_configured=discord_token_configured,
         source_count=len(normalized_sources),
+        auto_live_sources=auto_live_sources,
         source_config_valid=source_config_valid,
         source_error=source_error,
         broker_configured=broker_configured,
@@ -124,6 +126,7 @@ async def setup_diagnostics():
             "manual_confirm_sources": sum(
                 1 for config in normalized_sources.values() if config.get("require_manual_confirm")
             ),
+            "auto_live_sources": auto_live_sources,
         },
         "broker": {
             "active_broker": active_broker,
@@ -144,6 +147,7 @@ def _setup_warnings(
     *,
     discord_token_configured: bool,
     source_count: int,
+    auto_live_sources: int,
     source_config_valid: bool,
     source_error: str,
     broker_configured: bool,
@@ -157,6 +161,8 @@ def _setup_warnings(
         warnings.append("Discord token is not configured.")
     if source_count <= 0:
         warnings.append("No source overrides are configured.")
+    elif auto_live_sources <= 0:
+        warnings.append("No source override can submit live orders automatically.")
     if not source_config_valid:
         warnings.append(f"Source overrides are invalid: {source_error}")
     if not broker_configured:
@@ -170,3 +176,13 @@ def _setup_warnings(
     if shutdown_triggered:
         warnings.append("Runtime shutdown is active.")
     return warnings
+
+
+def _auto_live_source_count(normalized_sources: dict) -> int:
+    return sum(
+        1
+        for config in normalized_sources.values()
+        if config.get("enabled", True)
+        and not config.get("paper_only")
+        and not config.get("require_manual_confirm")
+    )

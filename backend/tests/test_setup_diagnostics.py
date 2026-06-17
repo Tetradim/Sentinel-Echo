@@ -90,6 +90,41 @@ class SetupDiagnosticsTests(unittest.TestCase):
         self.assertIn("Simulation mode is enabled.", result["warnings"])
         self.assertIn("Runtime shutdown is active.", result["warnings"])
 
+    def test_setup_diagnostics_warns_when_no_source_can_auto_live_trade(self):
+        from routes import health as health_route
+
+        health_route.set_db(
+            FakeDiagnosticsDb(
+                {
+                    "discord_token": "discord-secret-token",
+                    "discord_channel_ids": ["123"],
+                    "active_broker": "alpaca",
+                    "broker_configs": {
+                        "alpaca": {
+                            "api_key": "broker-secret-key",
+                            "api_secret": "broker-secret-secret",
+                        }
+                    },
+                    "source_overrides": {
+                        "paper": {"paper_only": True},
+                        "manual": {"require_manual_confirm": True},
+                    },
+                    "auto_trading_enabled": True,
+                    "simulation_mode": False,
+                    "shutdown_triggered": False,
+                }
+            )
+        )
+
+        result = asyncio.run(health_route.setup_diagnostics())
+
+        self.assertFalse(result["ready_for_live"])
+        self.assertEqual(result["source_policy"]["auto_live_sources"], 0)
+        self.assertIn(
+            "No source override can submit live orders automatically.",
+            result["warnings"],
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
