@@ -3,6 +3,7 @@ import sys
 import types
 import unittest
 from unittest.mock import patch
+import asyncio
 
 
 BACKEND_DIR = pathlib.Path(__file__).resolve().parents[1]
@@ -18,6 +19,26 @@ sys.modules.setdefault(
 
 
 class OrderExecutionTests(unittest.TestCase):
+    def test_build_client_order_id_is_deterministic_and_broker_safe(self):
+        from order_execution import build_client_order_id
+
+        client_order_id = build_client_order_id(
+            alert_id="alert/ABC 123",
+            side="BUY",
+            position_id="position:456",
+        )
+
+        self.assertEqual(client_order_id, "consolidation-buy-alert-ABC-123-position-456")
+        self.assertLessEqual(len(client_order_id), 128)
+        self.assertEqual(
+            client_order_id,
+            build_client_order_id(
+                alert_id="alert/ABC 123",
+                side="buy",
+                position_id="position:456",
+            ),
+        )
+
     def test_resolve_broker_config_decrypts_stored_credentials(self):
         from order_execution import resolve_broker_config
 
@@ -89,6 +110,72 @@ class OrderExecutionTests(unittest.TestCase):
 
         with self.assertRaises(BrokerConfigurationError):
             require_order_status_support(BrokerWithoutStatus(), require=True)
+
+    def test_legacy_alpaca_order_payload_includes_client_order_id(self):
+        from broker_clients import AlpacaClient
+        from models import BrokerConfig, BrokerType
+
+        class FakeResponse:
+            status = 201
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, exc_type, exc_val, exc_tb):
+                return False
+
+            async def json(self):
+                return {"id": "order-123"}
+
+        class FakeSession:
+            def __init__(self):
+                self.posts = []
+
+            def post(self, url, *, headers=None, json=None, data=None, ssl=None):
+                self.posts.append(
+                    {
+                        "url": url,
+                        "headers": headers,
+                        "json": json,
+                        "data": data,
+                        "ssl": ssl,
+                    }
+                )
+                return FakeResponse()
+
+        async def fake_get_session():
+            return fake_session
+
+        fake_session = FakeSession()
+        client = AlpacaClient(
+            BrokerConfig(
+                broker_type=BrokerType.ALPACA,
+                api_key="real-key",
+                api_secret="real-secret",
+                base_url="https://paper-api.alpaca.markets",
+            )
+        )
+        client.connected = True
+        client._get_session = fake_get_session
+
+        result = asyncio.run(
+            client.place_order(
+                ticker="SPY",
+                strike=500,
+                option_type="CALL",
+                expiration="6/21/2026",
+                side="BUY",
+                quantity=1,
+                price=1.25,
+                client_order_id="consolidation-buy-alert-123",
+            )
+        )
+
+        self.assertEqual(result["order_id"], "order-123")
+        self.assertEqual(
+            fake_session.posts[0]["json"]["client_order_id"],
+            "consolidation-buy-alert-123",
+        )
 
 
 if __name__ == "__main__":

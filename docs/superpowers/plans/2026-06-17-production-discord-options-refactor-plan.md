@@ -461,7 +461,9 @@ class BrokerAdapter(ABC):
 - `SecretStr` values are unwrapped.
 - Live execution is rejected if adapter lacks order status support.
 - Paper execution can use adapters without live status if no real order is sent.
-- Client order id is stable for duplicate alert fingerprint.
+- [x] Client order id is stable for duplicate alert fingerprint.
+
+**2026-06-17 progress:** added deterministic `build_client_order_id()` and passed IDs from live buy/sell submission paths. The legacy Alpaca client now includes `client_order_id` in order payloads. Full `SubmittedOrder` abstraction and broker registry migration remain open.
 
 ### Task 5.3: Add order status support for Alpaca first
 
@@ -592,11 +594,13 @@ Keep Discord/FastAPI alert ingestion separate from broker credentials and broker
 Add:
 - alert fingerprint
 - execution intent id
-- broker `client_order_id`
+- [x] broker `client_order_id`
 - order event log
 - replay command from historical alerts
 
 **Reason:** Alpaca supports client order IDs and order-update tracking. Replayable alerts make parser and execution changes safer.
+
+**2026-06-17 progress:** first slice landed for broker `client_order_id`: IDs are deterministic by side plus alert id, and sell orders include position id to avoid multi-position exit collisions.
 
 ---
 

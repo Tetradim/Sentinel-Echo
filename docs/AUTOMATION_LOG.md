@@ -35,3 +35,10 @@
 - Added parser metadata confidence levels: configured action or ignore pattern matches are high confidence, built-in action keyword matches are medium confidence, fallback parser assumptions are low confidence, and unparsed alerts are none.
 - Fixed preview-only custom action canonicalization so a configured keyword such as `SCALE` is replaced with `SELL` instead of prepending `SELL` to the message, preventing the custom keyword from being misread as the ticker.
 - Added per-source `require_manual_confirm` support. Sources with this flag still parse and insert alerts, but Discord ingestion will not automatically call trade execution, and parse preview reports `manual confirmation required` with a user-facing warning.
+
+## 2026-06-17 22:02 UTC
+
+- Researched Alpaca order-tracking references. Key production takeaway: live broker orders should carry deterministic client-side IDs so retries, broker queries, and execution logs can reconcile an alert intent with the broker order.
+- Added `build_client_order_id()` in `backend/order_execution.py` to produce broker-safe, deterministic IDs from alert side, alert id, and optional position id while staying under Alpaca's 128-character limit.
+- Passed deterministic client order IDs from the live buy and sell paths. Sell IDs include the position id to avoid collisions when one exit alert matches multiple open positions.
+- Extended the legacy broker client order interface with an optional `client_order_id`; Alpaca now includes it in the `/v2/orders` payload.

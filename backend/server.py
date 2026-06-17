@@ -19,6 +19,7 @@ import asyncio
 
 # Import models
 from models import Alert, Settings
+from order_execution import build_client_order_id
 
 # Import utilities
 from discord_ingestion import DiscordIngestionDeps, handle_discord_message
@@ -283,6 +284,7 @@ async def process_trade(alert: Alert, parsed: dict):
                     side="BUY",
                     quantity=quantity,
                     price=limit_price,  # Use buffered price
+                    client_order_id=build_client_order_id(alert.id, "BUY"),
                 )
                 order_id = order_result.get("order_id")
                 if not order_id:
@@ -440,6 +442,7 @@ async def process_exit_alert(alert: Alert, parsed: dict, settings: Settings, set
                 side="SELL",
                 quantity=sell_qty,
                 price=exit_price,
+                client_order_id=build_client_order_id(alert.id, "SELL", position.id),
             )
             order_id = order_result.get("order_id")
             if not order_id:

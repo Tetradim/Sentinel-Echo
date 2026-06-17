@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import re
 from enum import Enum
 from typing import Any, Dict, Optional
 
@@ -9,6 +11,35 @@ from utils.credentials import decrypt_broker_config
 
 class BrokerConfigurationError(ValueError):
     pass
+
+
+def build_client_order_id(
+    alert_id: Any,
+    side: str,
+    position_id: Any = None,
+) -> str:
+    """Build a deterministic broker-safe ID for tracking submitted orders."""
+    parts = [
+        "consolidation",
+        _client_order_id_token(side, fallback="order").lower(),
+        _client_order_id_token(alert_id, fallback="alert"),
+    ]
+    position_token = _client_order_id_token(position_id, fallback="")
+    if position_token:
+        parts.append(position_token)
+
+    client_order_id = "-".join(parts)
+    if len(client_order_id) <= 128:
+        return client_order_id
+
+    digest = hashlib.sha1(client_order_id.encode("utf-8")).hexdigest()[:12]
+    return f"{client_order_id[:115].rstrip('-')}-{digest}"
+
+
+def _client_order_id_token(value: Any, *, fallback: str) -> str:
+    token = re.sub(r"[^A-Za-z0-9_-]+", "-", str(value or "").strip())
+    token = token.strip("-_")
+    return token or fallback
 
 
 def materialize_secret_values(value: Any) -> Any:

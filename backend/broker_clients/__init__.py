@@ -176,8 +176,17 @@ class BaseBrokerClient(ABC):
         pass
     
     @abstractmethod
-    async def place_order(self, ticker: str, strike: float, option_type: str,
-                         expiration: str, side: str, quantity: int, price: float) -> dict:
+    async def place_order(
+        self,
+        ticker: str,
+        strike: float,
+        option_type: str,
+        expiration: str,
+        side: str,
+        quantity: int,
+        price: float,
+        client_order_id: Optional[str] = None,
+    ) -> dict:
         pass
 
 
@@ -255,8 +264,17 @@ class IBKRClient(BaseBrokerClient):
             f"IBKR: no conid found for {ticker} {opt_right} {expiry_full} strike={strike}"
         )
 
-    async def place_order(self, ticker: str, strike: float, option_type: str,
-                         expiration: str, side: str, quantity: int, price: float) -> dict:
+    async def place_order(
+        self,
+        ticker: str,
+        strike: float,
+        option_type: str,
+        expiration: str,
+        side: str,
+        quantity: int,
+        price: float,
+        client_order_id: Optional[str] = None,
+    ) -> dict:
         try:
             try:
                 params = self._validate_and_normalize(ticker, strike, option_type, expiration, side, quantity, price)
@@ -327,8 +345,17 @@ class AlpacaClient(BaseBrokerClient):
             logger.error(f"Alpaca connection error: {e}")
         return False
     
-    async def place_order(self, ticker: str, strike: float, option_type: str,
-                         expiration: str, side: str, quantity: int, price: float) -> dict:
+    async def place_order(
+        self,
+        ticker: str,
+        strike: float,
+        option_type: str,
+        expiration: str,
+        side: str,
+        quantity: int,
+        price: float,
+        client_order_id: Optional[str] = None,
+    ) -> dict:
         try:
             # Validate inputs first
             try:
@@ -358,6 +385,8 @@ class AlpacaClient(BaseBrokerClient):
                 'limit_price': str(params['price']),
                 'time_in_force': 'day'
             }
+            if client_order_id:
+                order_data['client_order_id'] = client_order_id
             
             session = await self._get_session()
             async with session.post(
@@ -419,8 +448,17 @@ class TDAmeritadeClient(BaseBrokerClient):
             logger.error(f"TD Ameritrade token refresh failed: {e}")
         return False
     
-    async def place_order(self, ticker: str, strike: float, option_type: str,
-                         expiration: str, side: str, quantity: int, price: float) -> dict:
+    async def place_order(
+        self,
+        ticker: str,
+        strike: float,
+        option_type: str,
+        expiration: str,
+        side: str,
+        quantity: int,
+        price: float,
+        client_order_id: Optional[str] = None,
+    ) -> dict:
         return {'error': 'TD Ameritrade order not fully implemented'}
 
 
@@ -441,8 +479,17 @@ class TradierClient(BaseBrokerClient):
             logger.error(f"Tradier connection error: {e}")
         return False
     
-    async def place_order(self, ticker: str, strike: float, option_type: str,
-                         expiration: str, side: str, quantity: int, price: float) -> dict:
+    async def place_order(
+        self,
+        ticker: str,
+        strike: float,
+        option_type: str,
+        expiration: str,
+        side: str,
+        quantity: int,
+        price: float,
+        client_order_id: Optional[str] = None,
+    ) -> dict:
         try:
             # Validate inputs first
             try:
@@ -496,8 +543,17 @@ class WebullClient(BaseBrokerClient):
         logger.warning("Webull requires manual authentication")
         return False
     
-    async def place_order(self, ticker: str, strike: float, option_type: str,
-                         expiration: str, side: str, quantity: int, price: float) -> dict:
+    async def place_order(
+        self,
+        ticker: str,
+        strike: float,
+        option_type: str,
+        expiration: str,
+        side: str,
+        quantity: int,
+        price: float,
+        client_order_id: Optional[str] = None,
+    ) -> dict:
         return {'error': 'Webull API not implemented'}
 
 
@@ -507,8 +563,17 @@ class RobinhoodClient(BaseBrokerClient):
         logger.warning("Robinhood API not implemented — cannot verify connection")
         return False
     
-    async def place_order(self, ticker: str, strike: float, option_type: str,
-                         expiration: str, side: str, quantity: int, price: float) -> dict:
+    async def place_order(
+        self,
+        ticker: str,
+        strike: float,
+        option_type: str,
+        expiration: str,
+        side: str,
+        quantity: int,
+        price: float,
+        client_order_id: Optional[str] = None,
+    ) -> dict:
         return {'error': 'Robinhood API requires robin_stocks library'}
 
 
@@ -558,8 +623,17 @@ class TradeStationClient(BaseBrokerClient):
             logger.error(f"TradeStation token refresh failed: {e}")
         return False
     
-    async def place_order(self, ticker: str, strike: float, option_type: str,
-                         expiration: str, side: str, quantity: int, price: float) -> dict:
+    async def place_order(
+        self,
+        ticker: str,
+        strike: float,
+        option_type: str,
+        expiration: str,
+        side: str,
+        quantity: int,
+        price: float,
+        client_order_id: Optional[str] = None,
+    ) -> dict:
         return {'error': 'TradeStation order not fully implemented'}
 
 
@@ -606,8 +680,17 @@ class ThinkorswimClient(BaseBrokerClient):
             logger.error(f"Thinkorswim token refresh failed: {e}")
         return False
     
-    async def place_order(self, ticker: str, strike: float, option_type: str,
-                         expiration: str, side: str, quantity: int, price: float) -> dict:
+    async def place_order(
+        self,
+        ticker: str,
+        strike: float,
+        option_type: str,
+        expiration: str,
+        side: str,
+        quantity: int,
+        price: float,
+        client_order_id: Optional[str] = None,
+    ) -> dict:
         return {'error': 'Thinkorswim order not fully implemented'}
 
 
@@ -642,8 +725,17 @@ class WealthsimpleClient(BaseBrokerClient):
             logger.error(f"Wealthsimple connection error: {e}")
             return False
     
-    async def place_order(self, ticker: str, strike: float, option_type: str,
-                         expiration: str, side: str, quantity: int, price: float) -> dict:
+    async def place_order(
+        self,
+        ticker: str,
+        strike: float,
+        option_type: str,
+        expiration: str,
+        side: str,
+        quantity: int,
+        price: float,
+        client_order_id: Optional[str] = None,
+    ) -> dict:
         return {'error': 'Wealthsimple order not fully implemented'}
 
 
