@@ -234,6 +234,7 @@ async def reconcile_order_update(db, context: OrderContext, update: BrokerOrderU
 - [x] Live sell path passes `position_id` into `OrderContext`.
 - Live sell path must not mark alert `trade_executed=True` until submission succeeds; final executed state is fill-driven.
 - [x] Live sell path excludes simulated paper-shadow positions from broker order planning.
+- [x] Live sell path records paper-shadow exit updates without routing shadow positions to brokers.
 
 ---
 
@@ -545,12 +546,12 @@ class BrokerAdapter(ABC):
 Every live-eligible alert should optionally create:
 - the actual live execution plan
 - [x] a parallel paper-shadow entry plan
-- [ ] a parallel paper-shadow exit/update plan
+- [x] a parallel paper-shadow exit/update plan
 - a comparison record of live fill vs paper fill vs alert price
 
 **Reason:** Freqtrade-style dry-run discipline and DiscordAlertsTrader-style actual P&L tracking.
 
-**2026-06-17 progress:** first backend slice added per-source `paper_shadow` configuration plus parse-preview and setup-diagnostics visibility. Execution-time live buy handling now persists linked simulated trade and position records for paper-shadow sources. Live exit planning now excludes simulated `:paper_shadow` positions from broker sell planning. Paper-shadow exits/updates and live-vs-paper comparison records remain open.
+**2026-06-17 progress:** first backend slice added per-source `paper_shadow` configuration plus parse-preview and setup-diagnostics visibility. Execution-time live buy handling now persists linked simulated trade and position records for paper-shadow sources. Live exit planning excludes simulated `:paper_shadow` positions from broker sell planning, while paper-shadow exit handling records simulated sell trades and mutates matching shadow positions locally. Live-vs-paper comparison records remain open.
 
 ### Feature 7.2: Analyst/source scorecards
 

@@ -79,3 +79,10 @@
 - Audited the sell/trim/close lifecycle after adding paper-shadow entry records. Key production takeaway: live broker exits must never target simulated shadow positions.
 - Added an `include_simulated` control to exit planning and wired live exit processing to exclude simulated and `:paper_shadow` positions when the bot is not in simulation mode.
 - Added regression coverage proving live exit plans ignore paper-shadow positions while simulation-mode planning can still include simulated positions.
+
+## 2026-06-17 22:25 UTC
+
+- Researched DiscordAlertsTrader portfolio and close/update-exit behavior. Key production takeaway: paper/shadow tracking is only useful if exits mutate the tracked portfolio, not just entries.
+- Added paper-shadow exit record building so a source with `paper_shadow` creates simulated sell trades and position updates for matching shadow positions.
+- Wired live exit processing to apply paper-shadow exits without sending those shadow positions to a broker, and to report the alert as processed when only the shadow ledger matched.
+- Added regression coverage for live-mode paper-shadow exits that update local state without a live order.

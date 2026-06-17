@@ -8,14 +8,17 @@ import asyncio
 
 BACKEND_DIR = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(BACKEND_DIR))
-sys.modules.setdefault(
-    "aiohttp",
-    types.SimpleNamespace(
-        ClientTimeout=lambda *args, **kwargs: None,
-        TCPConnector=lambda *args, **kwargs: None,
-        ClientSession=object,
-    ),
-)
+try:
+    import aiohttp  # noqa: F401
+except ModuleNotFoundError:
+    sys.modules.setdefault(
+        "aiohttp",
+        types.SimpleNamespace(
+            ClientTimeout=lambda *args, **kwargs: None,
+            TCPConnector=lambda *args, **kwargs: None,
+            ClientSession=object,
+        ),
+    )
 
 
 class OrderExecutionTests(unittest.TestCase):

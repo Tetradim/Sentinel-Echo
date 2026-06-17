@@ -20,7 +20,11 @@ import asyncio
 # Import models
 from models import Alert, Settings
 from order_execution import build_client_order_id
-from paper_shadow import build_entry_shadow_records
+from paper_shadow import (
+    build_entry_shadow_records,
+    build_exit_shadow_records,
+    is_paper_shadow_position,
+)
 
 # Import utilities
 from discord_ingestion import DiscordIngestionDeps, handle_discord_message
@@ -352,7 +356,13 @@ async def process_trade(alert: Alert, parsed: dict):
                 except Exception as e:
                     logger.error(f"[process_trade] failed to start fill monitor: {e}")
     elif is_exit_alert(parsed):
-        trade_executed = await process_exit_alert(alert, parsed, settings, settings_raw)
+        trade_executed = await process_exit_alert(
+            alert,
+            parsed,
+            settings,
+            settings_raw,
+            source_config=parsed.get("_source_config") or {},
+        )
     else:
         logger.info("[process_trade] unsupported alert_type=%s", parsed.get("alert_type"))
 
@@ -367,7 +377,13 @@ async def process_trade(alert: Alert, parsed: dict):
         )
 
 
-async def process_exit_alert(alert: Alert, parsed: dict, settings: Settings, settings_raw: dict) -> bool:
+async def process_exit_alert(
+    alert: Alert,
+    parsed: dict,
+    settings: Settings,
+    settings_raw: dict,
+    source_config: dict | None = None,
+) -> bool:
     """Process sell/trim/close alerts against matching open positions."""
     from models import Trade, Position
     from routes.settings import check_and_trigger_shutdown
@@ -375,10 +391,35 @@ async def process_exit_alert(alert: Alert, parsed: dict, settings: Settings, set
     db_obj = get_db()
     open_positions = await db_obj.get_positions("open")
     partial_positions = await db_obj.get_positions("partial")
+    candidate_positions = open_positions + partial_positions
+    source_config = source_config or {}
+    any_submitted = False
 
     try:
+        if source_config.get("paper_shadow") and not settings.simulation_mode:
+            shadow_exit_plans = build_exit_plans(
+                [
+                    position
+                    for position in candidate_positions
+                    if is_paper_shadow_position(position)
+                ],
+                parsed,
+                include_simulated=True,
+            )
+            for shadow_plan in shadow_exit_plans:
+                shadow_position = Position(**shadow_plan["position"])
+                shadow_trade, shadow_update = build_exit_shadow_records(
+                    alert=alert,
+                    position=shadow_position,
+                    quantity=shadow_plan["quantity"],
+                    exit_price=shadow_plan["exit_price"],
+                )
+                await db_obj.insert_trade(shadow_trade.model_dump(mode="json"))
+                await db_obj.update_position(shadow_position.id, shadow_update)
+                any_submitted = True
+
         exit_plans = build_exit_plans(
-            open_positions + partial_positions,
+            candidate_positions,
             parsed,
             include_simulated=settings.simulation_mode,
         )
@@ -387,10 +428,12 @@ async def process_exit_alert(alert: Alert, parsed: dict, settings: Settings, set
         return False
 
     if not exit_plans:
-        logger.info("[process_exit_alert] no matching open position for %s", parsed)
-        return False
+        if any_submitted:
+            logger.info("[process_exit_alert] recorded paper-shadow exit for %s", parsed)
+        else:
+            logger.info("[process_exit_alert] no matching open position for %s", parsed)
+        return any_submitted
 
-    any_submitted = False
     for plan in exit_plans:
         position = Position(**plan["position"])
         sell_qty = plan["quantity"]
