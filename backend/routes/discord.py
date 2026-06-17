@@ -409,6 +409,8 @@ def _build_preview_warnings(
         warnings.append("Source is disabled; preview will not request a trade.")
     if source_config.get("paper_only"):
         warnings.append("Source is paper-only; live order would be simulated.")
+    if source_config.get("paper_shadow"):
+        warnings.append("Paper-shadow recording is enabled for this source.")
     if source_config.get("require_manual_confirm"):
         warnings.append("Source requires manual confirmation before trade execution.")
     if not settings.get("auto_trading_enabled", False):
@@ -451,6 +453,13 @@ def _build_execution_preview(
     if reason is None and source_config.get("require_manual_confirm"):
         reason = "manual confirmation required"
 
+    would_create_paper_shadow = bool(
+        parsed
+        and reason is None
+        and source_config.get("paper_shadow")
+        and not simulation_mode
+    )
+
     quantity = None
     uncapped_quantity = None
     if parsed and str(parsed.get("alert_type", "")).lower() in {"buy", "average_down"}:
@@ -467,6 +476,7 @@ def _build_execution_preview(
     return {
         "would_insert_alert": bool(parsed and skip_reason is None),
         "would_request_trade": bool(parsed and reason is None),
+        "would_create_paper_shadow": would_create_paper_shadow,
         "reason": reason,
         "auto_trading_enabled": auto_trading_enabled,
         "simulation_mode": simulation_mode,

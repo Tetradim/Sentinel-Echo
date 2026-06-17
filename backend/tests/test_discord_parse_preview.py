@@ -368,6 +368,38 @@ class DiscordParsePreviewTests(unittest.TestCase):
             result["warnings"],
         )
 
+    def test_parse_preview_reports_paper_shadow_for_live_source(self):
+        from routes import discord as discord_route
+
+        fake_db = FakePreviewDb(
+            {
+                "auto_trading_enabled": True,
+                "simulation_mode": False,
+                "source_overrides": {
+                    "alerts": {
+                        "paper_shadow": True,
+                    }
+                },
+            }
+        )
+        discord_route.set_db(fake_db)
+
+        result = asyncio.run(
+            discord_route.preview_discord_alert(
+                {
+                    "raw_text": "BTO SPY 500C 6/21 @ 1.25",
+                    "source_key": "alerts",
+                }
+            )
+        )
+
+        self.assertTrue(result["execution_preview"]["would_request_trade"])
+        self.assertTrue(result["execution_preview"]["would_create_paper_shadow"])
+        self.assertIn(
+            "Paper-shadow recording is enabled for this source.",
+            result["warnings"],
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

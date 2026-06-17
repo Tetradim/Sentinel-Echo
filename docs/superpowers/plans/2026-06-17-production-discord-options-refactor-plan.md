@@ -392,6 +392,7 @@ def resolve_execution_policy(settings: dict, source: SourceIdentity, alert: dict
 - `blocked_tickers`
 - `max_contracts`
 - `require_manual_confirm`
+- `paper_shadow`
 - `notes`
 
 **Tests:**
@@ -413,10 +414,11 @@ def resolve_execution_policy(settings: dict, source: SourceIdentity, alert: dict
 - [x] Reject negative max premium and zero/negative risk multiplier.
 - [x] Normalize action names plus ticker allow/block lists before persistence.
 - [x] Add `require_manual_confirm` so a source can be parsed and recorded without automatic trade execution.
+- [x] Add `paper_shadow` so a source can be marked for live-plus-paper comparison.
 - [ ] Reject invalid regex strings when parser-specific fields move into source policy.
 - [x] Return normalized source overrides so the frontend can display exactly what will run.
 
-**2026-06-17 progress:** implemented an incremental validation slice in `backend/source_config.py`, `backend/routes/settings.py`, and the buy sizing path. Source overrides now support `allowed_actions`, `ticker_allowlist`, `ticker_blocklist`, `max_contracts`, `require_manual_confirm`, and applied `risk_multiplier`; invalid action names, malformed ticker entries, and non-positive numeric risk controls fail fast at the API boundary. Manual-confirm sources still insert parsed alerts but suppress automatic execution requests, and parse preview reports the same gate.
+**2026-06-17 progress:** implemented an incremental validation slice in `backend/source_config.py`, `backend/routes/settings.py`, and the buy sizing path. Source overrides now support `allowed_actions`, `ticker_allowlist`, `ticker_blocklist`, `max_contracts`, `require_manual_confirm`, `paper_shadow`, and applied `risk_multiplier`; invalid action names, malformed ticker entries, and non-positive numeric risk controls fail fast at the API boundary. Manual-confirm sources still insert parsed alerts but suppress automatic execution requests, and parse preview reports the same gate. Paper-shadow sources are visible in parse preview and setup diagnostics; actual shadow persistence remains in Feature 7.1.
 
 ---
 
@@ -541,10 +543,12 @@ class BrokerAdapter(ABC):
 
 Every live-eligible alert should optionally create:
 - the actual live execution plan
-- a parallel paper-shadow execution plan
+- [ ] a parallel paper-shadow execution plan
 - a comparison record of live fill vs paper fill vs alert price
 
 **Reason:** Freqtrade-style dry-run discipline and DiscordAlertsTrader-style actual P&L tracking.
+
+**2026-06-17 progress:** first backend slice added per-source `paper_shadow` configuration plus parse-preview and setup-diagnostics visibility. Execution-time shadow trade/position persistence and live-vs-paper comparison records remain open.
 
 ### Feature 7.2: Analyst/source scorecards
 

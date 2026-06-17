@@ -7,6 +7,7 @@ DEFAULT_SOURCE_CONFIG = {
     "name": "",
     "enabled": True,
     "paper_only": False,
+    "paper_shadow": False,
     "parser_format": "default",
     "max_premium": None,
     "risk_multiplier": 1.0,
@@ -56,6 +57,7 @@ def normalize_source_config(source_config: Dict[str, Any]) -> Dict[str, Any]:
     config["name"] = str(config.get("name") or "").strip()
     config["enabled"] = bool(config.get("enabled", True))
     config["paper_only"] = bool(config.get("paper_only", False))
+    config["paper_shadow"] = bool(config.get("paper_shadow", False))
     config["require_manual_confirm"] = bool(config.get("require_manual_confirm", False))
     config["parser_format"] = str(config.get("parser_format") or "default").strip() or "default"
     config["max_premium"] = _optional_positive_float_field(

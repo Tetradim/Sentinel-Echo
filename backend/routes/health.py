@@ -118,6 +118,9 @@ async def setup_diagnostics():
             "paper_only_sources": sum(
                 1 for config in normalized_sources.values() if config.get("paper_only")
             ),
+            "paper_shadow_sources": sum(
+                1 for config in normalized_sources.values() if config.get("paper_shadow")
+            ),
             "manual_confirm_sources": sum(
                 1 for config in normalized_sources.values() if config.get("require_manual_confirm")
             ),

@@ -36,6 +36,7 @@ class SetupDiagnosticsTests(unittest.TestCase):
                         "alerts": {
                             "paper_only": False,
                             "require_manual_confirm": False,
+                            "paper_shadow": True,
                         }
                     },
                     "auto_trading_enabled": True,
@@ -54,6 +55,7 @@ class SetupDiagnosticsTests(unittest.TestCase):
         self.assertTrue(result["broker"]["configured"])
         self.assertTrue(result["broker"]["order_status_supported"])
         self.assertEqual(result["source_policy"]["override_count"], 1)
+        self.assertEqual(result["source_policy"]["paper_shadow_sources"], 1)
         self.assertNotIn("broker-secret", str(result))
         self.assertNotIn("discord-secret", str(result))
 

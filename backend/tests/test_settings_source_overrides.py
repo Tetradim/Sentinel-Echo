@@ -39,6 +39,7 @@ class SourceOverrideRouteTests(unittest.TestCase):
                         "risk_multiplier": "0.5",
                         "max_contracts": "3",
                         "require_manual_confirm": True,
+                        "paper_shadow": True,
                     }
                 }
             )
@@ -60,6 +61,7 @@ class SourceOverrideRouteTests(unittest.TestCase):
                     "ticker_blocklist": ["TSLA"],
                     "max_contracts": 3,
                     "require_manual_confirm": True,
+                    "paper_shadow": True,
                 }
             },
         )

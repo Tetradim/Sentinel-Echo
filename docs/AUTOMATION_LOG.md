@@ -60,3 +60,10 @@
 - Researched Discord Message Content intent setup references. Key production takeaway: users need a setup surface that distinguishes code-requested intents from Developer Portal approval and shows broker/source/trading readiness before live arming.
 - Added a read-only `GET /diagnostics/setup` health endpoint that reports Discord token/channel state, Message Content intent request status, source override counts, broker order-status support, trading mode, and actionable warnings.
 - Wired health routes into database initialization so diagnostics can inspect persisted settings without returning Discord tokens or broker credentials.
+
+## 2026-06-17 22:14 UTC
+
+- Researched dry-run and paper-trading practices. Key production takeaway: paper-shadow should be configurable per source and visible in previews before it is trusted as part of live execution.
+- Added per-source `paper_shadow` normalization so users can mark a source for live-plus-paper comparison without blocking normal alert policy.
+- Extended `/discord/parse-preview` with `would_create_paper_shadow` and a warning when paper-shadow recording is enabled for a live-capable source.
+- Extended setup diagnostics with a paper-shadow source count so users can confirm which source overrides are configured for shadow experimentation.

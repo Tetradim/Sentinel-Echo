@@ -64,6 +64,17 @@ class SourceConfigTests(unittest.TestCase):
             source_skip_reason({"alert_type": "buy", "ticker": "SPY", "entry_price": 1.0}, config)
         )
 
+    def test_paper_shadow_source_normalizes_without_blocking_alerts(self):
+        from source_config import resolve_source_config, source_skip_reason
+
+        settings = {"source_overrides": {"alerts": {"paper_shadow": True}}}
+        config = resolve_source_config(settings, channel_id="999", channel_name="alerts")
+
+        self.assertTrue(config["paper_shadow"])
+        self.assertIsNone(
+            source_skip_reason({"alert_type": "buy", "ticker": "SPY", "entry_price": 1.0}, config)
+        )
+
     def test_allowed_actions_block_unapproved_lifecycle_alerts(self):
         from source_config import resolve_source_config, source_skip_reason
 
