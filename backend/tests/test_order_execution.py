@@ -229,6 +229,60 @@ class OrderExecutionTests(unittest.TestCase):
             "https://paper-api.alpaca.markets/v2/orders/order-123",
         )
 
+    def test_legacy_tradier_get_order_status_maps_fill_fields(self):
+        from broker_clients import TradierClient
+        from models import BrokerConfig, BrokerType
+
+        class FakeResponse:
+            status = 200
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, exc_type, exc_val, exc_tb):
+                return False
+
+            async def json(self):
+                return {
+                    "order": {
+                        "status": "partially_filled",
+                        "exec_quantity": "2",
+                        "avg_fill_price": "1.45",
+                        "reason_description": "",
+                    }
+                }
+
+        class FakeSession:
+            def __init__(self):
+                self.gets = []
+
+            def get(self, url, *, headers=None):
+                self.gets.append({"url": url, "headers": headers})
+                return FakeResponse()
+
+        async def fake_get_session():
+            return fake_session
+
+        fake_session = FakeSession()
+        client = TradierClient(
+            BrokerConfig(
+                broker_type=BrokerType.TRADIER,
+                access_token="real-token",
+                account_id="acct-123",
+            )
+        )
+        client._get_session = fake_get_session
+
+        status = asyncio.run(client.get_order_status("order-456"))
+
+        self.assertEqual(status["status"], "partial")
+        self.assertEqual(status["filled_qty"], 2)
+        self.assertEqual(status["avg_fill_price"], 1.45)
+        self.assertEqual(
+            fake_session.gets[0]["url"],
+            "https://api.tradier.com/v1/accounts/acct-123/orders/order-456",
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

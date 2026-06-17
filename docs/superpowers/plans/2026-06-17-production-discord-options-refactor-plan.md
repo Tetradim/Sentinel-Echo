@@ -482,6 +482,8 @@ class BrokerAdapter(ABC):
 
 **2026-06-17 progress:** added `get_order_status()` to the active legacy Alpaca client so live Alpaca orders satisfy the existing order-status capability gate. It maps `partially_filled` to `partial` and normalizes fill quantity, average fill price, and rejection/cancellation reason fields.
 
+**2026-06-17 progress:** added `get_order_status()` to the active legacy Tradier client as well. It maps `partially_filled` to `partial`, normalizes `exec_quantity` and `avg_fill_price`, and surfaces Tradier API error descriptions as fill-monitor reasons.
+
 ---
 
 ## Phase 6: Model And Database Cleanup

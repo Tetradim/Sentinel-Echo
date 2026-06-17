@@ -31,6 +31,17 @@ def _float_price(value) -> float:
         return 0.0
 
 
+def _tradier_error_reason(data, fallback: str) -> str:
+    errors = data.get('errors') if isinstance(data, dict) else None
+    if isinstance(errors, dict):
+        error = errors.get('error')
+        if isinstance(error, dict):
+            return error.get('description') or error.get('message') or fallback
+        if isinstance(error, str):
+            return error
+    return fallback
+
+
 class OrderValidationError(Exception):
     """Raised when order parameters fail validation"""
     pass
@@ -586,6 +597,43 @@ class TradierClient(BaseBrokerClient):
         except Exception as e:
             logger.error(f"Tradier order failed: {e}")
             return {'error': str(e)}
+
+    async def get_order_status(self, order_id: str) -> dict:
+        try:
+            session = await self._get_session()
+            async with session.get(
+                f'https://api.tradier.com/v1/accounts/{self.config.account_id}/orders/{order_id}',
+                headers=self._get_headers(),
+            ) as resp:
+                data = await resp.json()
+                if resp.status != 200:
+                    return {
+                        'status': 'error',
+                        'filled_qty': 0,
+                        'avg_fill_price': 0.0,
+                        'reason': _tradier_error_reason(data, f'Tradier order lookup failed: {resp.status}'),
+                    }
+
+                order = data.get('order') or {}
+                raw_status = str(order.get('status') or 'unknown').lower()
+                status = {
+                    'partially_filled': 'partial',
+                    'canceled': 'cancelled',
+                }.get(raw_status, raw_status)
+                return {
+                    'status': status,
+                    'filled_qty': _int_quantity(order.get('exec_quantity')),
+                    'avg_fill_price': _float_price(order.get('avg_fill_price')),
+                    'reason': order.get('reason_description') or '',
+                }
+        except Exception as e:
+            logger.error(f"Tradier order status lookup failed: {e}")
+            return {
+                'status': 'error',
+                'filled_qty': 0,
+                'avg_fill_price': 0.0,
+                'reason': str(e),
+            }
 
 
 class WebullClient(BaseBrokerClient):

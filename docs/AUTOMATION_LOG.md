@@ -48,3 +48,9 @@
 - Researched Alpaca fill-status references. Key production takeaway: the bot should poll or stream broker order state and use broker fill fields, not order-submission success, as the source of position truth.
 - Added `AlpacaClient.get_order_status()` to the active legacy broker path so live Alpaca orders can feed the existing fill monitor and reconciliation flow.
 - Mapped Alpaca `partially_filled` to the bot's canonical `partial` status and normalized `filled_qty`, `filled_avg_price`, and rejection/cancellation reasons for fill reconciliation.
+
+## 2026-06-17 22:07 UTC
+
+- Researched Tradier order-status references. Key production takeaway: Tradier exposes `exec_quantity`, `avg_fill_price`, and rejection details on account order lookup, so the bot can use the same fill-monitor path for Tradier live options orders.
+- Added `TradierClient.get_order_status()` to the active legacy broker path and normalized `partially_filled` to `partial`, `exec_quantity` to `filled_qty`, and `avg_fill_price` to the canonical fill price field.
+- Added Tradier API error extraction so failed status lookups return a usable reason to fill reconciliation instead of silently looking like an unknown fill.
