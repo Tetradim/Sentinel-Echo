@@ -472,13 +472,15 @@ class BrokerAdapter(ABC):
 **Plan:**
 - Use Alpaca option contract symbol formatting in one helper.
 - Add `client_order_id` to order payload.
-- Implement `get_order_status()` with `/v2/orders/{id}`.
+- [x] Implement `get_order_status()` with `/v2/orders/{id}`.
 - Optionally add streaming adapter for trade updates after polling path is stable.
 
 **Tests:**
 - Request payload includes `client_order_id`.
-- Filled Alpaca order maps to canonical `BrokerOrderStatus(status="filled", filled_qty=..., avg_fill_price=...)`.
+- [x] Filled/partial Alpaca order fields map to canonical status payloads consumed by `fill_monitor`.
 - Rejected order maps to error reason.
+
+**2026-06-17 progress:** added `get_order_status()` to the active legacy Alpaca client so live Alpaca orders satisfy the existing order-status capability gate. It maps `partially_filled` to `partial` and normalizes fill quantity, average fill price, and rejection/cancellation reason fields.
 
 ---
 

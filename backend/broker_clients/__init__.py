@@ -17,6 +17,20 @@ def _secret_value(value) -> str:
     return value or ""
 
 
+def _int_quantity(value) -> int:
+    try:
+        return int(float(value or 0))
+    except (TypeError, ValueError):
+        return 0
+
+
+def _float_price(value) -> float:
+    try:
+        return float(value or 0.0)
+    except (TypeError, ValueError):
+        return 0.0
+
+
 class OrderValidationError(Exception):
     """Raised when order parameters fail validation"""
     pass
@@ -401,6 +415,42 @@ class AlpacaClient(BaseBrokerClient):
         except Exception as e:
             logger.error(f"Alpaca order failed: {e}")
             return {'error': str(e)}
+
+    async def get_order_status(self, order_id: str) -> dict:
+        try:
+            session = await self._get_session()
+            async with session.get(
+                f"{self.config.base_url}/v2/orders/{order_id}",
+                headers=self._get_headers(),
+            ) as resp:
+                data = await resp.json()
+                if resp.status != 200:
+                    return {
+                        'status': 'error',
+                        'filled_qty': 0,
+                        'avg_fill_price': 0.0,
+                        'reason': data.get('message', f'Alpaca order lookup failed: {resp.status}'),
+                    }
+
+                raw_status = str(data.get('status') or 'unknown').lower()
+                status = {
+                    'partially_filled': 'partial',
+                    'canceled': 'cancelled',
+                }.get(raw_status, raw_status)
+                return {
+                    'status': status,
+                    'filled_qty': _int_quantity(data.get('filled_qty')),
+                    'avg_fill_price': _float_price(data.get('filled_avg_price')),
+                    'reason': data.get('reject_reason') or data.get('cancel_reason') or '',
+                }
+        except Exception as e:
+            logger.error(f"Alpaca order status lookup failed: {e}")
+            return {
+                'status': 'error',
+                'filled_qty': 0,
+                'avg_fill_price': 0.0,
+                'reason': str(e),
+            }
 
 
 class TDAmeritadeClient(BaseBrokerClient):

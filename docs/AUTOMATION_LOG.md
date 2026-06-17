@@ -42,3 +42,9 @@
 - Added `build_client_order_id()` in `backend/order_execution.py` to produce broker-safe, deterministic IDs from alert side, alert id, and optional position id while staying under Alpaca's 128-character limit.
 - Passed deterministic client order IDs from the live buy and sell paths. Sell IDs include the position id to avoid collisions when one exit alert matches multiple open positions.
 - Extended the legacy broker client order interface with an optional `client_order_id`; Alpaca now includes it in the `/v2/orders` payload.
+
+## 2026-06-17 22:05 UTC
+
+- Researched Alpaca fill-status references. Key production takeaway: the bot should poll or stream broker order state and use broker fill fields, not order-submission success, as the source of position truth.
+- Added `AlpacaClient.get_order_status()` to the active legacy broker path so live Alpaca orders can feed the existing fill monitor and reconciliation flow.
+- Mapped Alpaca `partially_filled` to the bot's canonical `partial` status and normalized `filled_qty`, `filled_avg_price`, and rejection/cancellation reasons for fill reconciliation.
