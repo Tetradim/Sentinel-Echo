@@ -21,8 +21,7 @@ import asyncio
 from models import Alert, Settings
 
 # Import utilities
-from utils import parse_alert
-from discord_alert_text import build_discord_alert_text
+from discord_ingestion import DiscordIngestionDeps, handle_discord_message
 
 # Import new professional features
 from risk import is_duplicate_alert, calculate_position_size, check_correlation
@@ -33,7 +32,6 @@ from notifications import (
 )
 from fill_monitor import monitor_fill
 from fill_reconciliation import OrderContext
-from source_config import resolve_source_config, source_skip_reason
 from trade_lifecycle import build_exit_plans, is_exit_alert
 
 # Import database abstraction
@@ -105,52 +103,7 @@ def create_discord_bot(token: str, channel_ids: List[str]):
         if channel_ids and str(message.channel.id) not in channel_ids:
             return
         
-        alert_text = build_discord_alert_text(message)
-        parsed = parse_alert(alert_text)
-        if parsed:
-            settings_for_source = _load_settings_sync()
-            source_config = resolve_source_config(
-                settings_for_source,
-                channel_id=str(message.channel.id),
-                channel_name=getattr(message.channel, "name", ""),
-            )
-            skip_reason = source_skip_reason(parsed, source_config)
-            if skip_reason:
-                logger.info(
-                    "[on_message] source %s skipped alert: %s",
-                    source_config.get("name"),
-                    skip_reason,
-                )
-                return
-            if source_config.get("paper_only"):
-                parsed["_force_simulation"] = True
-            parsed["_source_config"] = source_config
-            # ── Duplicate alert detection ──────────────────────────────────
-            if is_duplicate_alert(parsed):
-                logger.info(
-                    f"[on_message] duplicate alert suppressed within "
-                    f"{60}s window: {parsed.get('ticker')} {parsed.get('alert_type')}"
-                )
-                return
-
-            logger.info(f"Parsed alert: {parsed}")
-            update_bot_status('last_alert_time', datetime.now(timezone.utc).isoformat())
-            
-            from routes.health import bot_status
-            update_bot_status('alerts_processed', bot_status.get('alerts_processed', 0) + 1)
-            
-            alert = Alert(
-                ticker=parsed.get('ticker', ''),
-                strike=parsed.get('strike') or 0,
-                option_type=parsed.get('option_type') or 'CALL',
-                expiration=parsed.get('expiration') or '',
-                entry_price=parsed.get('entry_price') or 0,
-                alert_type=parsed.get('alert_type', 'buy'),
-                sell_percentage=parsed.get('sell_percentage'),
-                raw_message=alert_text
-            )
-            
-            # Use sync database for Discord bot thread
+        def insert_alert_sync(alert: Alert):
             if USE_SQLITE:
                 # FIXED C7 note: still bypasses DatabaseInterface abstraction.
                 # Full fix: use asyncio.run_coroutine_threadsafe() with the main loop.
@@ -158,10 +111,26 @@ def create_discord_bot(token: str, channel_ids: List[str]):
                 insert_alert(alert.model_dump())
             else:
                 sync_mongo_db.alerts.insert_one(alert.model_dump())
-            
+
+        def increment_alerts_processed():
             from routes.health import bot_status
-            if bot_status.get('auto_trading_enabled', False):
-                await process_trade(alert, parsed)
+            update_bot_status('alerts_processed', bot_status.get('alerts_processed', 0) + 1)
+
+        result = await handle_discord_message(
+            message,
+            channel_ids=channel_ids,
+            deps=DiscordIngestionDeps(
+                load_settings=_load_settings_sync,
+                insert_alert=insert_alert_sync,
+                process_trade=process_trade,
+                update_status=update_bot_status,
+                is_duplicate_alert=is_duplicate_alert,
+                increment_alerts_processed=increment_alerts_processed,
+            ),
+            bot_user=bot.user,
+        )
+        if result.skip_reason and result.skip_reason not in {"unparsed", "self message", "channel not monitored"}:
+            logger.info("[on_message] skipped alert: %s", result.skip_reason)
         
         await bot.process_commands(message)
     
