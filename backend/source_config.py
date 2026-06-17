@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Iterable, Optional
 
 
 DEFAULT_SOURCE_CONFIG = {
@@ -11,7 +11,57 @@ DEFAULT_SOURCE_CONFIG = {
     "max_premium": None,
     "risk_multiplier": 1.0,
     "notes": "",
+    "allowed_actions": [],
+    "ticker_allowlist": [],
+    "ticker_blocklist": [],
 }
+
+ALLOWED_ALERT_ACTIONS = {"buy", "sell", "trim", "close", "average_down"}
+ACTION_ALIASES = {
+    "add": "average_down",
+    "avg_down": "average_down",
+    "average": "average_down",
+    "average-down": "average_down",
+    "entry": "buy",
+    "open": "buy",
+    "bto": "buy",
+    "exit": "sell",
+    "stc": "sell",
+    "partial": "trim",
+}
+
+
+def normalize_source_overrides(
+    source_overrides: Dict[str, Dict[str, Any]],
+) -> Dict[str, Dict[str, Any]]:
+    normalized: Dict[str, Dict[str, Any]] = {}
+    for raw_key, raw_config in (source_overrides or {}).items():
+        key = str(raw_key or "").strip()
+        if not key:
+            raise ValueError("source override key cannot be empty")
+        normalized[key] = normalize_source_config(raw_config or {})
+    return normalized
+
+
+def normalize_source_config(source_config: Dict[str, Any]) -> Dict[str, Any]:
+    if not isinstance(source_config, dict):
+        raise ValueError("source override must be an object")
+
+    config = dict(DEFAULT_SOURCE_CONFIG)
+    config.update(
+        {key: source_config.get(key) for key in DEFAULT_SOURCE_CONFIG if key in source_config}
+    )
+    config["name"] = str(config.get("name") or "").strip()
+    config["enabled"] = bool(config.get("enabled", True))
+    config["paper_only"] = bool(config.get("paper_only", False))
+    config["parser_format"] = str(config.get("parser_format") or "default").strip() or "default"
+    config["max_premium"] = _optional_positive_float(config.get("max_premium"))
+    config["risk_multiplier"] = _positive_float(config.get("risk_multiplier"), default=1.0)
+    config["notes"] = str(config.get("notes") or "").strip()
+    config["allowed_actions"] = _normalize_actions(config.get("allowed_actions"))
+    config["ticker_allowlist"] = _normalize_tickers(config.get("ticker_allowlist"))
+    config["ticker_blocklist"] = _normalize_tickers(config.get("ticker_blocklist"))
+    return config
 
 
 def resolve_source_config(
@@ -23,27 +73,43 @@ def resolve_source_config(
     """Resolve a per-source config by channel id first, then channel name."""
     overrides = settings.get("source_overrides") or {}
     key = _first_existing_key(overrides, str(channel_id), channel_name)
-    config = dict(DEFAULT_SOURCE_CONFIG)
-    if key:
-        config.update(overrides.get(key) or {})
+    try:
+        config = normalize_source_config(overrides.get(key) or {})
+    except ValueError as exc:
+        config = normalize_source_config({"enabled": False})
+        config["invalid_reason"] = str(exc)
     if not config.get("name"):
         config["name"] = channel_name or str(channel_id)
     config["key"] = key or str(channel_id)
-    config["enabled"] = bool(config.get("enabled", True))
-    config["paper_only"] = bool(config.get("paper_only", False))
-    config["risk_multiplier"] = _positive_float(config.get("risk_multiplier"), default=1.0)
-    config["max_premium"] = _optional_positive_float(config.get("max_premium"))
     return config
 
 
 def source_skip_reason(parsed_alert: Dict[str, Any], source_config: Dict[str, Any]) -> Optional[str]:
+    invalid_reason = source_config.get("invalid_reason")
+    if invalid_reason:
+        return f"invalid source config: {invalid_reason}"
+
     if not source_config.get("enabled", True):
         return "source disabled"
+
+    alert_type = str(parsed_alert.get("alert_type", "")).strip().lower()
+    allowed_actions = source_config.get("allowed_actions") or []
+    if allowed_actions and alert_type not in set(allowed_actions):
+        return f"action {alert_type or 'unknown'} not allowed for source"
+
+    ticker = _normalize_ticker(parsed_alert.get("ticker"))
+    ticker_blocklist = set(source_config.get("ticker_blocklist") or [])
+    if ticker and ticker in ticker_blocklist:
+        return f"ticker {ticker} blocked for source"
+
+    ticker_allowlist = set(source_config.get("ticker_allowlist") or [])
+    if ticker_allowlist and ticker not in ticker_allowlist:
+        return f"ticker {ticker or 'unknown'} not allowed for source"
 
     max_premium = source_config.get("max_premium")
     if (
         max_premium is not None
-        and str(parsed_alert.get("alert_type", "")).lower() in {"buy", "average_down"}
+        and alert_type in {"buy", "average_down"}
     ):
         entry_price = _optional_positive_float(parsed_alert.get("entry_price"))
         if entry_price is not None and entry_price > max_premium:
@@ -63,6 +129,45 @@ def _first_existing_key(overrides: Dict[str, Any], *candidates: str) -> Optional
 
 def _norm(value: Any) -> str:
     return str(value or "").strip().lower()
+
+
+def _normalize_actions(actions: Any) -> list[str]:
+    normalized = []
+    for action in _coerce_list(actions):
+        action_key = str(action or "").strip().lower().replace(" ", "_")
+        if not action_key:
+            continue
+        if action_key == "all":
+            return []
+        action_key = ACTION_ALIASES.get(action_key, action_key)
+        if action_key not in ALLOWED_ALERT_ACTIONS:
+            raise ValueError(f"unknown allowed action: {action}")
+        if action_key not in normalized:
+            normalized.append(action_key)
+    return normalized
+
+
+def _normalize_tickers(tickers: Any) -> list[str]:
+    normalized = []
+    for ticker in _coerce_list(tickers):
+        ticker_key = _normalize_ticker(ticker)
+        if ticker_key and ticker_key not in normalized:
+            normalized.append(ticker_key)
+    return normalized
+
+
+def _normalize_ticker(ticker: Any) -> str:
+    return str(ticker or "").strip().upper().lstrip("$")
+
+
+def _coerce_list(value: Any) -> Iterable[Any]:
+    if value is None or value == "":
+        return []
+    if isinstance(value, str):
+        return [item.strip() for item in value.split(",")]
+    if isinstance(value, (list, tuple, set)):
+        return value
+    return [value]
 
 
 def _optional_positive_float(value: Any) -> Optional[float]:

@@ -403,9 +403,13 @@ def resolve_execution_policy(settings: dict, source: SourceIdentity, alert: dict
 **Current source:** `backend/routes/settings.py:57-68`
 
 **Plan:**
-- Replace raw `Dict[str, Dict[str, Any]]` with a Pydantic model.
-- Reject negative max premium, zero risk multiplier, invalid action names, and invalid regex strings.
-- Return normalized source overrides so the frontend can display exactly what will run.
+- [ ] Replace raw `Dict[str, Dict[str, Any]]` with a Pydantic model.
+- [x] Reject invalid action names.
+- [x] Normalize action names plus ticker allow/block lists before persistence.
+- [ ] Reject invalid regex strings when parser-specific fields move into source policy.
+- [x] Return normalized source overrides so the frontend can display exactly what will run.
+
+**2026-06-17 progress:** implemented an incremental validation slice in `backend/source_config.py` and `backend/routes/settings.py`. Source overrides now support `allowed_actions`, `ticker_allowlist`, and `ticker_blocklist`; invalid action names fail fast at the API boundary.
 
 ---
 
