@@ -29,6 +29,11 @@ PATTERN_LIST_FIELDS = {
     "ignore_patterns",
 }
 MAX_PATTERN_LENGTH = 200
+MAX_TICKER_PATTERN_LENGTH = 200
+NESTED_QUANTIFIER_PATTERN = re.compile(
+    r"\((?:\\.|[^()])*(?:[+*?]|\{\d)(?:\\.|[^()])*\)\s*[+*?{]"
+)
+BROAD_WILDCARD_PATTERN = re.compile(r"(?<!\\)\.\s*[+*]")
 
 # Database reference
 db = None
@@ -330,6 +335,10 @@ def _normalize_alert_pattern_lists(patterns: Dict[str, Any]) -> Dict[str, Any]:
         if not isinstance(values, list):
             raise HTTPException(status_code=400, detail=f"{key} must be a list")
         normalized[key] = [_validate_alert_pattern(pattern) for pattern in values]
+    if "ticker_pattern" in normalized:
+        normalized["ticker_pattern"] = _validate_ticker_pattern(
+            normalized["ticker_pattern"]
+        )
     return normalized
 
 
@@ -341,6 +350,42 @@ def _validate_alert_pattern(pattern: Any) -> str:
         raise HTTPException(
             status_code=400,
             detail=f"Pattern too long (max {MAX_PATTERN_LENGTH} chars)",
+        )
+    return value
+
+
+def _validate_ticker_pattern(pattern: Any) -> str:
+    value = str(pattern or "").strip()
+    if not value:
+        raise HTTPException(status_code=400, detail="Ticker pattern cannot be empty")
+    if len(value) > MAX_TICKER_PATTERN_LENGTH:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Ticker pattern too long (max {MAX_TICKER_PATTERN_LENGTH} chars)",
+        )
+
+    try:
+        compiled = re.compile(value)
+    except re.error as exc:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Ticker pattern is not valid regex: {exc}",
+        ) from exc
+
+    if compiled.groups < 1:
+        raise HTTPException(
+            status_code=400,
+            detail="Ticker pattern must include a capture group for the ticker",
+        )
+    if NESTED_QUANTIFIER_PATTERN.search(value):
+        raise HTTPException(
+            status_code=400,
+            detail="Ticker pattern contains unsafe nested quantifier",
+        )
+    if BROAD_WILDCARD_PATTERN.search(value):
+        raise HTTPException(
+            status_code=400,
+            detail="Ticker pattern contains unsafe broad wildcard quantifier",
         )
     return value
 

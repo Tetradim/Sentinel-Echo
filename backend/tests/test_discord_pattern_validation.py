@@ -60,6 +60,63 @@ class DiscordPatternValidationTests(unittest.TestCase):
         self.assertIn("Pattern too long", caught.exception.detail)
         self.assertEqual(fake_db.updated_patterns, [])
 
+    def test_bulk_pattern_update_rejects_invalid_ticker_regex(self):
+        from fastapi import HTTPException
+        from models import DiscordAlertPatternsUpdate
+        from routes import discord as discord_route
+
+        fake_db = FakePatternDb()
+        discord_route.set_db(fake_db)
+
+        with self.assertRaises(HTTPException) as caught:
+            asyncio.run(
+                discord_route.update_discord_alert_patterns(
+                    DiscordAlertPatternsUpdate(ticker_pattern="[")
+                )
+            )
+
+        self.assertEqual(caught.exception.status_code, 400)
+        self.assertIn("Ticker pattern is not valid regex", caught.exception.detail)
+        self.assertEqual(fake_db.updated_patterns, [])
+
+    def test_bulk_pattern_update_requires_ticker_capture_group(self):
+        from fastapi import HTTPException
+        from models import DiscordAlertPatternsUpdate
+        from routes import discord as discord_route
+
+        fake_db = FakePatternDb()
+        discord_route.set_db(fake_db)
+
+        with self.assertRaises(HTTPException) as caught:
+            asyncio.run(
+                discord_route.update_discord_alert_patterns(
+                    DiscordAlertPatternsUpdate(ticker_pattern=r"\$[A-Z]{1,5}\b")
+                )
+            )
+
+        self.assertEqual(caught.exception.status_code, 400)
+        self.assertIn("capture group", caught.exception.detail)
+        self.assertEqual(fake_db.updated_patterns, [])
+
+    def test_bulk_pattern_update_rejects_redos_shaped_ticker_regex(self):
+        from fastapi import HTTPException
+        from models import DiscordAlertPatternsUpdate
+        from routes import discord as discord_route
+
+        fake_db = FakePatternDb()
+        discord_route.set_db(fake_db)
+
+        with self.assertRaises(HTTPException) as caught:
+            asyncio.run(
+                discord_route.update_discord_alert_patterns(
+                    DiscordAlertPatternsUpdate(ticker_pattern=r"\$((A+)+)\b")
+                )
+            )
+
+        self.assertEqual(caught.exception.status_code, 400)
+        self.assertIn("unsafe nested quantifier", caught.exception.detail)
+        self.assertEqual(fake_db.updated_patterns, [])
+
 
 if __name__ == "__main__":
     unittest.main()

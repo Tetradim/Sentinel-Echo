@@ -86,3 +86,9 @@
 - Added paper-shadow exit record building so a source with `paper_shadow` creates simulated sell trades and position updates for matching shadow positions.
 - Wired live exit processing to apply paper-shadow exits without sending those shadow positions to a broker, and to report the alert as processed when only the shadow ledger matched.
 - Added regression coverage for live-mode paper-shadow exits that update local state without a live order.
+
+## 2026-06-17 22:31 UTC
+
+- Researched OWASP ReDoS guidance for user-supplied regular expressions. Key production takeaway: parser customization must reject invalid and risky regex before users can save or preview it.
+- Added shared `ticker_pattern` validation for saved Discord alert patterns and parse-preview overrides, including regex compilation, required ticker capture group, max length, nested-quantifier rejection, and broad wildcard rejection.
+- Added regression coverage for invalid ticker regex, missing ticker capture groups, ReDoS-shaped ticker regex, and preview-only invalid ticker pattern overrides.

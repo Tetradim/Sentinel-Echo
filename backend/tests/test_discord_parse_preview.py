@@ -271,6 +271,27 @@ class DiscordParsePreviewTests(unittest.TestCase):
         self.assertEqual(caught.exception.status_code, 400)
         self.assertIn("Pattern cannot be empty", caught.exception.detail)
 
+    def test_parse_preview_rejects_invalid_ticker_pattern_override(self):
+        from fastapi import HTTPException
+        from routes import discord as discord_route
+
+        discord_route.set_db(FakePreviewDb({}))
+
+        with self.assertRaises(HTTPException) as caught:
+            asyncio.run(
+                discord_route.preview_discord_alert(
+                    {
+                        "raw_text": "BTO SPY 500C 6/21 @ 1.25",
+                        "pattern_overrides": {
+                            "ticker_pattern": r"\$((A+)+)\b",
+                        },
+                    }
+                )
+            )
+
+        self.assertEqual(caught.exception.status_code, 400)
+        self.assertIn("unsafe nested quantifier", caught.exception.detail)
+
     def test_parse_preview_warns_when_buy_action_is_assumed(self):
         from routes import discord as discord_route
 
