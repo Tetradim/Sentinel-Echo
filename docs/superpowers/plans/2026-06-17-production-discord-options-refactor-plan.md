@@ -394,7 +394,7 @@ def resolve_execution_policy(settings: dict, source: SourceIdentity, alert: dict
 - Source id wins over channel name.
 - Disabled source blocks all actions.
 - Paper-only forces simulation.
-- Risk multiplier changes quantity.
+- [x] Risk multiplier changes quantity.
 - Buy over max premium is skipped.
 - Sell is still allowed when max premium only applies to entries.
 
@@ -403,9 +403,13 @@ def resolve_execution_policy(settings: dict, source: SourceIdentity, alert: dict
 **Current source:** `backend/routes/settings.py:57-68`
 
 **Plan:**
-- Replace raw `Dict[str, Dict[str, Any]]` with a Pydantic model.
-- Reject negative max premium, zero risk multiplier, invalid action names, and invalid regex strings.
-- Return normalized source overrides so the frontend can display exactly what will run.
+- [ ] Replace raw `Dict[str, Dict[str, Any]]` with a Pydantic model.
+- [x] Reject invalid action names.
+- [x] Normalize action names plus ticker allow/block lists before persistence.
+- [ ] Reject invalid regex strings when parser-specific fields move into source policy.
+- [x] Return normalized source overrides so the frontend can display exactly what will run.
+
+**2026-06-17 progress:** implemented an incremental validation slice in `backend/source_config.py`, `backend/routes/settings.py`, and the buy sizing path. Source overrides now support `allowed_actions`, `ticker_allowlist`, `ticker_blocklist`, and applied `risk_multiplier`; invalid action names fail fast at the API boundary.
 
 ---
 

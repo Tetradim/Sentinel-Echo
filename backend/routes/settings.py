@@ -11,6 +11,7 @@ from datetime import datetime, timezone
 import logging
 import os
 from typing import Any, Dict, Optional
+from source_config import normalize_source_overrides
 # C4: credential encryption at rest
 from utils.credentials import encrypt_broker_configs, decrypt_broker_configs
 
@@ -57,14 +58,21 @@ async def update_settings(update: SettingsUpdate):
 async def get_source_overrides():
     """Get per-channel/per-analyst source overrides."""
     settings = await db.get_settings()
-    return settings.get("source_overrides", {})
+    try:
+        return normalize_source_overrides(settings.get("source_overrides", {}))
+    except ValueError as exc:
+        raise HTTPException(status_code=500, detail=f"Stored source overrides are invalid: {exc}")
 
 
 @router.put("/source-overrides")
 async def update_source_overrides(source_overrides: Dict[str, Dict[str, Any]] = Body(...)):
     """Replace per-source overrides used by Discord alert intake."""
-    await db.update_settings({"source_overrides": source_overrides})
-    return source_overrides
+    try:
+        normalized = normalize_source_overrides(source_overrides)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    await db.update_settings({"source_overrides": normalized})
+    return normalized
 
 
 # Trading Toggles

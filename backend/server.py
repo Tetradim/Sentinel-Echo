@@ -158,12 +158,14 @@ async def process_trade(alert: Alert, parsed: dict):
     trade_executed = False
 
     if parsed['alert_type'] == 'buy':
+        source_config = parsed.get("_source_config") or {}
 
         # ── 1. Risk-based position sizing ─────────────────────────────────────
         quantity = calculate_position_size(
             entry_price=alert.entry_price,
             default_quantity=settings.default_quantity,
             max_position_size=settings.max_position_size,
+            risk_multiplier=source_config.get("risk_multiplier", 1.0),
         )
 
         # ── 2. Correlation / concentration check ─────────────────────────────
