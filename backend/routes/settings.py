@@ -1,17 +1,16 @@
 """
 Settings and risk management endpoints
 """
-from fastapi import APIRouter, HTTPException, Header
+from fastapi import APIRouter, Body, HTTPException, Header
 from models import (
     Settings, SettingsUpdate,
     AveragingDownSettingsUpdate, RiskManagementSettingsUpdate,
-    TrailingStopSettingsUpdate, AutoShutdownSettingsUpdate,
-    BrokerConfig
+    TrailingStopSettingsUpdate, AutoShutdownSettingsUpdate
 )
 from datetime import datetime, timezone
 import logging
 import os
-from typing import Optional
+from typing import Any, Dict, Optional
 # C4: credential encryption at rest
 from utils.credentials import encrypt_broker_configs, decrypt_broker_configs
 
@@ -52,6 +51,20 @@ async def update_settings(update: SettingsUpdate):
     if settings.get('broker_configs'):
         settings['broker_configs'] = decrypt_broker_configs(settings['broker_configs'])
     return settings
+
+
+@router.get("/source-overrides")
+async def get_source_overrides():
+    """Get per-channel/per-analyst source overrides."""
+    settings = await db.get_settings()
+    return settings.get("source_overrides", {})
+
+
+@router.put("/source-overrides")
+async def update_source_overrides(source_overrides: Dict[str, Dict[str, Any]] = Body(...)):
+    """Replace per-source overrides used by Discord alert intake."""
+    await db.update_settings({"source_overrides": source_overrides})
+    return source_overrides
 
 
 # Trading Toggles
@@ -287,27 +300,15 @@ async def reset_loss_counters(x_admin_key: Optional[str] = Header(default=None))
 async def check_broker_connection():
     """Check if broker is connected"""
     from routes.health import bot_status
-    from broker_clients import get_broker_client
-    from models import BrokerType
+    from order_execution import get_configured_broker_client
 
     settings = await db.get_settings()
     if not settings:
         return {"connected": False, "broker": None, "error": "No settings configured"}
 
     active_broker = settings.get('active_broker', 'ibkr')
-    broker_configs = settings.get('broker_configs', {})
-    broker_config_dict = broker_configs.get(active_broker, {})
-
-    if not broker_config_dict:
-        return {"connected": False, "broker": active_broker, "error": "Broker not configured"}
-
-    # C4: credentials are stored encrypted; decrypt before passing to the broker client
-    from utils.credentials import decrypt_broker_config
-    broker_config_dict = decrypt_broker_config(broker_config_dict)
-
     try:
-        config = BrokerConfig(broker_type=BrokerType(active_broker), **broker_config_dict)
-        broker_client = get_broker_client(BrokerType(active_broker), config)
+        broker_client = get_configured_broker_client(settings, active_broker)
         connected = await broker_client.check_connection()
         bot_status['broker_connected'] = connected
         return {"connected": connected, "broker": active_broker}

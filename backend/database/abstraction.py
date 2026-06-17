@@ -44,6 +44,7 @@ def _default_settings() -> Dict[str, Any]:
         'id': 'main_settings',
         'discord_token': '',
         'discord_channel_ids': [],
+        'source_overrides': {},
         'active_broker': 'ibkr',
         'broker_configs': {},
         'auto_trading_enabled': False,

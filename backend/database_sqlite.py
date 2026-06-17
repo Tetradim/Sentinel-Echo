@@ -116,6 +116,7 @@ def init_database():
             default_settings = {
                 'auto_trading_enabled': False,
                 'active_broker': 'alpaca',
+                'source_overrides': {},
                 'averaging_down_enabled': False,
                 'price_drop_threshold': 10.0,
                 'buy_percentage': 25.0,
