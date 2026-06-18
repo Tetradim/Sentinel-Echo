@@ -87,3 +87,51 @@ async def set_active_broker(broker_id: str):
     await db.update_settings({"active_broker": broker_id})
     update_bot_status("active_broker", broker_type)
     return {"active_broker": broker_id}
+
+
+@router.post("/broker/switch/{broker_id}")
+async def switch_broker_alias(broker_id: str):
+    """Compatibility route used by the operator UI to switch brokers."""
+    return await set_active_broker(broker_id)
+
+
+@router.post("/broker/check/{broker_id}")
+async def check_broker_alias(broker_id: str):
+    """Check a specific broker connection without changing the active broker."""
+    from order_execution import get_configured_broker_client
+    from routes.health import update_bot_status
+
+    try:
+        BrokerType(broker_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail=f"Invalid broker: {broker_id}")
+
+    settings = await db.get_settings()
+    broker_configs = settings.get("broker_configs", {}) if settings else {}
+    if broker_id not in broker_configs:
+        return {
+            "connected": False,
+            "broker": broker_id,
+            "message": f"Broker '{broker_id}' has no saved configuration.",
+        }
+
+    try:
+        broker_client = get_configured_broker_client(settings, broker_id)
+        connected = await broker_client.check_connection()
+    except Exception as exc:
+        import logging as _log
+
+        _log.getLogger(__name__).error("Broker connection check failed for %s: %s", broker_id, exc)
+        connected = False
+
+    active_broker = settings.get("active_broker", "ibkr")
+    if hasattr(active_broker, "value"):
+        active_broker = active_broker.value
+    if str(active_broker) == broker_id:
+        update_bot_status("broker_connected", connected)
+
+    return {
+        "connected": connected,
+        "broker": broker_id,
+        "message": "Connection successful" if connected else "Connection check failed",
+    }
