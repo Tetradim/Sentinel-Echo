@@ -86,6 +86,7 @@ export default function ProfilesScreen() {
   const [allBrokerSettings, setAllBrokerSettings] = useState<Record<string, Record<string, BrokerSettingsData>>>({});
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [newProfileName, setNewProfileName] = useState('');
   const [newProfileDescription, setNewProfileDescription] = useState('');
@@ -119,9 +120,10 @@ export default function ProfilesScreen() {
         settingsMap[id] = data;
       }
       setAllBrokerSettings(settingsMap);
+      setLoadError(null);
     } catch (error) {
       console.error('Error fetching data:', error);
-      Alert.alert('Error', 'Failed to load profiles. Pull to refresh.');
+      setLoadError('Profiles could not load. Check the backend connection and retry.');
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -136,6 +138,11 @@ export default function ProfilesScreen() {
     setRefreshing(true);
     fetchData();
   };
+  const retryFetchProfiles = useCallback(() => {
+    if (profiles.length === 0 && brokers.length === 0) setLoading(true);
+    else setRefreshing(true);
+    fetchData();
+  }, [brokers.length, fetchData, profiles.length]);
 
   const createProfile = async () => {
     if (!newProfileName.trim()) return;
@@ -243,6 +250,21 @@ export default function ProfilesScreen() {
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#3b82f6" />}
       >
         <ProfileBriefing digest={digest} />
+
+        {loadError && (
+          <View style={styles.errorBanner}>
+            <Ionicons name="warning-outline" size={16} color="#f59e0b" />
+            <Text style={styles.errorBannerText}>{loadError}</Text>
+            <TouchableOpacity
+              style={styles.errorBannerRetry}
+              onPress={retryFetchProfiles}
+              accessibilityRole="button"
+            >
+              <Ionicons name="refresh" size={13} color="#08111d" />
+              <Text style={styles.errorBannerRetryText}>Retry</Text>
+            </TouchableOpacity>
+          </View>
+        )}
 
         <View style={styles.infoCard}>
           <Ionicons name="information-circle" size={20} color="#3b82f6" />
@@ -358,6 +380,28 @@ const styles = StyleSheet.create({
   warningTitle: { color: '#fbbf24', fontSize: 12, fontWeight: '800' },
   warningDetail: { color: '#64748b', fontSize: 11, lineHeight: 15, marginTop: 2 },
   clearText: { color: '#94a3b8', flex: 1, fontSize: 12, fontWeight: '700' },
+  errorBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 12,
+    padding: 10,
+    borderRadius: 8,
+    backgroundColor: '#1c1500',
+    borderWidth: 1,
+    borderColor: '#92400e',
+  },
+  errorBannerText: { flex: 1, fontSize: 12, color: '#f59e0b', fontWeight: '600' },
+  errorBannerRetry: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: '#f59e0b',
+    paddingHorizontal: 9,
+    paddingVertical: 6,
+    borderRadius: 6,
+  },
+  errorBannerRetryText: { fontSize: 11, color: '#08111d', fontWeight: '900' },
   infoCard: { 
     flexDirection: 'row', 
     backgroundColor: '#1e3a5f', 
