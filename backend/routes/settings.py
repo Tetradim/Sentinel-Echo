@@ -44,9 +44,17 @@ async def get_settings():
 async def update_settings(update: SettingsUpdate):
     """Update settings -- broker_configs encrypted before persistence."""
     update_dict = {k: v for k, v in update.model_dump().items() if v is not None}
-    # C4: encrypt broker credentials before writing to DB
-    if update_dict.get('broker_configs'):
-        update_dict['broker_configs'] = encrypt_broker_configs(update_dict['broker_configs'])
+    # C4: broker screens save one config at a time, so merge before encryption.
+    if 'broker_configs' in update_dict:
+        existing_settings = await db.get_settings()
+        existing_configs = decrypt_broker_configs(existing_settings.get('broker_configs', {}))
+        merged_configs = dict(existing_configs)
+        for broker_id, config in update_dict['broker_configs'].items():
+            merged_configs[broker_id] = {
+                **existing_configs.get(broker_id, {}),
+                **(config or {}),
+            }
+        update_dict['broker_configs'] = encrypt_broker_configs(merged_configs)
     settings = await db.update_settings(update_dict)
     # Decrypt for the response so the frontend sees plaintext
     if settings.get('broker_configs'):

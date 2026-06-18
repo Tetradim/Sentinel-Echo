@@ -23,6 +23,45 @@ class FakeSettingsDb:
 
 
 class SourceOverrideRouteTests(unittest.TestCase):
+    def test_update_settings_merges_partial_broker_config_payloads(self):
+        from models import SettingsUpdate
+        from routes import settings as settings_route
+
+        fake_db = FakeSettingsDb(
+            {
+                "broker_configs": {
+                    "ibkr": {"gateway_url": "https://localhost:5000", "account_id": "DU123"},
+                    "alpaca": {"api_key": "old-key", "account_id": "paper-1"},
+                }
+            }
+        )
+        settings_route.set_db(fake_db)
+
+        response = asyncio.run(
+            settings_route.update_settings(
+                SettingsUpdate(
+                    broker_configs={
+                        "alpaca": {"api_key": "new-key", "account_id": "paper-2"}
+                    }
+                )
+            )
+        )
+
+        self.assertEqual(
+            response["broker_configs"],
+            {
+                "ibkr": {"gateway_url": "https://localhost:5000", "account_id": "DU123"},
+                "alpaca": {"api_key": "new-key", "account_id": "paper-2"},
+            },
+        )
+        self.assertEqual(
+            fake_db.updated[0]["broker_configs"],
+            {
+                "ibkr": {"gateway_url": "https://localhost:5000", "account_id": "DU123"},
+                "alpaca": {"api_key": "new-key", "account_id": "paper-2"},
+            },
+        )
+
     def test_update_source_overrides_normalizes_before_saving(self):
         from routes import settings as settings_route
 
