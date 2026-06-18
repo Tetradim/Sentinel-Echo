@@ -56,7 +56,15 @@ async def allow_correlation(**kwargs):
     return True, ""
 
 
+async def fail_correlation(**kwargs):
+    raise RuntimeError("risk database unavailable")
+
+
 async def fake_monitor_fill(**kwargs):
+    return None
+
+
+async def fake_notify_correlation_block(**kwargs):
     return None
 
 
@@ -70,6 +78,7 @@ class LiveOrderSubmissionStatusTests(unittest.TestCase):
             "get_db": server.get_db,
             "check_correlation": server.check_correlation,
             "monitor_fill": server.monitor_fill,
+            "notify_correlation_block": server.notify_correlation_block,
             "get_configured_broker_client": order_execution.get_configured_broker_client,
         }
         server.USE_SQLITE = False
@@ -79,6 +88,7 @@ class LiveOrderSubmissionStatusTests(unittest.TestCase):
             server.get_db = lambda: fake_db
         server.check_correlation = allow_correlation
         server.monitor_fill = fake_monitor_fill
+        server.notify_correlation_block = fake_notify_correlation_block
         order_execution.get_configured_broker_client = lambda *args, **kwargs: FakeBrokerClient()
         return originals
 
@@ -90,6 +100,7 @@ class LiveOrderSubmissionStatusTests(unittest.TestCase):
         server.get_db = originals["get_db"]
         server.check_correlation = originals["check_correlation"]
         server.monitor_fill = originals["monitor_fill"]
+        server.notify_correlation_block = originals["notify_correlation_block"]
         order_execution.get_configured_broker_client = originals["get_configured_broker_client"]
 
     def test_live_buy_order_submission_does_not_mark_alert_executed_before_fill(self):
@@ -201,6 +212,50 @@ class LiveOrderSubmissionStatusTests(unittest.TestCase):
         self.assertFalse(processed)
         self.assertEqual(fake_db.inserted_trades[0]["status"], "pending")
         self.assertEqual(fake_db.inserted_trades[0]["order_id"], "live-order-1")
+
+    def test_live_buy_blocks_when_correlation_check_fails(self):
+        from models import Alert
+        import server
+
+        settings = {
+            "id": "main_settings",
+            "active_broker": "alpaca",
+            "broker_configs": {"alpaca": {"broker_type": "alpaca"}},
+            "simulation_mode": False,
+            "default_quantity": 1,
+            "max_position_size": 1000.0,
+        }
+        fake_mongo = FakeSyncMongo(settings)
+        fake_db = FakeRuntimeDb()
+        originals = self.patch_server(server, fake_sync_mongo=fake_mongo, fake_db=fake_db)
+        server.check_correlation = fail_correlation
+        try:
+            asyncio.run(
+                server.process_trade(
+                    Alert(
+                        id="alert-risk-fail",
+                        ticker="SPY",
+                        strike=500.0,
+                        option_type="CALL",
+                        expiration="6/21",
+                        entry_price=1.25,
+                    ),
+                    {"alert_type": "buy"},
+                )
+            )
+        finally:
+            self.restore_server(server, originals)
+
+        self.assertEqual(fake_mongo.trades.inserted, [])
+        self.assertEqual(
+            fake_mongo.alerts.updated,
+            [
+                (
+                    {"id": "alert-risk-fail"},
+                    {"$set": {"processed": True, "trade_executed": False}},
+                )
+            ],
+        )
 
 
 if __name__ == "__main__":

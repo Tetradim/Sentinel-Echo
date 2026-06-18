@@ -188,14 +188,18 @@ async def process_trade(alert: Alert, parsed: dict):
                 settings=settings_raw,
             )
         except Exception as e:
-            logger.warning(f"[process_trade] correlation check failed ({e}) — proceeding")
-            allowed, block_reason = True, ""
+            logger.error(f"[process_trade] blocking trade because correlation check failed: {e}")
+            allowed, block_reason = False, "Risk controls unavailable"
 
         if not allowed:
             logger.warning(f"[process_trade] trade BLOCKED: {block_reason}")
+            try:
+                open_count = int(block_reason.split()[2]) if block_reason else 0
+            except (IndexError, ValueError):
+                open_count = 0
             await notify_correlation_block(
                 ticker=alert.ticker,
-                open_count=int(block_reason.split()[2]) if block_reason else 0,
+                open_count=open_count,
                 max_count=int(settings_raw.get("max_positions_per_ticker", 3)),
                 settings=settings_raw,
             )
