@@ -11,6 +11,12 @@ import { api } from '../utils/api';
 import { BACKEND_URL, DEMO_MODE } from '../constants/config';
 import { BROKER_COLORS, BROKER_NAMES } from '../constants/brokers';
 import { formatDate, formatPnL, getPnLColor } from '../utils/format';
+import {
+  buildDashboardReadiness,
+  DashboardReadiness,
+  ReadinessActionTarget,
+  ReadinessTone,
+} from '../utils/dashboardReadiness';
 
 // ── Demo Data ─────────────────────────────────────────────────────────────────
 const DEMO_STATUS: BotStatus = {
@@ -133,6 +139,80 @@ function ToggleRow({
 }
 
 // ── Main Dashboard ────────────────────────────────────────────────────────────
+const READINESS_TONE: Record<ReadinessTone, { accent: string; icon: string }> = {
+  live: { accent: '#22c55e', icon: 'checkmark-circle' },
+  attention: { accent: '#f59e0b', icon: 'alert-circle' },
+  blocked: { accent: '#ef4444', icon: 'warning' },
+};
+
+function ReadinessCard({
+  readiness,
+  onAction,
+}: {
+  readiness: DashboardReadiness;
+  onAction: (target: ReadinessActionTarget) => void;
+}) {
+  const tone = READINESS_TONE[readiness.tone];
+
+  return (
+    <View style={[s.readinessCard, { borderColor: tone.accent + '55' }]}>
+      <View style={s.readinessTop}>
+        <View style={s.readinessTitleBlock}>
+          <Text style={s.readinessEyebrow}>OPERATOR READINESS</Text>
+          <View style={s.readinessTitleRow}>
+            <Ionicons name={tone.icon as any} size={19} color={tone.accent} />
+            <Text style={s.readinessTitle}>{readiness.title}</Text>
+          </View>
+        </View>
+        <View style={[s.readinessScore, { backgroundColor: tone.accent + '18' }]}>
+          <Text style={[s.readinessScoreNum, { color: tone.accent }]}>{readiness.score}</Text>
+          <Text style={s.readinessScorePct}>%</Text>
+        </View>
+      </View>
+
+      <Text style={s.readinessSummary}>{readiness.summary}</Text>
+
+      <View style={s.readinessItems}>
+        {readiness.items.map((item) => {
+          const itemTone = READINESS_TONE[item.state === 'ready' ? 'live' : item.state];
+          const canAct = Boolean(item.actionTarget && item.state !== 'ready');
+
+          return (
+            <TouchableOpacity
+              key={item.id}
+              style={s.readinessItem}
+              onPress={() => item.actionTarget && onAction(item.actionTarget)}
+              activeOpacity={canAct ? 0.75 : 1}
+              disabled={!canAct}
+            >
+              <View style={[s.readinessItemIcon, { backgroundColor: itemTone.accent + '18' }]}>
+                <Ionicons name={item.icon as any} size={15} color={itemTone.accent} />
+              </View>
+              <View style={s.readinessItemText}>
+                <Text style={s.readinessItemLabel}>{item.label}</Text>
+                <Text style={s.readinessItemDetail}>{item.detail}</Text>
+              </View>
+              {canAct ? (
+                <Text style={[s.readinessItemAction, { color: itemTone.accent }]}>{item.actionLabel}</Text>
+              ) : (
+                <Ionicons name="checkmark" size={16} color="#22c55e" />
+              )}
+            </TouchableOpacity>
+          );
+        })}
+      </View>
+
+      <TouchableOpacity
+        style={[s.readinessPrimaryAction, { borderColor: tone.accent + '66' }]}
+        onPress={() => onAction(readiness.primaryAction.target)}
+      >
+        <Text style={[s.readinessPrimaryText, { color: tone.accent }]}>{readiness.primaryAction.label}</Text>
+        <Ionicons name="arrow-forward" size={15} color={tone.accent} />
+      </TouchableOpacity>
+    </View>
+  );
+}
+
 export default function Dashboard() {
   const router = useRouter();
 
@@ -247,7 +327,12 @@ export default function Dashboard() {
     const stop  = () => { if (interval.current) { clearInterval(interval.current); interval.current = null; } };
     start();
     const sub = AppState.addEventListener('change', (s: AppStateStatus) => {
-      s === 'active' ? (fetchData(), start()) : stop();
+      if (s === 'active') {
+        fetchData();
+        start();
+      } else {
+        stop();
+      }
     });
     return () => { stop(); sub.remove(); };
   }, [fetchData]);
@@ -314,6 +399,16 @@ export default function Dashboard() {
 
   const brokerColor = BROKER_COLORS[status?.active_broker || ''] || '#0ea5e9';
   const brokerName  = BROKER_NAMES[status?.active_broker || ''] || 'None';
+  const readiness = buildDashboardReadiness({
+    status,
+    simMode,
+    autoShutdownEnabled: autoShutdown,
+    shutdownTriggered: shutdownSettings.shutdown_triggered,
+    takeProfitEnabled: takeProfit,
+    stopLossEnabled: stopLoss,
+    trailingStopEnabled: trailingStop,
+    premiumBufferEnabled: premiumBuffer,
+  });
 
   return (
     <SafeAreaView style={s.container}>
@@ -445,6 +540,11 @@ export default function Dashboard() {
         )}
 
         {/* ── Auto Trading ── */}
+        <ReadinessCard
+          readiness={readiness}
+          onAction={(target) => router.push(target as any)}
+        />
+
         <View style={s.card}>
           <View style={s.autoTradingHeader}>
             <View style={[s.atIndicator, { backgroundColor: autoTrading ? '#22c55e' : '#374151' }]} />
@@ -642,6 +742,26 @@ const s = StyleSheet.create({
   brokerOptName:  { flex: 1, fontSize: 14, fontWeight: '600', color: '#e2e8f0' },
   brokerConfigBtn:{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: 10, borderTopWidth: 1, borderTopColor: '#1e2d3d', gap: 6 },
   brokerConfigText:{ color: '#0ea5e9', fontSize: 13, fontWeight: '600' },
+
+  readinessCard:  { backgroundColor: '#0b1420', borderRadius: 14, marginHorizontal: 16, marginBottom: 10, padding: 14, borderWidth: 1 },
+  readinessTop:   { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 },
+  readinessTitleBlock: { flex: 1 },
+  readinessEyebrow:{ fontSize: 10, color: '#64748b', fontWeight: '800', letterSpacing: 1.4, marginBottom: 5 },
+  readinessTitleRow:{ flexDirection: 'row', alignItems: 'center', gap: 7 },
+  readinessTitle: { fontSize: 18, color: '#e2e8f0', fontWeight: '800' },
+  readinessScore: { minWidth: 56, height: 42, borderRadius: 10, flexDirection: 'row', alignItems: 'baseline', justifyContent: 'center', paddingTop: 6 },
+  readinessScoreNum:{ fontSize: 22, fontWeight: '900' },
+  readinessScorePct:{ fontSize: 12, color: '#64748b', fontWeight: '700' },
+  readinessSummary:{ color: '#94a3b8', fontSize: 12, lineHeight: 17, marginTop: 8 },
+  readinessItems: { marginTop: 12, borderTopWidth: 1, borderTopColor: '#132235' },
+  readinessItem:  { flexDirection: 'row', alignItems: 'center', gap: 9, paddingVertical: 9, borderBottomWidth: 1, borderBottomColor: '#132235' },
+  readinessItemIcon:{ width: 28, height: 28, borderRadius: 7, alignItems: 'center', justifyContent: 'center' },
+  readinessItemText:{ flex: 1 },
+  readinessItemLabel:{ color: '#e2e8f0', fontSize: 13, fontWeight: '700' },
+  readinessItemDetail:{ color: '#64748b', fontSize: 11, lineHeight: 15, marginTop: 1 },
+  readinessItemAction:{ fontSize: 11, fontWeight: '800' },
+  readinessPrimaryAction:{ marginTop: 12, borderWidth: 1, borderRadius: 9, paddingVertical: 10, alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: 7, backgroundColor: '#08111d' },
+  readinessPrimaryText:{ fontSize: 13, fontWeight: '800' },
 
   card:           { backgroundColor: '#0d1826', borderRadius: 14, marginHorizontal: 16, marginBottom: 10, padding: 16, borderWidth: 1, borderColor: '#1e2d3d' },
   cardTitle:      { fontSize: 16, fontWeight: '700', color: '#e2e8f0' },
