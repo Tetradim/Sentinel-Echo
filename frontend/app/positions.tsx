@@ -9,6 +9,12 @@ import { api } from '../utils/api';
 import { BACKEND_URL, DEMO_MODE } from '../constants/config';
 import { BROKER_COLORS, BROKER_NAMES } from '../constants/brokers';
 import { validatePrice, validatePercentage, formatDate, formatPnL, getPnLColor } from '../utils/format';
+import {
+  filterPositions,
+  PositionDigest,
+  PositionFilter,
+  summarizePositions,
+} from '../utils/positionDigest';
 
 // Demo data for when backend is unavailable
 const DEMO_POSITIONS: Position[] = [
@@ -50,13 +56,49 @@ interface Position {
   realized_pnl: number; unrealized_pnl: number; simulated: boolean;
 }
 
-type Filter = 'open' | 'all' | 'closed';
+function ExposureStat({ label, value, color }: { label: string; value: string; color?: string }) {
+  return (
+    <View style={s.digestStat}>
+      <Text style={[s.digestStatValue, color ? { color } : {}]}>{value}</Text>
+      <Text style={s.digestStatLabel}>{label}</Text>
+    </View>
+  );
+}
+
+function PositionBriefing({ digest }: { digest: PositionDigest }) {
+  const toneColor =
+    digest.primaryStatus.tone === 'live' ? '#22c55e' :
+    digest.primaryStatus.tone === 'attention' ? '#f59e0b' :
+    '#64748b';
+
+  return (
+    <View style={[s.digestCard, { borderColor: toneColor + '55' }]}>
+      <View style={s.digestTop}>
+        <View style={s.digestTitleBlock}>
+          <Text style={s.digestEyebrow}>EXPOSURE WATCH</Text>
+          <Text style={s.digestTitle}>{digest.primaryStatus.title}</Text>
+          <Text style={s.digestDetail}>{digest.primaryStatus.detail}</Text>
+        </View>
+        <View style={[s.digestExposure, { backgroundColor: toneColor + '18' }]}>
+          <Text style={[s.digestExposureValue, { color: toneColor }]}>${digest.openExposure.toLocaleString()}</Text>
+          <Text style={s.digestExposureLabel}>exposure</Text>
+        </View>
+      </View>
+      <View style={s.digestStats}>
+        <ExposureStat label="Expiry" value={String(digest.expiringSoon)} color={digest.expiringSoon ? '#f59e0b' : undefined} />
+        <ExposureStat label="Losing" value={String(digest.losingOpen)} color={digest.losingOpen ? '#ef4444' : undefined} />
+        <ExposureStat label="Partial" value={String(digest.partial)} color={digest.partial ? '#fb923c' : undefined} />
+        <ExposureStat label="Largest" value={digest.topExposureTicker || '-'} />
+      </View>
+    </View>
+  );
+}
 
 export default function PositionsScreen() {
   const [positions, setPositions]   = useState<Position[]>([]);
   const [loading, setLoading]       = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [filter, setFilter]         = useState<Filter>('open');
+  const [filter, setFilter]         = useState<PositionFilter>('open');
   const [selected, setSelected]     = useState<Position | null>(null);
   const [showSell, setShowSell]     = useState(false);
   const [sellPct, setSellPct]       = useState('50');
@@ -72,8 +114,7 @@ export default function PositionsScreen() {
       return;
     }
     try {
-      const param = filter === 'all' ? '' : `?status=${filter}`;
-      const r = await api.get(`${BACKEND_URL}/api/positions${param}`);
+      const r = await api.get(`${BACKEND_URL}/api/positions`);
       setPositions(r.data);
     } catch (e) { 
       console.error(e); 
@@ -81,9 +122,9 @@ export default function PositionsScreen() {
       setPositions(DEMO_POSITIONS);
     }
     finally { setLoading(false); setRefreshing(false); }
-  }, [filter]);
+  }, []);
 
-  useEffect(() => { setLoading(true); fetch(); }, [fetch]);
+  useEffect(() => { fetch(); }, [fetch]);
   const onRefresh = useCallback(() => { setRefreshing(true); fetch(); }, [fetch]);
 
   const openSell = (p: Position) => {
@@ -112,6 +153,14 @@ export default function PositionsScreen() {
   const openPositions = positions.filter(p => p.status === 'open' || p.status === 'partial');
   const totalUnrealized = openPositions.reduce((sum, p) => sum + (p.unrealized_pnl || 0), 0);
   const totalRealized   = positions.reduce((sum, p) => sum + (p.realized_pnl || 0), 0);
+  const digest = summarizePositions(positions);
+  const filteredPositions = filterPositions(positions, filter);
+  const filterOptions: { key: PositionFilter; label: string; count: number }[] = [
+    { key: 'open', label: 'Open', count: digest.open },
+    { key: 'all', label: 'All', count: digest.total },
+    { key: 'closed', label: 'Closed', count: digest.closed },
+    { key: 'attention', label: 'Watch', count: filterPositions(positions, 'attention').length },
+  ];
 
   const renderItem = ({ item: p }: { item: Position }) => {
     const bColor  = BROKER_COLORS[p.broker] || '#64748b';
@@ -208,6 +257,8 @@ export default function PositionsScreen() {
         </View>
       </View>
 
+      <PositionBriefing digest={digest} />
+
       {/* Summary strip */}
       <View style={s.strip}>
         <View style={s.stripCell}>
@@ -233,11 +284,12 @@ export default function PositionsScreen() {
 
       {/* Filters */}
       <View style={s.filterBar}>
-        {(['open', 'all', 'closed'] as Filter[]).map(f => (
-          <TouchableOpacity key={f} style={[s.filterBtn, filter === f && s.filterBtnActive]} onPress={() => setFilter(f)}>
-            <Text style={[s.filterText, filter === f && s.filterTextActive]}>
-              {f.charAt(0).toUpperCase() + f.slice(1)}
+        {filterOptions.map(({ key, label, count }) => (
+          <TouchableOpacity key={key} style={[s.filterBtn, filter === key && s.filterBtnActive]} onPress={() => setFilter(key)}>
+            <Text style={[s.filterText, filter === key && s.filterTextActive]}>
+              {label}
             </Text>
+            <Text style={[s.filterCount, filter === key && s.filterCountActive]}>{count}</Text>
           </TouchableOpacity>
         ))}
       </View>
@@ -246,7 +298,7 @@ export default function PositionsScreen() {
         <View style={s.centered}><ActivityIndicator size="large" color="#0ea5e9" /></View>
       ) : (
         <FlatList
-          data={positions}
+          data={filteredPositions}
           renderItem={renderItem}
           keyExtractor={i => i.id}
           contentContainerStyle={s.list}
@@ -317,11 +369,27 @@ const s = StyleSheet.create({
   stripLabel: { fontSize: 9, color: '#475569', marginTop: 3, fontWeight: '600', letterSpacing: 0.5 },
   stripDiv:   { width: 1, height: 30, backgroundColor: '#1e2d3d' },
 
+  digestCard: { backgroundColor: '#0b1420', borderRadius: 14, marginHorizontal: 16, marginBottom: 10, padding: 14, borderWidth: 1 },
+  digestTop:  { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 },
+  digestTitleBlock: { flex: 1 },
+  digestEyebrow: { fontSize: 10, color: '#64748b', fontWeight: '800', letterSpacing: 1.4, marginBottom: 5 },
+  digestTitle: { fontSize: 18, fontWeight: '800', color: '#e2e8f0' },
+  digestDetail: { fontSize: 12, lineHeight: 17, color: '#94a3b8', marginTop: 3 },
+  digestExposure: { minWidth: 94, height: 42, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
+  digestExposureValue: { fontSize: 17, fontWeight: '900' },
+  digestExposureLabel: { fontSize: 10, color: '#64748b', fontWeight: '700', marginTop: 1 },
+  digestStats: { flexDirection: 'row', marginTop: 12, paddingTop: 12, borderTopWidth: 1, borderTopColor: '#132235' },
+  digestStat: { flex: 1, alignItems: 'center' },
+  digestStatValue: { fontSize: 14, fontWeight: '800', color: '#e2e8f0' },
+  digestStatLabel: { fontSize: 9, color: '#64748b', marginTop: 3, fontWeight: '700' },
+
   filterBar:  { flexDirection: 'row', paddingHorizontal: 16, gap: 8, marginBottom: 10 },
-  filterBtn:  { paddingHorizontal: 16, paddingVertical: 7, borderRadius: 8, backgroundColor: '#0d1826', borderWidth: 1, borderColor: '#1e2d3d' },
+  filterBtn:  { flex: 1, alignItems: 'center', paddingHorizontal: 8, paddingVertical: 7, borderRadius: 8, backgroundColor: '#0d1826', borderWidth: 1, borderColor: '#1e2d3d' },
   filterBtnActive: { backgroundColor: '#0c2740', borderColor: '#0ea5e9' },
   filterText: { fontSize: 13, color: '#475569', fontWeight: '600' },
   filterTextActive: { color: '#0ea5e9' },
+  filterCount: { fontSize: 11, color: '#334155', fontWeight: '800', marginTop: 2 },
+  filterCountActive: { color: '#7dd3fc' },
 
   list:       { paddingHorizontal: 16, paddingBottom: 16 },
   card:       { backgroundColor: '#0d1826', borderRadius: 12, padding: 14, marginBottom: 8, borderWidth: 1, borderColor: '#1e2d3d' },

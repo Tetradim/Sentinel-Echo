@@ -7,6 +7,12 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { api } from '../utils/api';
 import { BACKEND_URL, DEMO_MODE } from '../constants/config';
+import {
+  AlertDigest,
+  AlertFilter,
+  filterAlerts,
+  summarizeAlerts,
+} from '../utils/alertDigest';
 
 // Demo alerts
 const DEMO_ALERTS: AlertItem[] = [
@@ -24,13 +30,49 @@ interface AlertItem {
   channel_name: string; received_at: string; processed: boolean; trade_executed: boolean;
 }
 
-type Filter = 'all' | 'executed' | 'pending';
+function DigestStat({ label, value, color }: { label: string; value: string; color?: string }) {
+  return (
+    <View style={s.digestStat}>
+      <Text style={[s.digestStatValue, color ? { color } : {}]}>{value}</Text>
+      <Text style={s.digestStatLabel}>{label}</Text>
+    </View>
+  );
+}
+
+function AlertBriefing({ digest }: { digest: AlertDigest }) {
+  const toneColor =
+    digest.primaryStatus.tone === 'live' ? '#22c55e' :
+    digest.primaryStatus.tone === 'attention' ? '#f59e0b' :
+    '#64748b';
+
+  return (
+    <View style={[s.digestCard, { borderColor: toneColor + '55' }]}>
+      <View style={s.digestTop}>
+        <View style={s.digestTitleBlock}>
+          <Text style={s.digestEyebrow}>ALERT FLOW</Text>
+          <Text style={s.digestTitle}>{digest.primaryStatus.title}</Text>
+          <Text style={s.digestDetail}>{digest.primaryStatus.detail}</Text>
+        </View>
+        <View style={[s.digestRate, { backgroundColor: toneColor + '18' }]}>
+          <Text style={[s.digestRateValue, { color: toneColor }]}>{digest.executionRate}</Text>
+          <Text style={s.digestRateSuffix}>%</Text>
+        </View>
+      </View>
+      <View style={s.digestStats}>
+        <DigestStat label="Executed" value={String(digest.executed)} color="#22c55e" />
+        <DigestStat label="Review" value={String(digest.needsReview)} color={digest.needsReview ? '#f59e0b' : undefined} />
+        <DigestStat label="Unparsed" value={String(digest.unparsed)} color={digest.unparsed ? '#ef4444' : undefined} />
+        <DigestStat label="Top Ticker" value={digest.topTicker || '-'} />
+      </View>
+    </View>
+  );
+}
 
 export default function AlertsScreen() {
   const [alerts, setAlerts]     = useState<AlertItem[]>([]);
   const [loading, setLoading]   = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [filter, setFilter]     = useState<Filter>('all');
+  const [filter, setFilter]     = useState<AlertFilter>('all');
 
   const fetchAlerts = useCallback(async () => {
     if (DEMO_MODE) {
@@ -52,38 +94,38 @@ export default function AlertsScreen() {
   useEffect(() => { fetchAlerts(); }, [fetchAlerts]);
   const onRefresh = useCallback(() => { setRefreshing(true); fetchAlerts(); }, [fetchAlerts]);
 
-  const filtered = alerts.filter(a =>
-    filter === 'all'      ? true :
-    filter === 'executed' ? a.trade_executed :
-    !a.trade_executed
-  );
+  const digest = summarizeAlerts(alerts);
+  const filterOptions: { key: AlertFilter; label: string; count: number }[] = [
+    { key: 'all', label: 'All', count: digest.total },
+    { key: 'executed', label: 'Executed', count: digest.executed },
+    { key: 'review', label: 'Review', count: digest.needsReview },
+    { key: 'unparsed', label: 'Unparsed', count: digest.unparsed },
+  ];
+  const filtered = filterAlerts(alerts, filter);
 
   const fmt = (d: string) => new Date(d).toLocaleString();
 
-  const renderItem = ({ item: a }: { item: AlertItem }) => (
-    <View style={s.card}>
-      <View style={s.cardTop}>
-        <View style={s.tickerWrap}>
-          <Text style={s.ticker}>${a.ticker}</Text>
-          <View style={[s.typePill, { backgroundColor: a.option_type === 'CALL' ? '#14532d' : '#450a0a' }]}>
-            <Text style={[s.typeText, { color: a.option_type === 'CALL' ? '#4ade80' : '#f87171' }]}>
-              {a.option_type}
-            </Text>
+  const renderItem = ({ item: a }: { item: AlertItem }) => {
+    const statusLabel = a.trade_executed ? 'Executed' : a.processed ? 'Review' : 'Unparsed';
+    const statusColor = a.trade_executed ? '#22c55e' : a.processed ? '#f59e0b' : '#ef4444';
+    const statusBg = a.trade_executed ? '#14532d' : a.processed ? '#422006' : '#2d1515';
+
+    return (
+      <View style={s.card}>
+        <View style={s.cardTop}>
+          <View style={s.tickerWrap}>
+            <Text style={s.ticker}>${a.ticker}</Text>
+            <View style={[s.typePill, { backgroundColor: a.option_type === 'CALL' ? '#14532d' : '#450a0a' }]}>
+              <Text style={[s.typeText, { color: a.option_type === 'CALL' ? '#4ade80' : '#f87171' }]}>
+                {a.option_type}
+              </Text>
+            </View>
+          </View>
+          <View style={[s.statusPill, { backgroundColor: statusBg }]}>
+            <View style={[s.statusDot, { backgroundColor: statusColor }]} />
+            <Text style={[s.statusText, { color: statusColor }]}>{statusLabel}</Text>
           </View>
         </View>
-        <View style={[s.statusPill, {
-          backgroundColor: a.trade_executed ? '#14532d' : a.processed ? '#422006' : '#1e2d3d'
-        }]}>
-          <View style={[s.statusDot, {
-            backgroundColor: a.trade_executed ? '#22c55e' : a.processed ? '#fb923c' : '#475569'
-          }]} />
-          <Text style={[s.statusText, {
-            color: a.trade_executed ? '#4ade80' : a.processed ? '#fb923c' : '#64748b'
-          }]}>
-            {a.trade_executed ? 'Executed' : a.processed ? 'Processing' : 'Pending'}
-          </Text>
-        </View>
-      </View>
 
       <View style={s.grid}>
         <View style={s.gridItem}>
@@ -110,7 +152,8 @@ export default function AlertsScreen() {
         <Text style={s.timestamp}>{fmt(a.received_at)}</Text>
       </View>
     </View>
-  );
+    );
+  };
 
   return (
     <SafeAreaView style={s.container}>
@@ -125,13 +168,16 @@ export default function AlertsScreen() {
         </View>
       </View>
 
+      <AlertBriefing digest={digest} />
+
       {/* Filter bar */}
       <View style={s.filterBar}>
-        {(['all', 'executed', 'pending'] as Filter[]).map(f => (
-          <TouchableOpacity key={f} style={[s.filterBtn, filter === f && s.filterBtnActive]} onPress={() => setFilter(f)}>
-            <Text style={[s.filterText, filter === f && s.filterTextActive]}>
-              {f.charAt(0).toUpperCase() + f.slice(1)}
+        {filterOptions.map(({ key, label, count }) => (
+          <TouchableOpacity key={key} style={[s.filterBtn, filter === key && s.filterBtnActive]} onPress={() => setFilter(key)}>
+            <Text style={[s.filterText, filter === key && s.filterTextActive]}>
+              {label}
             </Text>
+            <Text style={[s.filterCount, filter === key && s.filterCountActive]}>{count}</Text>
           </TouchableOpacity>
         ))}
       </View>
@@ -167,11 +213,27 @@ const s = StyleSheet.create({
   countBadge:     { backgroundColor: '#0d1826', borderRadius: 10, paddingHorizontal: 12, paddingVertical: 6, borderWidth: 1, borderColor: '#1e2d3d' },
   countText:      { fontSize: 16, fontWeight: '700', color: '#94a3b8' },
 
+  digestCard:     { backgroundColor: '#0b1420', borderRadius: 14, marginHorizontal: 16, marginBottom: 12, padding: 14, borderWidth: 1 },
+  digestTop:      { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 },
+  digestTitleBlock:{ flex: 1 },
+  digestEyebrow:  { fontSize: 10, color: '#64748b', fontWeight: '800', letterSpacing: 1.4, marginBottom: 5 },
+  digestTitle:    { fontSize: 18, fontWeight: '800', color: '#e2e8f0' },
+  digestDetail:   { fontSize: 12, lineHeight: 17, color: '#94a3b8', marginTop: 3 },
+  digestRate:     { minWidth: 58, height: 42, borderRadius: 10, flexDirection: 'row', alignItems: 'baseline', justifyContent: 'center', paddingTop: 6 },
+  digestRateValue:{ fontSize: 22, fontWeight: '900' },
+  digestRateSuffix:{ fontSize: 12, color: '#64748b', fontWeight: '700' },
+  digestStats:    { flexDirection: 'row', marginTop: 12, paddingTop: 12, borderTopWidth: 1, borderTopColor: '#132235' },
+  digestStat:     { flex: 1, alignItems: 'center' },
+  digestStatValue:{ fontSize: 14, fontWeight: '800', color: '#e2e8f0' },
+  digestStatLabel:{ fontSize: 9, color: '#64748b', marginTop: 3, fontWeight: '700' },
+
   filterBar:      { flexDirection: 'row', paddingHorizontal: 16, gap: 8, marginBottom: 12 },
-  filterBtn:      { paddingHorizontal: 16, paddingVertical: 7, borderRadius: 8, backgroundColor: '#0d1826', borderWidth: 1, borderColor: '#1e2d3d' },
+  filterBtn:      { flex: 1, alignItems: 'center', paddingHorizontal: 8, paddingVertical: 7, borderRadius: 8, backgroundColor: '#0d1826', borderWidth: 1, borderColor: '#1e2d3d' },
   filterBtnActive:{ backgroundColor: '#0c2740', borderColor: '#0ea5e9' },
   filterText:     { fontSize: 13, color: '#475569', fontWeight: '600' },
   filterTextActive:{ color: '#0ea5e9' },
+  filterCount:    { fontSize: 11, color: '#334155', fontWeight: '800', marginTop: 2 },
+  filterCountActive:{ color: '#7dd3fc' },
 
   list:           { paddingHorizontal: 16, paddingBottom: 16 },
 

@@ -233,6 +233,35 @@ The bot parses **32 different formats** including:
 
 ## Installation
 
+### Option 0: Windows Local Launcher
+
+For this workstation, use the local launcher from the repository root:
+
+```powershell
+.\Launch-Consolidation-Bot.bat
+```
+
+The launcher starts:
+
+| Service | URL |
+|---------|-----|
+| FastAPI backend | `http://127.0.0.1:8003` |
+| Expo web frontend | `http://127.0.0.1:3003` |
+| Health check | `http://127.0.0.1:8003/api/health` |
+
+Useful launcher flags:
+
+```powershell
+.\Launch-Consolidation-Bot.ps1 -InstallDeps
+.\Launch-Consolidation-Bot.ps1 -NoBrowser
+.\Launch-Consolidation-Bot.ps1 -BackendPort 8003 -FrontendPort 3003
+.\Launch-Consolidation-Bot.ps1 -SmokeTest
+```
+
+The launcher creates `backend\.venv` when needed, installs backend/frontend dependencies when `-InstallDeps` is passed or dependencies are missing, stores local SQLite data under `data\consolidation.sqlite3`, and writes logs to `Consolidation-Discord-Bot.log` on the Desktop.
+
+Discord intake is enabled only when `DISCORD_BOT_TOKEN` and `DISCORD_CHANNEL_IDS` are set. Without those values, the API and dashboard still run so you can configure settings, review diagnostics, and test parsing.
+
 ### Option 1: Windows Installer (Recommended)
 
 1. Download `TradeBot-Setup-1.0.0.exe` from releases
@@ -274,15 +303,19 @@ git clone https://github.com/Tetradim/Consolidation.git
 cd Consolidation
 
 # Backend
-cd backend
-pip install -r requirements.txt
-cp .env.example .env
-python -m backend
+python -m venv backend\.venv
+.\backend\.venv\Scripts\python.exe -m pip install -r backend\requirements.txt
+$env:PORT = "8003"
+$env:HOST = "127.0.0.1"
+$env:USE_SQLITE = "true"
+$env:DATABASE_PATH = "data\consolidation.sqlite3"
+.\backend\.venv\Scripts\python.exe -m backend.run
 
 # Frontend (separate terminal)
-cd ../frontend
+cd frontend
 npm install
-npx expo start
+$env:EXPO_PUBLIC_BACKEND_URL = "http://127.0.0.1:8003"
+npm run web -- --port 3003
 ```
 
 ---
@@ -330,6 +363,7 @@ ALPACA_PAPER=true
 # Security
 # ===================
 SECRET_KEY=random-32-character-string
+API_SECRET_KEY=random-admin-api-key
 
 # ===================
 # Trading
@@ -347,6 +381,22 @@ MAX_POSITION_SIZE=1000
 4. Enable Message Content Intent
 5. Copy Bot Token
 6. Invite bot to server with appropriate permissions
+7. Set `DISCORD_BOT_TOKEN` to the copied token
+8. Set `DISCORD_CHANNEL_IDS` to the comma-separated channel IDs the bot should monitor
+9. Launch the app and check `http://127.0.0.1:8003/api/health`
+
+Minimum Discord permissions:
+
+- View Channels
+- Read Message History
+- Send Messages
+- Use Slash Commands, if command handlers are enabled for your server
+
+Operational notes:
+
+- Start in `SIMULATION_MODE=true` until broker credentials, order-status polling, and risk settings are verified.
+- Keep auto-trading disabled until alert parsing has been tested against your analysts' real message formats.
+- The frontend reads `EXPO_PUBLIC_BACKEND_URL`; the launcher sets it to `http://127.0.0.1:8003`.
 
 ### Broker Setup
 
@@ -471,6 +521,12 @@ Key metrics tracked:
 
 ## Development
 
+### Local Ports
+
+| App | Backend | Frontend |
+|-----|---------|----------|
+| Consolidation Discord bot | `8003` | `3003` |
+
 ### Project Structure
 
 ```
@@ -500,6 +556,21 @@ Consolidation/
 ```bash
 cd backend
 pytest tests/ -v --cov=. --cov-report=html
+```
+
+Launcher smoke test:
+
+```powershell
+.\Launch-Consolidation-Bot.ps1 -SmokeTest
+```
+
+Frontend run check:
+
+```powershell
+cd frontend
+npm install
+$env:EXPO_PUBLIC_BACKEND_URL = "http://127.0.0.1:8003"
+npm run web -- --port 3003
 ```
 
 ### Adding New Broker

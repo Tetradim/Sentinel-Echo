@@ -75,9 +75,6 @@ def check_environment():
 def main():
     """Main entry point"""
     import uvicorn
-    from server import app, init_discord_bot
-    from database import init_database
-    import asyncio
     
     logger.info("=" * 60)
     logger.info("TRADING BOT STARTING")
@@ -85,28 +82,7 @@ def main():
     
     # Check environment
     check_environment()
-    
-    # Initialize database
-    async def init():
-        await init_database()
-        
-        # Initialize Discord bot
-        token = os.environ.get('DISCORD_BOT_TOKEN', '')
-        channel_ids = os.environ.get('DISCORD_CHANNEL_IDS', '')
-        
-        if token and channel_ids:
-            channels = [c.strip() for c in channel_ids.split(',') if c.strip()]
-            logger.info(f"Starting Discord bot for channels: {channels}")
-            await init_discord_bot(token, channels)
-        else:
-            logger.warning("Discord bot not configured - set DISCORD_BOT_TOKEN and DISCORD_CHANNEL_IDS")
-    
-    # Run async init
-    try:
-        asyncio.run(init())
-    except Exception as e:
-        logger.error(f"Initialization error: {e}")
-    
+
     # Configure uvicorn
     config = uvicorn.Config(
         "backend.server:app",
@@ -116,16 +92,7 @@ def main():
         log_level=os.environ.get('LOG_LEVEL', 'info').lower(),
         lifespan="on",
     )
-    
-    # Add startup/shutdown events
-    @app.on_event("startup")
-    async def startup_event():
-        logger.info("API Server started")
-    
-    @app.on_event("shutdown")
-    async def shutdown_event():
-        logger.info("API Server shutting down")
-    
+
     # Run server
     server = uvicorn.Server(config)
     server.run()

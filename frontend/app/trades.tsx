@@ -9,6 +9,12 @@ import { api } from '../utils/api';
 import { BACKEND_URL, DEMO_MODE } from '../constants/config';
 import { BROKER_COLORS, BROKER_NAMES } from '../constants/brokers';
 import { validatePrice, formatDate, formatPnL, getPnLColor } from '../utils/format';
+import {
+  filterTrades,
+  summarizeTrades,
+  TradeDigest,
+  TradeFilter,
+} from '../utils/tradeDigest';
 
 // Demo trades
 const DEMO_TRADES: Trade[] = [
@@ -16,8 +22,8 @@ const DEMO_TRADES: Trade[] = [
   { id: '2', ticker: 'AAPL', strike: 175, option_type: 'CALL', expiration: '2024-05-17', entry_price: 3.50, exit_price: null, current_price: 4.25, quantity: 5, status: 'executed', executed_at: '2024-04-15T10:30:00Z', closed_at: null, broker: 'IBKR', order_id: 'ORD-002', error_message: null, simulated: false, realized_pnl: null, unrealized_pnl: 375 },
   { id: '3', ticker: 'TSLA', strike: 150, option_type: 'PUT', expiration: '2024-05-17', entry_price: 2.80, exit_price: null, current_price: 2.10, quantity: 3, status: 'executed', executed_at: '2024-04-16T14:20:00Z', closed_at: null, broker: 'Alpaca', order_id: 'ORD-003', error_message: null, simulated: false, realized_pnl: null, unrealized_pnl: -210 },
   { id: '4', ticker: 'MSFT', strike: 380, option_type: 'CALL', expiration: '2024-05-17', entry_price: 5.20, exit_price: null, current_price: 5.80, quantity: 4, status: 'executed', executed_at: '2024-04-12T11:00:00Z', closed_at: null, broker: 'Tradier', order_id: 'ORD-004', error_message: null, simulated: false, realized_pnl: null, unrealized_pnl: 120 },
-  { id: '5', ticker: 'GOOGL', strike: 155, option_type: 'CALL', expiration: '2024-05-17', entry_price: 2.10, exit_price: 1.80, quantity: 3, status: 'closed', executed_at: '2024-04-11T09:30:00Z', closed_at: '2024-04-15T14:00:00Z', broker: 'IBKR', order_id: 'ORD-005', error_message: null, simulated: false, realized_pnl: -90, unrealized_pnl: null },
-  { id: '6', ticker: 'META', strike: 480, option_type: 'CALL', expiration: '2024-05-17', entry_price: 8.50, exit_price: 12.30, quantity: 2, status: 'closed', executed_at: '2024-04-09T10:15:00Z', closed_at: '2024-04-16T16:30:00Z', broker: 'IBKR', order_id: 'ORD-006', error_message: null, simulated: false, realized_pnl: 760, unrealized_pnl: null },
+  { id: '5', ticker: 'GOOGL', strike: 155, option_type: 'CALL', expiration: '2024-05-17', entry_price: 2.10, exit_price: 1.80, current_price: 1.80, quantity: 3, status: 'closed', executed_at: '2024-04-11T09:30:00Z', closed_at: '2024-04-15T14:00:00Z', broker: 'IBKR', order_id: 'ORD-005', error_message: null, simulated: false, realized_pnl: -90, unrealized_pnl: null },
+  { id: '6', ticker: 'META', strike: 480, option_type: 'CALL', expiration: '2024-05-17', entry_price: 8.50, exit_price: 12.30, current_price: 12.30, quantity: 2, status: 'closed', executed_at: '2024-04-09T10:15:00Z', closed_at: '2024-04-16T16:30:00Z', broker: 'IBKR', order_id: 'ORD-006', error_message: null, simulated: false, realized_pnl: 760, unrealized_pnl: null },
 ];
 
 interface Trade {
@@ -34,8 +40,6 @@ interface PortfolioSummary {
   winning_trades: number; losing_trades: number;
 }
 
-type Filter = 'all' | 'open' | 'closed';
-
 function statusInfo(status: string, simulated: boolean) {
   if (simulated && status !== 'closed') return { color: '#a78bfa', bg: '#2d1f5e', label: 'SIM' };
   switch (status) {
@@ -47,12 +51,50 @@ function statusInfo(status: string, simulated: boolean) {
   }
 }
 
+function DigestStat({ label, value, color }: { label: string; value: string; color?: string }) {
+  return (
+    <View style={s.digestStat}>
+      <Text style={[s.digestStatValue, color ? { color } : {}]}>{value}</Text>
+      <Text style={s.digestStatLabel}>{label}</Text>
+    </View>
+  );
+}
+
+function TradeBriefing({ digest }: { digest: TradeDigest }) {
+  const toneColor =
+    digest.primaryStatus.tone === 'live' ? '#22c55e' :
+    digest.primaryStatus.tone === 'attention' ? '#f59e0b' :
+    '#64748b';
+
+  return (
+    <View style={[s.digestCard, { borderColor: toneColor + '55' }]}>
+      <View style={s.digestTop}>
+        <View style={s.digestTitleBlock}>
+          <Text style={s.digestEyebrow}>TRADE FLOW</Text>
+          <Text style={s.digestTitle}>{digest.primaryStatus.title}</Text>
+          <Text style={s.digestDetail}>{digest.primaryStatus.detail}</Text>
+        </View>
+        <View style={[s.digestPnl, { backgroundColor: getPnLColor(digest.netPnl) + '18' }]}>
+          <Text style={[s.digestPnlValue, { color: getPnLColor(digest.netPnl) }]}>{formatPnL(digest.netPnl)}</Text>
+          <Text style={s.digestPnlLabel}>net</Text>
+        </View>
+      </View>
+      <View style={s.digestStats}>
+        <DigestStat label="Attention" value={String(digest.attention)} color={digest.attention ? '#f59e0b' : undefined} />
+        <DigestStat label="Contracts" value={String(digest.openQuantity)} />
+        <DigestStat label="Best" value={digest.bestTicker || '-'} color="#22c55e" />
+        <DigestStat label="Worst" value={digest.worstTicker || '-'} color={digest.worstTicker ? '#ef4444' : undefined} />
+      </View>
+    </View>
+  );
+}
+
 export default function TradesScreen() {
   const [trades, setTrades]       = useState<Trade[]>([]);
   const [portfolio, setPortfolio] = useState<PortfolioSummary | null>(null);
   const [loading, setLoading]     = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [filter, setFilter]       = useState<Filter>('all');
+  const [filter, setFilter]       = useState<TradeFilter>('all');
   const [selected, setSelected]   = useState<Trade | null>(null);
   const [showClose, setShowClose] = useState(false);
   const [showUpdate, setShowUpdate] = useState(false);
@@ -94,11 +136,15 @@ export default function TradesScreen() {
   useEffect(() => { fetchTrades(); }, [fetchTrades]);
   const onRefresh = useCallback(() => { setRefreshing(true); fetchTrades(); }, [fetchTrades]);
 
-  const filtered = trades.filter(t =>
-    filter === 'all'    ? true :
-    filter === 'open'   ? (t.status !== 'closed' && t.status !== 'failed') :
-    (t.status === 'closed' || t.status === 'failed')
-  );
+  const digest = summarizeTrades(trades);
+  const filterOptions: { key: TradeFilter; label: string; count: number }[] = [
+    { key: 'all', label: 'All', count: digest.total },
+    { key: 'open', label: 'Open', count: digest.open },
+    { key: 'closed', label: 'Closed', count: digest.closed + digest.failed },
+    { key: 'attention', label: 'Attention', count: digest.attention },
+    { key: 'simulated', label: 'Sim', count: digest.simulated },
+  ];
+  const filtered = filterTrades(trades, filter);
 
   const closeTrade = async () => {
     if (!selected) return;
@@ -243,13 +289,16 @@ export default function TradesScreen() {
         </View>
       )}
 
+      <TradeBriefing digest={digest} />
+
       {/* Filter */}
       <View style={s.filterBar}>
-        {(['all', 'open', 'closed'] as Filter[]).map(f => (
-          <TouchableOpacity key={f} style={[s.filterBtn, filter === f && s.filterBtnActive]} onPress={() => setFilter(f)}>
-            <Text style={[s.filterText, filter === f && s.filterTextActive]}>
-              {f.charAt(0).toUpperCase() + f.slice(1)}
+        {filterOptions.map(({ key, label, count }) => (
+          <TouchableOpacity key={key} style={[s.filterBtn, filter === key && s.filterBtnActive]} onPress={() => setFilter(key)}>
+            <Text style={[s.filterText, filter === key && s.filterTextActive]}>
+              {label}
             </Text>
+            <Text style={[s.filterCount, filter === key && s.filterCountActive]}>{count}</Text>
           </TouchableOpacity>
         ))}
       </View>
@@ -336,11 +385,27 @@ const s = StyleSheet.create({
   stripValue: { fontSize: 13, fontWeight: '700', color: '#e2e8f0' },
   stripLabel: { fontSize: 9, color: '#475569', marginTop: 2, fontWeight: '600', letterSpacing: 0.5 },
 
+  digestCard: { backgroundColor: '#0b1420', borderRadius: 14, marginHorizontal: 16, marginBottom: 10, padding: 14, borderWidth: 1 },
+  digestTop:  { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 },
+  digestTitleBlock: { flex: 1 },
+  digestEyebrow: { fontSize: 10, color: '#64748b', fontWeight: '800', letterSpacing: 1.4, marginBottom: 5 },
+  digestTitle: { fontSize: 18, fontWeight: '800', color: '#e2e8f0' },
+  digestDetail: { fontSize: 12, lineHeight: 17, color: '#94a3b8', marginTop: 3 },
+  digestPnl: { minWidth: 92, height: 42, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
+  digestPnlValue: { fontSize: 17, fontWeight: '900' },
+  digestPnlLabel: { fontSize: 10, color: '#64748b', fontWeight: '700', marginTop: 1 },
+  digestStats: { flexDirection: 'row', marginTop: 12, paddingTop: 12, borderTopWidth: 1, borderTopColor: '#132235' },
+  digestStat: { flex: 1, alignItems: 'center' },
+  digestStatValue: { fontSize: 14, fontWeight: '800', color: '#e2e8f0' },
+  digestStatLabel: { fontSize: 9, color: '#64748b', marginTop: 3, fontWeight: '700' },
+
   filterBar:  { flexDirection: 'row', paddingHorizontal: 16, gap: 8, marginBottom: 10 },
-  filterBtn:  { paddingHorizontal: 16, paddingVertical: 7, borderRadius: 8, backgroundColor: '#0d1826', borderWidth: 1, borderColor: '#1e2d3d' },
+  filterBtn:  { flex: 1, alignItems: 'center', paddingHorizontal: 7, paddingVertical: 7, borderRadius: 8, backgroundColor: '#0d1826', borderWidth: 1, borderColor: '#1e2d3d' },
   filterBtnActive: { backgroundColor: '#0c2740', borderColor: '#0ea5e9' },
   filterText: { fontSize: 13, color: '#475569', fontWeight: '600' },
   filterTextActive: { color: '#0ea5e9' },
+  filterCount: { fontSize: 11, color: '#334155', fontWeight: '800', marginTop: 2 },
+  filterCountActive: { color: '#7dd3fc' },
 
   list:       { paddingHorizontal: 16, paddingBottom: 16 },
   card:       { backgroundColor: '#0d1826', borderRadius: 12, padding: 14, marginBottom: 8, borderWidth: 1, borderColor: '#1e2d3d' },

@@ -14,7 +14,7 @@ $ProjectRoot = if ($PSScriptRoot) { $PSScriptRoot } else { Split-Path -Parent $M
 if (-not $ProjectRoot) { $ProjectRoot = (Get-Location).Path }
 
 $Backend = Join-Path $ProjectRoot "backend"
-$Frontend = Join-Path $ProjectRoot "Frontend"
+$Frontend = Join-Path $ProjectRoot "frontend"
 $DesktopPath = [Environment]::GetFolderPath("Desktop")
 if (-not $DesktopPath) { $DesktopPath = Join-Path $HOME "Desktop" }
 $LogFile = Join-Path $DesktopPath "Consolidation-Discord-Bot.log"
@@ -83,14 +83,49 @@ function Test-HttpOk {
     }
 }
 
+function Test-BackendCorsOk {
+    param([string]$BackendUrl, [string]$FrontendOrigin)
+    try {
+        $headers = @{
+            Origin = $FrontendOrigin
+            "Access-Control-Request-Method" = "GET"
+        }
+        $response = Invoke-WebRequest -Uri "$BackendUrl/api/status" -Method Options -Headers $headers -UseBasicParsing -TimeoutSec 5
+        return ($response.Headers["Access-Control-Allow-Origin"] -eq $FrontendOrigin)
+    } catch {
+        return $false
+    }
+}
+
 function Wait-HttpOk {
-    param([string]$Url, [int]$Seconds = 60)
+    param(
+        [string]$Url,
+        [int]$Seconds = 60,
+        [System.Diagnostics.Process]$Process = $null
+    )
     $deadline = (Get-Date).AddSeconds($Seconds)
     while ((Get-Date) -lt $deadline) {
+        if ($Process -and $Process.HasExited) { return $false }
         if (Test-HttpOk -Url $Url) { return $true }
         Start-Sleep -Milliseconds 750
     }
     return $false
+}
+
+function Write-ProcessLogTail {
+    param(
+        [string]$Path,
+        [string]$Label,
+        [int]$Lines = 80
+    )
+    if (-not (Test-Path -LiteralPath $Path)) { return }
+    $tail = @(Get-Content -LiteralPath $Path -Tail $Lines -ErrorAction SilentlyContinue)
+    if ($tail.Count -eq 0) { return }
+    Write-Status "$Label log tail: $Path" "ERROR"
+    foreach ($line in $tail) {
+        Write-Host "[$Label] $line" -ForegroundColor DarkGray
+        Add-Content -Path $LogFile -Value "[$Label] $line" -Encoding UTF8
+    }
 }
 
 function Find-CommandPath {
@@ -121,6 +156,8 @@ function Start-OwnedProcess {
         [string]$FilePath,
         [string[]]$ArgumentList,
         [string]$WorkingDirectory,
+        [string]$StandardOutputPath,
+        [string]$StandardErrorPath,
         [switch]$Visible
     )
     $startParams = @{
@@ -131,12 +168,65 @@ function Start-OwnedProcess {
     if ($ArgumentList -and $ArgumentList.Count -gt 0) {
         $startParams.ArgumentList = Join-ProcessArguments -Arguments $ArgumentList
     }
+    if ($StandardOutputPath) {
+        $startParams.RedirectStandardOutput = $StandardOutputPath
+    }
+    if ($StandardErrorPath) {
+        $startParams.RedirectStandardError = $StandardErrorPath
+    }
     if (-not $Visible) {
         $startParams.WindowStyle = "Hidden"
     }
     $process = Start-Process @startParams
     $OwnedProcesses.Add($process)
     return $process
+}
+
+function Get-PortOwnerProcess {
+    param([int]$Port)
+    try {
+        $connection = Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue | Select-Object -First 1
+        if (-not $connection) { return $null }
+        return Get-CimInstance Win32_Process -Filter "ProcessId = $($connection.OwningProcess)" -ErrorAction SilentlyContinue
+    } catch {
+        return $null
+    }
+}
+
+function Start-BackendAndWait {
+    param(
+        [string]$PythonPath,
+        [string]$ProjectRoot,
+        [string]$BackendUrl,
+        [int]$BackendPort,
+        [string]$DesktopPath,
+        [string]$FrontendOrigin
+    )
+    Write-Status "Starting backend on port $BackendPort"
+    $backendOutLog = Join-Path $DesktopPath "Consolidation-Backend.out.log"
+    $backendErrLog = Join-Path $DesktopPath "Consolidation-Backend.err.log"
+    Remove-Item -LiteralPath $backendOutLog, $backendErrLog -ErrorAction SilentlyContinue
+    $backendProcess = Start-OwnedProcess `
+        -FilePath $PythonPath `
+        -ArgumentList @("-m", "backend.run") `
+        -WorkingDirectory $ProjectRoot `
+        -StandardOutputPath $backendOutLog `
+        -StandardErrorPath $backendErrLog
+    if (-not (Wait-HttpOk -Url "$BackendUrl/api/health" -Seconds 90 -Process $backendProcess)) {
+        if ($backendProcess.HasExited) {
+            Write-Status "Backend process exited before health check completed. Exit code: $($backendProcess.ExitCode)" "ERROR"
+        }
+        Write-ProcessLogTail -Path $backendErrLog -Label "backend stderr"
+        Write-ProcessLogTail -Path $backendOutLog -Label "backend stdout"
+        throw "Backend did not become healthy at $BackendUrl/api/health."
+    }
+    if (-not (Test-BackendCorsOk -BackendUrl $BackendUrl -FrontendOrigin $FrontendOrigin)) {
+        Write-ProcessLogTail -Path $backendErrLog -Label "backend stderr"
+        Write-ProcessLogTail -Path $backendOutLog -Label "backend stdout"
+        throw "Backend is healthy but does not allow frontend origin $FrontendOrigin."
+    }
+    Write-Status "Backend logs: $backendOutLog ; $backendErrLog"
+    Write-Status "Backend is ready" "OK"
 }
 
 function Stop-ProcessTree {
@@ -246,17 +336,42 @@ try {
         $env:DATABASE_PATH = Join-Path $dataDir "consolidation.sqlite3"
     }
     $env:EXPO_PUBLIC_BACKEND_URL = $backendUrl
+    $env:ALLOWED_ORIGINS = "http://localhost:$FrontendPort,http://127.0.0.1:$FrontendPort"
     $env:BROWSER = "none"
 
-    if (-not (Test-PortOpen -Port $BackendPort)) {
-        Write-Status "Starting backend on port $BackendPort"
-        Start-OwnedProcess -FilePath $venvPython -ArgumentList @("-m", "backend.run") -WorkingDirectory $ProjectRoot | Out-Null
-        if (-not (Wait-HttpOk -Url "$backendUrl/api/health" -Seconds 90)) {
-            throw "Backend did not become healthy at $backendUrl/api/health."
+    $frontendOrigin = "http://127.0.0.1:$FrontendPort"
+    if (Test-PortOpen -Port $BackendPort) {
+        if ((Test-HttpOk -Url "$backendUrl/api/health") -and (Test-BackendCorsOk -BackendUrl $backendUrl -FrontendOrigin $frontendOrigin)) {
+            Write-Status "Backend port $BackendPort is already open and compatible" "WARN"
+        } else {
+            $owner = Get-PortOwnerProcess -Port $BackendPort
+            if ($owner -and $owner.CommandLine -match "backend\.run|backend\.server") {
+                Write-Status "Stopping stale backend on port $BackendPort (PID $($owner.ProcessId))" "WARN"
+                Stop-ProcessTree -ProcessId $owner.ProcessId
+                Start-Sleep -Seconds 2
+                if (Test-PortOpen -Port $BackendPort) {
+                    throw "Backend port $BackendPort is still open after stopping stale backend."
+                }
+                Start-BackendAndWait `
+                    -PythonPath $venvPython `
+                    -ProjectRoot $ProjectRoot `
+                    -BackendUrl $backendUrl `
+                    -BackendPort $BackendPort `
+                    -DesktopPath $DesktopPath `
+                    -FrontendOrigin $frontendOrigin
+            } else {
+                $ownerText = if ($owner) { "PID $($owner.ProcessId): $($owner.CommandLine)" } else { "unknown process" }
+                throw "Backend port $BackendPort is in use by $ownerText, but it is not compatible with this launcher."
+            }
         }
-        Write-Status "Backend is ready" "OK"
     } else {
-        Write-Status "Backend port $BackendPort is already open" "WARN"
+        Start-BackendAndWait `
+            -PythonPath $venvPython `
+            -ProjectRoot $ProjectRoot `
+            -BackendUrl $backendUrl `
+            -BackendPort $BackendPort `
+            -DesktopPath $DesktopPath `
+            -FrontendOrigin $frontendOrigin
     }
 
     if (-not (Test-PortOpen -Port $FrontendPort)) {
