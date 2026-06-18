@@ -8,6 +8,8 @@ import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { api } from '../utils/api';
 import { BACKEND_URL, DEMO_MODE } from '../constants/config';
+import { BROKER_COLORS, BROKER_NAMES_FULL as BROKER_NAMES } from '../constants/brokers';
+import { SettingsDigest, summarizeSettings } from '../utils/settingsDigest';
 
 // Default demo settings
 const DEMO_SETTINGS: Settings = {
@@ -56,7 +58,6 @@ const DEMO_PATTERNS: AlertPatterns = {
   ignore_patterns: ['WATCH', 'WATCHLIST', 'PAPER'],
   case_sensitive: false,
 };
-import { BROKER_COLORS, BROKER_NAMES_FULL as BROKER_NAMES } from '../constants/brokers';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 interface Settings {
@@ -179,6 +180,72 @@ function InfoBox({ text, color = '#0ea5e9' }: { text: string; color?: string }) 
 }
 
 // ── Main Screen ────────────────────────────────────────────────────────────────
+function DigestStat({ label, value, color }: { label: string; value: string; color?: string }) {
+  return (
+    <View style={s.digestStat}>
+      <Text style={[s.digestStatValue, color ? { color } : {}]}>{value}</Text>
+      <Text style={s.digestStatLabel}>{label}</Text>
+    </View>
+  );
+}
+
+function SettingsBriefing({ digest }: { digest: SettingsDigest }) {
+  const toneColor =
+    digest.primaryStatus.tone === 'live' ? '#22c55e' :
+    digest.primaryStatus.tone === 'attention' ? '#f59e0b' :
+    '#64748b';
+  const warnings = digest.warningItems.slice(0, 4);
+  const hiddenWarningCount = Math.max(0, digest.warningItems.length - warnings.length);
+
+  return (
+    <View style={[s.digestCard, { borderColor: toneColor + '55' }]}>
+      <View style={s.digestTop}>
+        <View style={s.digestTitleBlock}>
+          <Text style={s.digestEyebrow}>CONFIG READINESS</Text>
+          <Text style={s.digestTitle}>{digest.primaryStatus.title}</Text>
+          <Text style={s.digestDetail}>{digest.primaryStatus.detail}</Text>
+        </View>
+        <View style={[s.readinessBadge, { backgroundColor: toneColor + '18' }]}>
+          <Text style={[s.readinessValue, { color: toneColor }]}>{digest.guardrailCoveragePercent}%</Text>
+          <Text style={s.readinessLabel}>guarded</Text>
+        </View>
+      </View>
+
+      <View style={s.digestStats}>
+        <DigestStat label="Mode" value={digest.modeLabel} color={digest.modeLabel === 'Live auto' ? '#f59e0b' : undefined} />
+        <DigestStat label="Discord" value={digest.channelLabel} />
+        <DigestStat label="Parser" value={digest.parserLabel} />
+        <DigestStat label="Guards" value={`${digest.guardrailCount}/6`} color={toneColor} />
+      </View>
+
+      <View style={s.digestMetaRow}>
+        <Text style={s.digestMetaText}>Broker: {digest.brokerLabel}</Text>
+        <Text style={s.digestMetaText}>Notify: {digest.notificationLabel}</Text>
+      </View>
+
+      <View style={s.warningList}>
+        {warnings.length > 0 ? warnings.map((warning) => (
+          <View key={warning.title} style={s.warningRow}>
+            <Ionicons name="warning-outline" size={14} color="#f59e0b" />
+            <View style={s.warningCopy}>
+              <Text style={s.warningTitle}>{warning.title}</Text>
+              <Text style={s.warningDetail}>{warning.detail}</Text>
+            </View>
+          </View>
+        )) : (
+          <View style={s.warningRow}>
+            <Ionicons name="shield-checkmark-outline" size={14} color="#22c55e" />
+            <Text style={s.clearText}>Discord, parser, and risk guardrails are aligned for simulated operation.</Text>
+          </View>
+        )}
+        {hiddenWarningCount > 0 && (
+          <Text style={s.hiddenWarningText}>+{hiddenWarningCount} more settings need review</Text>
+        )}
+      </View>
+    </View>
+  );
+}
+
 export default function SettingsScreen() {
   const router = useRouter();
   const [settings, setSettings]       = useState<Settings | null>(null);
@@ -332,7 +399,7 @@ export default function SettingsScreen() {
       setDirty(false);
       originalSettings.current = { ...settings, discord_channel_ids: channelIds };
       Alert.alert('Saved', 'All settings saved successfully.');
-    } catch (e) { Alert.alert('Error', 'Failed to save settings.'); }
+    } catch { Alert.alert('Error', 'Failed to save settings.'); }
     finally { setSaving(false); }
   };
 
@@ -430,6 +497,10 @@ export default function SettingsScreen() {
 
   const bColor = BROKER_COLORS[settings?.active_broker || ''] || '#0ea5e9';
   const bName  = BROKER_NAMES[settings?.active_broker || ''] || 'None';
+  const channelIdsForDigest = channelInput.split(',').map(channel => channel.trim()).filter(Boolean);
+  const settingsDigest = settings
+    ? summarizeSettings({ ...settings, discord_channel_ids: channelIdsForDigest }, patterns)
+    : null;
 
   return (
     <SafeAreaView style={s.container}>
@@ -476,6 +547,7 @@ export default function SettingsScreen() {
         )}
 
         <ScrollView style={s.scroll} showsVerticalScrollIndicator={false}>
+          {settingsDigest && <SettingsBriefing digest={settingsDigest} />}
 
           {/* ═══ DISCORD ═══ */}
           <SectionCard accent="#5865F2">
@@ -1096,6 +1168,28 @@ const s = StyleSheet.create({
   dirtyText:    { fontSize: 11, color: '#92400e' },
 
   card:         { backgroundColor: '#0d1826', borderRadius: 14, marginHorizontal: 16, marginBottom: 12, padding: 16, borderWidth: 1, borderColor: '#1e2d3d' },
+  digestCard:   { backgroundColor: '#0d1826', borderRadius: 14, marginHorizontal: 16, marginBottom: 12, padding: 16, borderWidth: 1 },
+  digestTop:    { flexDirection: 'row', justifyContent: 'space-between', gap: 12, alignItems: 'flex-start' },
+  digestTitleBlock: { flex: 1 },
+  digestEyebrow:{ fontSize: 10, color: '#64748b', fontWeight: '800', letterSpacing: 1.8, marginBottom: 4 },
+  digestTitle:  { fontSize: 20, fontWeight: '900', color: '#f8fafc' },
+  digestDetail: { fontSize: 12, color: '#94a3b8', lineHeight: 18, marginTop: 4 },
+  readinessBadge: { minWidth: 78, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 10, paddingVertical: 8, borderRadius: 10 },
+  readinessValue: { fontSize: 20, fontWeight: '900' },
+  readinessLabel: { fontSize: 10, color: '#64748b', fontWeight: '700', textTransform: 'uppercase' },
+  digestStats:  { flexDirection: 'row', gap: 8, marginTop: 14 },
+  digestStat:   { flex: 1, minHeight: 58, borderRadius: 10, backgroundColor: '#08111d', borderWidth: 1, borderColor: '#1e2d3d', padding: 9, justifyContent: 'center' },
+  digestStatValue: { fontSize: 14, fontWeight: '900', color: '#e2e8f0' },
+  digestStatLabel: { fontSize: 10, color: '#475569', fontWeight: '700', marginTop: 3, textTransform: 'uppercase' },
+  digestMetaRow: { flexDirection: 'row', gap: 8, marginTop: 10, flexWrap: 'wrap' },
+  digestMetaText: { fontSize: 11, color: '#64748b', fontWeight: '700', backgroundColor: '#08111d', borderRadius: 7, paddingHorizontal: 9, paddingVertical: 5 },
+  warningList:  { marginTop: 12, gap: 8 },
+  warningRow:   { flexDirection: 'row', alignItems: 'flex-start', gap: 8 },
+  warningCopy:  { flex: 1 },
+  warningTitle: { fontSize: 12, color: '#e2e8f0', fontWeight: '800' },
+  warningDetail:{ fontSize: 11, color: '#64748b', lineHeight: 16, marginTop: 1 },
+  clearText:    { flex: 1, fontSize: 12, color: '#94a3b8', lineHeight: 17 },
+  hiddenWarningText: { fontSize: 11, color: '#f59e0b', fontWeight: '700', marginLeft: 22 },
   sectionTitle: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 16 },
   sectionIcon:  { width: 32, height: 32, borderRadius: 9, alignItems: 'center', justifyContent: 'center' },
   sectionTitleText: { fontSize: 16, fontWeight: '800', color: '#e2e8f0' },
