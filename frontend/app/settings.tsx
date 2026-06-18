@@ -10,6 +10,7 @@ import { api } from '../utils/api';
 import { BACKEND_URL, DEMO_MODE } from '../constants/config';
 import { BROKER_COLORS, BROKER_NAMES_FULL as BROKER_NAMES } from '../constants/brokers';
 import { SettingsDigest, summarizeSettings } from '../utils/settingsDigest';
+import { buildPremiumBufferSettingsParams } from '../utils/settingsPayload';
 
 // Default demo settings
 const DEMO_SETTINGS: Settings = {
@@ -371,7 +372,9 @@ export default function SettingsScreen() {
       });
 
       // Premium buffer (separate endpoint)
-      await api.put(`${BACKEND_URL}/api/premium-buffer-settings?premium_buffer_amount=${settings.premium_buffer_amount}`);
+      await api.put(`${BACKEND_URL}/api/premium-buffer-settings`, null, {
+        params: buildPremiumBufferSettingsParams(settings),
+      });
 
       // Risk management extras
       await api.put(`${BACKEND_URL}/api/risk-management-settings`, {

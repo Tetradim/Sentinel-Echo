@@ -23,6 +23,30 @@ class FakeSettingsDb:
 
 
 class SourceOverrideRouteTests(unittest.TestCase):
+    def test_update_premium_buffer_settings_persists_enabled_flag_and_amount(self):
+        from routes import settings as settings_route
+
+        fake_db = FakeSettingsDb(
+            {"premium_buffer_enabled": False, "premium_buffer_amount": 10.0}
+        )
+        settings_route.set_db(fake_db)
+
+        response = asyncio.run(
+            settings_route.update_premium_buffer_settings(
+                premium_buffer_amount=25.0,
+                premium_buffer_enabled=True,
+            )
+        )
+
+        self.assertEqual(
+            fake_db.updated,
+            [{"premium_buffer_amount": 25.0, "premium_buffer_enabled": True}],
+        )
+        self.assertEqual(
+            response,
+            {"premium_buffer_amount": 25.0, "premium_buffer_enabled": True},
+        )
+
     def test_update_settings_merges_partial_broker_config_payloads(self):
         from models import SettingsUpdate
         from routes import settings as settings_route

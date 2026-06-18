@@ -117,10 +117,20 @@ async def get_premium_buffer_settings():
 
 
 @router.put("/premium-buffer-settings")
-async def update_premium_buffer_settings(premium_buffer_amount: float):
-    """Update premium buffer amount"""
-    await db.update_settings({'premium_buffer_amount': premium_buffer_amount})
-    return {"premium_buffer_amount": premium_buffer_amount}
+async def update_premium_buffer_settings(
+    premium_buffer_amount: float,
+    premium_buffer_enabled: Optional[bool] = None,
+):
+    """Update premium buffer settings."""
+    update_dict = {'premium_buffer_amount': premium_buffer_amount}
+    if premium_buffer_enabled is not None:
+        update_dict['premium_buffer_enabled'] = premium_buffer_enabled
+    await db.update_settings(update_dict)
+    settings = await db.get_settings()
+    return {
+        "premium_buffer_enabled": settings.get('premium_buffer_enabled', False),
+        "premium_buffer_amount": settings.get('premium_buffer_amount', premium_buffer_amount),
+    }
 
 
 # Averaging Down
