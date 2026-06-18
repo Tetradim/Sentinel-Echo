@@ -73,10 +73,12 @@ export default function AlertsScreen() {
   const [loading, setLoading]   = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [filter, setFilter]     = useState<AlertFilter>('all');
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   const fetchAlerts = useCallback(async () => {
     if (DEMO_MODE) {
       setAlerts(DEMO_ALERTS);
+      setLoadError(null);
       setLoading(false);
       setRefreshing(false);
       return;
@@ -84,9 +86,10 @@ export default function AlertsScreen() {
     try {
       const r = await api.get(`${BACKEND_URL}/api/alerts?limit=200`);
       setAlerts(r.data);
+      setLoadError(null);
     } catch (e) { 
       console.error(e);
-      setAlerts(DEMO_ALERTS);
+      setLoadError('Live alerts could not load. Check the backend connection and refresh.');
     }
     finally { setLoading(false); setRefreshing(false); }
   }, []);
@@ -170,6 +173,13 @@ export default function AlertsScreen() {
 
       <AlertBriefing digest={digest} />
 
+      {loadError && (
+        <View style={s.errorBanner}>
+          <Ionicons name="warning-outline" size={16} color="#f59e0b" />
+          <Text style={s.errorBannerText}>{loadError}</Text>
+        </View>
+      )}
+
       {/* Filter bar */}
       <View style={s.filterBar}>
         {filterOptions.map(({ key, label, count }) => (
@@ -226,6 +236,9 @@ const s = StyleSheet.create({
   digestStat:     { flex: 1, alignItems: 'center' },
   digestStatValue:{ fontSize: 14, fontWeight: '800', color: '#e2e8f0' },
   digestStatLabel:{ fontSize: 9, color: '#64748b', marginTop: 3, fontWeight: '700' },
+
+  errorBanner:    { flexDirection: 'row', alignItems: 'center', gap: 8, marginHorizontal: 16, marginBottom: 10, padding: 10, borderRadius: 8, backgroundColor: '#1c1500', borderWidth: 1, borderColor: '#92400e' },
+  errorBannerText:{ flex: 1, fontSize: 12, color: '#f59e0b', fontWeight: '600' },
 
   filterBar:      { flexDirection: 'row', paddingHorizontal: 16, gap: 8, marginBottom: 12 },
   filterBtn:      { flex: 1, alignItems: 'center', paddingHorizontal: 8, paddingVertical: 7, borderRadius: 8, backgroundColor: '#0d1826', borderWidth: 1, borderColor: '#1e2d3d' },

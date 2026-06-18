@@ -104,11 +104,13 @@ export default function PositionsScreen() {
   const [sellPct, setSellPct]       = useState('50');
   const [exitPrice, setExitPrice]   = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const [loadError, setLoadError]   = useState<string | null>(null);
 
   const fetch = useCallback(async () => {
     if (DEMO_MODE) {
       // Use demo data
       setPositions(DEMO_POSITIONS);
+      setLoadError(null);
       setLoading(false);
       setRefreshing(false);
       return;
@@ -116,10 +118,10 @@ export default function PositionsScreen() {
     try {
       const r = await api.get(`${BACKEND_URL}/api/positions`);
       setPositions(r.data);
+      setLoadError(null);
     } catch (e) { 
       console.error(e); 
-      // Fallback to demo data on error
-      setPositions(DEMO_POSITIONS);
+      setLoadError('Live positions could not load. Check the backend connection and refresh.');
     }
     finally { setLoading(false); setRefreshing(false); }
   }, []);
@@ -259,6 +261,13 @@ export default function PositionsScreen() {
 
       <PositionBriefing digest={digest} />
 
+      {loadError && (
+        <View style={s.errorBanner}>
+          <Ionicons name="warning-outline" size={16} color="#f59e0b" />
+          <Text style={s.errorBannerText}>{loadError}</Text>
+        </View>
+      )}
+
       {/* Summary strip */}
       <View style={s.strip}>
         <View style={s.stripCell}>
@@ -382,6 +391,9 @@ const s = StyleSheet.create({
   digestStat: { flex: 1, alignItems: 'center' },
   digestStatValue: { fontSize: 14, fontWeight: '800', color: '#e2e8f0' },
   digestStatLabel: { fontSize: 9, color: '#64748b', marginTop: 3, fontWeight: '700' },
+
+  errorBanner: { flexDirection: 'row', alignItems: 'center', gap: 8, marginHorizontal: 16, marginBottom: 10, padding: 10, borderRadius: 8, backgroundColor: '#1c1500', borderWidth: 1, borderColor: '#92400e' },
+  errorBannerText: { flex: 1, fontSize: 12, color: '#f59e0b', fontWeight: '600' },
 
   filterBar:  { flexDirection: 'row', paddingHorizontal: 16, gap: 8, marginBottom: 10 },
   filterBtn:  { flex: 1, alignItems: 'center', paddingHorizontal: 8, paddingVertical: 7, borderRadius: 8, backgroundColor: '#0d1826', borderWidth: 1, borderColor: '#1e2d3d' },
