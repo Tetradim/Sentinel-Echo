@@ -273,7 +273,25 @@ export default function ProfilesScreen() {
           </Text>
         </View>
 
-        {profiles.map((profile) => (
+        {profiles.length === 0 ? (
+          <View style={styles.emptyState}>
+            <View style={styles.emptyIcon}>
+              <Ionicons name="people-outline" size={28} color="#7dd3fc" />
+            </View>
+            <Text style={styles.emptyTitle}>No profiles yet</Text>
+            <Text style={styles.emptyDetail}>
+              Create a profile to group broker routes, automation settings, and guardrails.
+            </Text>
+            <TouchableOpacity
+              style={styles.emptyAction}
+              onPress={() => setShowCreateModal(true)}
+              accessibilityRole="button"
+            >
+              <Ionicons name="add-circle-outline" size={17} color="#08111f" />
+              <Text style={styles.emptyActionText}>Create Profile</Text>
+            </TouchableOpacity>
+          </View>
+        ) : profiles.map((profile) => (
           <ProfileCard
             key={profile.id}
             profile={profile}
@@ -411,4 +429,35 @@ const styles = StyleSheet.create({
     gap: 10 
   },
   infoText: { flex: 1, color: '#93c5fd', fontSize: 13, lineHeight: 18 },
+  emptyState: {
+    alignItems: 'center',
+    backgroundColor: '#0d1826',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#1e2d3d',
+    padding: 22,
+    marginBottom: 16,
+  },
+  emptyIcon: {
+    width: 48,
+    height: 48,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#0c2740',
+    marginBottom: 12,
+  },
+  emptyTitle: { color: '#e2e8f0', fontSize: 17, fontWeight: '900' },
+  emptyDetail: { color: '#94a3b8', fontSize: 13, lineHeight: 18, textAlign: 'center', marginTop: 6 },
+  emptyAction: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: '#7dd3fc',
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 8,
+    marginTop: 16,
+  },
+  emptyActionText: { color: '#08111f', fontSize: 13, fontWeight: '900' },
 });
