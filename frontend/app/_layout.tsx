@@ -54,7 +54,17 @@ function BottomTabBar() {
 export default function RootLayout() {
   const pathname = usePathname();
   // Only show tab bar on main screens
-  const showTabs = ['/', '/positions', '/trades', '/alerts', '/settings', '/risk-settings', '/trading-settings', '/discord-settings'].includes(pathname);
+  const showTabs = [
+    '/',
+    '/positions',
+    '/trades',
+    '/alerts',
+    '/settings',
+    '/risk-settings',
+    '/trading-settings',
+    '/strike-selection',
+    '/discord-settings',
+  ].includes(pathname);
 
   return (
     <SafeAreaProvider>

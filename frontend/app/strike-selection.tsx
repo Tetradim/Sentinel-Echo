@@ -14,7 +14,7 @@ export function StrikeSelectionPage() {
   const [ticker, setTicker] = useState('QQQ');
   const [expiration, setExpiration] = useState('30');
   
-  const [chain, setChain] = useState({
+  const [chain] = useState({
     underlying: 450.0,
     calls: [
       { strike: 430, bid: 21.5, ask: 22.5, iv: 28, delta: -0.65, theta: -0.15, oi: 8500 },
@@ -339,3 +339,5 @@ export function StrikeSelectionPage() {
     </div>
   );
 }
+
+export default StrikeSelectionPage;

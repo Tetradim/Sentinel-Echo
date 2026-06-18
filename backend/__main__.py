@@ -49,7 +49,7 @@ async def startup():
     logger.info("Starting Trading Bot...")
     
     # Initialize database
-    await init_database()
+    init_database()
     logger.info("Database initialized")
     
     # Initialize Discord bot if token is set

@@ -555,12 +555,60 @@ async def process_exit_alert(
 
 def run_discord_bot(token: str, channel_ids: List[str]):
     """Run the Discord bot in a separate thread"""
-    global discord_bot
+    global discord_bot, discord_bot_thread
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
     discord_bot = create_discord_bot(token, channel_ids)
+    if discord_bot_thread is None or not discord_bot_thread.is_alive():
+        discord_bot_thread = threading.current_thread()
     set_discord_bot(discord_bot, discord_bot_thread)
-    loop.run_until_complete(discord_bot.start(token))
+    try:
+        loop.run_until_complete(discord_bot.start(token))
+    finally:
+        update_bot_status('discord_connected', False)
+        loop.close()
+
+
+def _normalize_channel_ids(channel_ids: List[str] | str) -> List[str]:
+    if isinstance(channel_ids, str):
+        raw_ids = channel_ids.split(',')
+    else:
+        raw_ids = channel_ids
+    return [str(channel_id).strip() for channel_id in raw_ids if str(channel_id).strip()]
+
+
+async def init_discord_bot(token: str, channel_ids: List[str] | str):
+    """Start the Discord bot in the background without blocking API startup."""
+    global discord_bot_thread
+    channels = _normalize_channel_ids(channel_ids)
+    if not token or not channels:
+        logger.warning("Discord bot not configured - set token and channel ids")
+        return None
+
+    if discord_bot_thread and discord_bot_thread.is_alive():
+        logger.info("Discord bot already running")
+        return discord_bot_thread
+
+    discord_bot_thread = threading.Thread(
+        target=run_discord_bot,
+        args=(token, channels),
+        daemon=True,
+        name="ConsolidationDiscordBot",
+    )
+    discord_bot_thread.start()
+    set_discord_bot(discord_bot, discord_bot_thread)
+    return discord_bot_thread
+
+
+async def shutdown_bot():
+    """Stop the Discord bot if it is running."""
+    global discord_bot, discord_bot_thread
+    if discord_bot:
+        await discord_bot.close()
+        update_bot_status('discord_connected', False)
+    discord_bot = None
+    discord_bot_thread = None
+    set_discord_bot(None, None)
 
 
 # FastAPI App
@@ -576,12 +624,16 @@ async def lifespan(app: FastAPI):
     
     # Initialize routes with database abstraction
     init_routes(db)
+
+    token = os.environ.get('DISCORD_BOT_TOKEN', '').strip()
+    channel_ids = os.environ.get('DISCORD_CHANNEL_IDS', '').strip()
+    if token and channel_ids:
+        await init_discord_bot(token, channel_ids)
     
     yield
     
     # Cleanup
-    if discord_bot:
-        await discord_bot.close()
+    await shutdown_bot()
     if mongo_client:
         mongo_client.close()
 
@@ -618,8 +670,17 @@ class APIKeyMiddleware(BaseHTTPMiddleware):
             )
         return await call_next(request)
 
-# FIXED C9: restrict CORS — set ALLOWED_ORIGINS env var (comma-separated)
-ALLOWED_ORIGINS = os.environ.get("ALLOWED_ORIGINS", "http://localhost:3000,http://localhost:5173").split(",")
+# FIXED C9: restrict CORS - set ALLOWED_ORIGINS env var (comma-separated)
+ALLOWED_ORIGINS = [
+    origin.strip()
+    for origin in os.environ.get(
+        "ALLOWED_ORIGINS",
+        "http://localhost:3000,http://127.0.0.1:3000,"
+        "http://localhost:3003,http://127.0.0.1:3003,"
+        "http://localhost:5173,http://127.0.0.1:5173",
+    ).split(",")
+    if origin.strip()
+]
 app.add_middleware(
     CORSMiddleware,
     allow_origins=ALLOWED_ORIGINS,

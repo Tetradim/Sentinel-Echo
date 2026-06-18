@@ -6,7 +6,11 @@ __pycache__/
 .Python
 env/
 venv/
+.venv/
 *.db
+*.sqlite3
+*.log
+data/
 
 # Node
 node_modules/
@@ -16,6 +20,9 @@ yarn-error.log*
 
 # Metro
 .metro-cache/
+.expo/
+expo-env.d.ts
+frontend/.gitignore
 
 # Build
 dist/

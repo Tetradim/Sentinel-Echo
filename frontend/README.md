@@ -1,50 +1,52 @@
-# Welcome to your Expo app 👋
+# Consolidation Discord Bot Frontend
 
-This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
+Expo web dashboard for the Consolidation Discord options bot. The dashboard connects to the FastAPI backend for bot status, Discord alert review, broker configuration, positions, trades, risk controls, and source-specific settings.
 
-## Get started
+## Local Launcher
 
-1. Install dependencies
+The recommended Windows entrypoint is the repository-root launcher:
 
-   ```bash
-   npm install
-   ```
-
-2. Start the app
-
-   ```bash
-   npx expo start
-   ```
-
-In the output, you'll find options to open the app in a
-
-- [development build](https://docs.expo.dev/develop/development-builds/introduction/)
-- [Android emulator](https://docs.expo.dev/workflow/android-studio-emulator/)
-- [iOS simulator](https://docs.expo.dev/workflow/ios-simulator/)
-- [Expo Go](https://expo.dev/go), a limited sandbox for trying out app development with Expo
-
-You can start developing by editing the files inside the **app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
-
-## Get a fresh project
-
-When you're ready, run:
-
-```bash
-npm run reset-project
+```powershell
+cd ..
+.\Launch-Consolidation-Bot.bat
 ```
 
-This command will move the starter code to the **app-example** directory and create a blank **app** directory where you can start developing.
+Default local ports:
 
-## Learn more
+| Service | URL |
+|---------|-----|
+| Backend API | `http://127.0.0.1:8003` |
+| Frontend web UI | `http://127.0.0.1:3003` |
 
-To learn more about developing your project with Expo, look at the following resources:
+The launcher sets `EXPO_PUBLIC_BACKEND_URL=http://127.0.0.1:8003` before starting Expo web.
 
-- [Expo documentation](https://docs.expo.dev/): Learn fundamentals, or go into advanced topics with our [guides](https://docs.expo.dev/guides).
-- [Learn Expo tutorial](https://docs.expo.dev/tutorial/introduction/): Follow a step-by-step tutorial where you'll create a project that runs on Android, iOS, and the web.
+## Manual Frontend Run
 
-## Join the community
+```powershell
+npm install
+$env:EXPO_PUBLIC_BACKEND_URL = "http://127.0.0.1:8003"
+npm run web -- --port 3003
+```
 
-Join our community of developers creating universal apps.
+Use the backend health endpoint to confirm the API is reachable:
 
-- [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
-- [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
+```powershell
+Invoke-RestMethod http://127.0.0.1:8003/api/health
+```
+
+## Backend URL
+
+The frontend resolves its API base URL from:
+
+```text
+EXPO_PUBLIC_BACKEND_URL
+```
+
+If the variable is not set, [constants/config.ts](constants/config.ts) falls back to `http://localhost:8003`.
+
+## Development Notes
+
+- Main screens live in `app/`.
+- Shared API setup lives in `utils/api.ts`.
+- The settings screens include Discord setup, alert parser configuration, broker settings, and risk controls.
+- Keep `SIMULATION_MODE=true` on the backend while validating Discord alert parsing and broker configuration.
