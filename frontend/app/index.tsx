@@ -17,6 +17,7 @@ import {
   ReadinessActionTarget,
   ReadinessTone,
 } from '../utils/dashboardReadiness';
+import { buildOperatorActionQueue, OperatorActionTarget } from '../utils/operatorActionQueue';
 
 // ── Demo Data ─────────────────────────────────────────────────────────────────
 const DEMO_STATUS: BotStatus = {
@@ -209,6 +210,48 @@ function ReadinessCard({
         <Text style={[s.readinessPrimaryText, { color: tone.accent }]}>{readiness.primaryAction.label}</Text>
         <Ionicons name="arrow-forward" size={15} color={tone.accent} />
       </TouchableOpacity>
+    </View>
+  );
+}
+
+function OperatorActionQueue({
+  readiness,
+  onAction,
+}: {
+  readiness: DashboardReadiness;
+  onAction: (target: OperatorActionTarget) => void;
+}) {
+  const operatorActions = buildOperatorActionQueue(readiness);
+
+  return (
+    <View style={s.operatorQueueCard}>
+      <View style={s.operatorQueueHeader}>
+        <Text style={s.operatorQueueTitle}>Next Actions</Text>
+        <Text style={s.operatorQueueCount}>{operatorActions.length}</Text>
+      </View>
+      <View style={s.operatorQueueList}>
+        {operatorActions.map((action) => {
+          const tone = READINESS_TONE[action.tone];
+
+          return (
+            <TouchableOpacity
+              key={`${action.label}-${action.target}`}
+              style={[s.operatorAction, { borderColor: tone.accent + '44' }]}
+              onPress={() => onAction(action.target)}
+              activeOpacity={0.78}
+            >
+              <View style={[s.operatorActionIcon, { backgroundColor: tone.accent + '18' }]}>
+                <Ionicons name={action.icon as any} size={16} color={tone.accent} />
+              </View>
+              <View style={s.operatorActionText}>
+                <Text style={s.operatorActionLabel}>{action.label}</Text>
+                <Text style={s.operatorActionDetail}>{action.detail}</Text>
+              </View>
+              <Ionicons name="arrow-forward" size={15} color={tone.accent} />
+            </TouchableOpacity>
+          );
+        })}
+      </View>
     </View>
   );
 }
@@ -544,6 +587,10 @@ export default function Dashboard() {
           readiness={readiness}
           onAction={(target) => router.push(target as any)}
         />
+        <OperatorActionQueue
+          readiness={readiness}
+          onAction={(target) => router.push(target as any)}
+        />
 
         <View style={s.card}>
           <View style={s.autoTradingHeader}>
@@ -762,6 +809,17 @@ const s = StyleSheet.create({
   readinessItemAction:{ fontSize: 11, fontWeight: '800' },
   readinessPrimaryAction:{ marginTop: 12, borderWidth: 1, borderRadius: 9, paddingVertical: 10, alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: 7, backgroundColor: '#08111d' },
   readinessPrimaryText:{ fontSize: 13, fontWeight: '800' },
+
+  operatorQueueCard:{ backgroundColor: '#0d1826', borderRadius: 12, marginHorizontal: 16, marginBottom: 10, padding: 12, borderWidth: 1, borderColor: '#1e2d3d' },
+  operatorQueueHeader:{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 9 },
+  operatorQueueTitle:{ fontSize: 12, color: '#94a3b8', fontWeight: '800', letterSpacing: 0.7 },
+  operatorQueueCount:{ minWidth: 22, height: 22, borderRadius: 11, overflow: 'hidden', backgroundColor: '#132235', color: '#cbd5e1', textAlign: 'center', paddingTop: 3, fontSize: 11, fontWeight: '900' },
+  operatorQueueList:{ gap: 8 },
+  operatorAction:{ minHeight: 58, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 10, paddingVertical: 9, borderRadius: 9, borderWidth: 1, backgroundColor: '#08111d' },
+  operatorActionIcon:{ width: 31, height: 31, borderRadius: 8, alignItems: 'center', justifyContent: 'center' },
+  operatorActionText:{ flex: 1, minWidth: 0 },
+  operatorActionLabel:{ color: '#e2e8f0', fontSize: 13, fontWeight: '800' },
+  operatorActionDetail:{ color: '#64748b', fontSize: 11, lineHeight: 15, marginTop: 1 },
 
   card:           { backgroundColor: '#0d1826', borderRadius: 14, marginHorizontal: 16, marginBottom: 10, padding: 16, borderWidth: 1, borderColor: '#1e2d3d' },
   cardTitle:      { fontSize: 16, fontWeight: '700', color: '#e2e8f0' },
