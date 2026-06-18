@@ -83,6 +83,24 @@ async def update_source_overrides(source_overrides: Dict[str, Dict[str, Any]] = 
     return normalized
 
 
+@router.get("/correlation-settings")
+async def get_correlation_settings():
+    """Get per-ticker position concentration limit."""
+    settings = await db.get_settings()
+    return {
+        "max_positions_per_ticker": settings.get("max_positions_per_ticker", 3),
+    }
+
+
+@router.put("/correlation-settings")
+async def update_correlation_settings(max_positions_per_ticker: int):
+    """Set the maximum number of open positions allowed in one underlying."""
+    if max_positions_per_ticker < 0:
+        raise HTTPException(status_code=400, detail="Value must be >= 0")
+    await db.update_settings({"max_positions_per_ticker": max_positions_per_ticker})
+    return {"max_positions_per_ticker": max_positions_per_ticker}
+
+
 # Trading Toggles
 @router.post("/toggle-trading")
 async def toggle_trading():

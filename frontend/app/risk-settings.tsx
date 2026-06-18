@@ -3,11 +3,24 @@
  * 
  * Complete risk management configuration page
  */
-import React, { useState } from 'react';
-import { View, Text, TextInput, Switch, ScrollView, TouchableOpacity, StyleSheet, Alert } from 'react-native';
+import React, { useCallback, useEffect, useState } from 'react';
+import {
+  ActivityIndicator,
+  Alert,
+  RefreshControl,
+  ScrollView,
+  StyleSheet,
+  Switch,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
+import { api } from '../utils/api';
 import { RiskDigest, summarizeRiskSettings } from '../utils/riskDigest';
+import { BACKEND_URL } from '../constants/config';
 
 type TabType = 'position' | 'stoploss' | 'takeprofit' | 'trailing' | 'shutdown' | 'correlation';
 
@@ -79,6 +92,11 @@ const DEFAULT_RISK_SETTINGS: RiskSettings = {
   maxPositionsPerSector: 3,
 };
 
+function toNumber(value: unknown, fallback: number): number {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? numeric : fallback;
+}
+
 function RiskStat({ label, value, color }: { label: string; value: string; color?: string }) {
   return (
     <View style={styles.briefingStat}>
@@ -135,14 +153,113 @@ function RiskBriefing({ digest }: { digest: RiskDigest }) {
 export default function RiskSettingsScreen() {
   const [activeTab, setActiveTab] = useState<TabType>('position');
   const [settings, setSettings] = useState<RiskSettings>(DEFAULT_RISK_SETTINGS);
-  const digest = summarizeRiskSettings(settings);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   const updateSetting = <K extends keyof RiskSettings>(key: K, value: RiskSettings[K]) => {
     setSettings(prev => ({ ...prev, [key]: value }));
   };
 
-  const saveSettings = () => {
-    Alert.alert('Saved', 'Risk settings saved successfully');
+  const fetchSettings = useCallback(async () => {
+    try {
+      const [settingsRes, riskRes, trailingRes, shutdownRes, correlationRes] = await Promise.all([
+        api.get(`${BACKEND_URL}/api/settings`),
+        api.get(`${BACKEND_URL}/api/risk-management-settings`),
+        api.get(`${BACKEND_URL}/api/trailing-stop-settings`),
+        api.get(`${BACKEND_URL}/api/auto-shutdown-settings`),
+        api.get(`${BACKEND_URL}/api/correlation-settings`),
+      ]);
+      const base = settingsRes.data || {};
+      const risk = riskRes.data || {};
+      const trailing = trailingRes.data || {};
+      const shutdown = shutdownRes.data || {};
+      const correlation = correlationRes.data || {};
+
+      setSettings({
+        maxPositionSize: toNumber(base.max_position_size, DEFAULT_RISK_SETTINGS.maxPositionSize),
+        defaultQuantity: toNumber(base.default_quantity, DEFAULT_RISK_SETTINGS.defaultQuantity),
+        riskPerTrade: toNumber(base.risk_per_trade, DEFAULT_RISK_SETTINGS.riskPerTrade),
+        stopLossEnabled: Boolean(risk.stop_loss_enabled),
+        stopLossPercentage: toNumber(risk.stop_loss_percentage, DEFAULT_RISK_SETTINGS.stopLossPercentage),
+        stopLossOrderType: String(risk.stop_loss_order_type || DEFAULT_RISK_SETTINGS.stopLossOrderType),
+        takeProfitEnabled: Boolean(risk.take_profit_enabled),
+        takeProfitPercentage: toNumber(risk.take_profit_percentage, DEFAULT_RISK_SETTINGS.takeProfitPercentage),
+        multiLevelTakeProfit: Boolean(risk.bracket_order_enabled),
+        trailingStopEnabled: Boolean(trailing.trailing_stop_enabled),
+        trailingStopType: String(trailing.trailing_stop_type || DEFAULT_RISK_SETTINGS.trailingStopType),
+        trailingStopPercent: toNumber(trailing.trailing_stop_percent, DEFAULT_RISK_SETTINGS.trailingStopPercent),
+        trailingStopCents: toNumber(trailing.trailing_stop_cents, DEFAULT_RISK_SETTINGS.trailingStopCents),
+        trailingHours: toNumber(base.trailing_hours, DEFAULT_RISK_SETTINGS.trailingHours),
+        autoShutdownEnabled: Boolean(shutdown.auto_shutdown_enabled),
+        maxConsecutiveLosses: toNumber(shutdown.max_consecutive_losses, DEFAULT_RISK_SETTINGS.maxConsecutiveLosses),
+        maxDailyLosses: toNumber(shutdown.max_daily_losses, DEFAULT_RISK_SETTINGS.maxDailyLosses),
+        maxDailyLossAmount: toNumber(shutdown.max_daily_loss_amount, DEFAULT_RISK_SETTINGS.maxDailyLossAmount),
+        maxDrawdownPercent: toNumber(base.max_drawdown_percent, DEFAULT_RISK_SETTINGS.maxDrawdownPercent),
+        maxPositionsPerTicker: toNumber(correlation.max_positions_per_ticker, DEFAULT_RISK_SETTINGS.maxPositionsPerTicker),
+        maxPositionsPerSector: toNumber(base.max_positions_per_sector, DEFAULT_RISK_SETTINGS.maxPositionsPerSector),
+      });
+      setLoadError(null);
+    } catch (error) {
+      console.error('Risk settings load failed:', error);
+      setLoadError('Risk settings could not load. Check the backend connection and retry.');
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchSettings();
+  }, [fetchSettings]);
+
+  const onRefresh = useCallback(() => {
+    setRefreshing(true);
+    fetchSettings();
+  }, [fetchSettings]);
+
+  const saveSettings = async () => {
+    setSaving(true);
+    try {
+      await Promise.all([
+        api.put(`${BACKEND_URL}/api/settings`, {
+          max_position_size: settings.maxPositionSize,
+          default_quantity: settings.defaultQuantity,
+          risk_per_trade: settings.riskPerTrade,
+          trailing_hours: settings.trailingHours,
+          max_drawdown_percent: settings.maxDrawdownPercent,
+          max_positions_per_sector: settings.maxPositionsPerSector,
+        }),
+        api.put(`${BACKEND_URL}/api/risk-management-settings`, {
+          take_profit_enabled: settings.takeProfitEnabled,
+          take_profit_percentage: settings.takeProfitPercentage,
+          bracket_order_enabled: settings.multiLevelTakeProfit,
+          stop_loss_enabled: settings.stopLossEnabled,
+          stop_loss_percentage: settings.stopLossPercentage,
+          stop_loss_order_type: settings.stopLossOrderType,
+        }),
+        api.put(`${BACKEND_URL}/api/trailing-stop-settings`, {
+          trailing_stop_enabled: settings.trailingStopEnabled,
+          trailing_stop_type: settings.trailingStopType,
+          trailing_stop_percent: settings.trailingStopPercent,
+          trailing_stop_cents: settings.trailingStopCents,
+        }),
+        api.put(`${BACKEND_URL}/api/auto-shutdown-settings`, {
+          auto_shutdown_enabled: settings.autoShutdownEnabled,
+          max_consecutive_losses: settings.maxConsecutiveLosses,
+          max_daily_losses: settings.maxDailyLosses,
+          max_daily_loss_amount: settings.maxDailyLossAmount,
+        }),
+        api.put(`${BACKEND_URL}/api/correlation-settings?max_positions_per_ticker=${settings.maxPositionsPerTicker}`),
+      ]);
+      setLoadError(null);
+      Alert.alert('Saved', 'Risk settings saved successfully');
+    } catch (error: any) {
+      Alert.alert('Error', error.response?.data?.detail || 'Failed to save risk settings');
+    } finally {
+      setSaving(false);
+    }
   };
 
   const renderTabContent = () => {
@@ -344,9 +461,24 @@ export default function RiskSettingsScreen() {
     }
   };
 
+  if (loading) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color="#38bdf8" />
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  const digest = summarizeRiskSettings(settings);
+
   return (
     <SafeAreaView style={styles.container}>
-      <ScrollView contentContainerStyle={styles.content}>
+      <ScrollView
+        contentContainerStyle={styles.content}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#38bdf8" />}
+      >
         <View style={styles.header}>
           <View>
             <Text style={styles.eyebrow}>RISK CONTROLS</Text>
@@ -359,6 +491,21 @@ export default function RiskSettingsScreen() {
         </View>
 
         <RiskBriefing digest={digest} />
+
+        {loadError && (
+          <View style={styles.errorBanner}>
+            <Ionicons name="warning-outline" size={16} color="#f59e0b" />
+            <Text style={styles.errorBannerText}>{loadError}</Text>
+            <TouchableOpacity
+              style={styles.errorBannerRetry}
+              onPress={fetchSettings}
+              accessibilityRole="button"
+            >
+              <Ionicons name="refresh" size={13} color="#08111f" />
+              <Text style={styles.errorBannerRetryText}>Retry</Text>
+            </TouchableOpacity>
+          </View>
+        )}
         
         {/* Tab Navigation */}
         <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.tabBar}>
@@ -382,9 +529,18 @@ export default function RiskSettingsScreen() {
         
         {/* Save Button */}
         <View style={styles.buttonContainer}>
-          <TouchableOpacity style={styles.saveButton} onPress={saveSettings} accessibilityRole="button">
-            <Ionicons name="save-outline" size={18} color="#08111f" />
-            <Text style={styles.saveButtonText}>Save Settings</Text>
+          <TouchableOpacity
+            style={[styles.saveButton, saving && styles.saveButtonDisabled]}
+            onPress={saveSettings}
+            disabled={saving}
+            accessibilityRole="button"
+          >
+            {saving ? (
+              <ActivityIndicator size="small" color="#08111f" />
+            ) : (
+              <Ionicons name="save-outline" size={18} color="#08111f" />
+            )}
+            <Text style={styles.saveButtonText}>{saving ? 'Saving...' : 'Save Settings'}</Text>
           </TouchableOpacity>
         </View>
       </ScrollView>
@@ -394,6 +550,7 @@ export default function RiskSettingsScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#08111f' },
+  loadingContainer: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   content: { padding: 16, paddingBottom: 32 },
   header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end', marginBottom: 12 },
   eyebrow: { color: '#38bdf8', fontSize: 10, fontWeight: '800', letterSpacing: 1.8, marginBottom: 2 },
@@ -450,6 +607,28 @@ const styles = StyleSheet.create({
   warningTitle: { color: '#fbbf24', fontSize: 12, fontWeight: '800' },
   warningDetail: { color: '#64748b', fontSize: 11, lineHeight: 15, marginTop: 2 },
   clearText: { color: '#94a3b8', fontSize: 12, fontWeight: '700', flex: 1 },
+  errorBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 12,
+    padding: 10,
+    borderRadius: 8,
+    backgroundColor: '#1c1500',
+    borderWidth: 1,
+    borderColor: '#92400e',
+  },
+  errorBannerText: { flex: 1, color: '#f59e0b', fontSize: 12, fontWeight: '700' },
+  errorBannerRetry: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: '#f59e0b',
+    borderRadius: 6,
+    paddingHorizontal: 9,
+    paddingVertical: 6,
+  },
+  errorBannerRetryText: { color: '#08111f', fontSize: 11, fontWeight: '900' },
   tabBar: { marginBottom: 12 },
   tabRow: { flexDirection: 'row', gap: 8, paddingRight: 16 },
   tab: {
@@ -496,5 +675,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: 8,
   },
+  saveButtonDisabled: { opacity: 0.7 },
   saveButtonText: { color: '#08111f', fontSize: 15, fontWeight: '900' },
 });

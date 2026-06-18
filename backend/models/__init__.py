@@ -270,6 +270,10 @@ class Settings(BaseModel):
     default_quantity: int = 1
     simulation_mode: bool = True
     max_position_size: float = 1000.0
+    risk_per_trade: float = 1.0
+    max_drawdown_percent: float = 20.0
+    max_positions_per_ticker: int = 3
+    max_positions_per_sector: int = 3
     averaging_down_enabled: bool = False
     averaging_down_threshold: float = 10.0
     averaging_down_percentage: float = 25.0
@@ -284,6 +288,7 @@ class Settings(BaseModel):
     trailing_stop_type: str = "percent"
     trailing_stop_percent: float = 10.0
     trailing_stop_cents: float = 50.0
+    trailing_hours: float = 4.0
     # Auto shutdown settings
     auto_shutdown_enabled: bool = False
     max_consecutive_losses: int = 3
@@ -309,6 +314,10 @@ class SettingsUpdate(BaseModel):
     default_quantity: Optional[int] = None
     simulation_mode: Optional[bool] = None
     max_position_size: Optional[float] = None
+    risk_per_trade: Optional[float] = None
+    max_drawdown_percent: Optional[float] = None
+    max_positions_per_ticker: Optional[int] = None
+    max_positions_per_sector: Optional[int] = None
     averaging_down_enabled: Optional[bool] = None
     averaging_down_threshold: Optional[float] = None
     averaging_down_percentage: Optional[float] = None
@@ -321,6 +330,7 @@ class SettingsUpdate(BaseModel):
     trailing_stop_type: Optional[str] = None
     trailing_stop_percent: Optional[float] = None
     trailing_stop_cents: Optional[float] = None
+    trailing_hours: Optional[float] = None
 
 
 class BrokerInfo(BaseModel):

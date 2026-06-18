@@ -86,6 +86,19 @@ class SourceOverrideRouteTests(unittest.TestCase):
             },
         )
 
+    def test_correlation_settings_round_trip_on_active_settings_route(self):
+        from routes import settings as settings_route
+
+        fake_db = FakeSettingsDb({"max_positions_per_ticker": 2})
+        settings_route.set_db(fake_db)
+
+        current = asyncio.run(settings_route.get_correlation_settings())
+        updated = asyncio.run(settings_route.update_correlation_settings(4))
+
+        self.assertEqual(current, {"max_positions_per_ticker": 2})
+        self.assertEqual(updated, {"max_positions_per_ticker": 4})
+        self.assertEqual(fake_db.updated, [{"max_positions_per_ticker": 4}])
+
     def test_update_source_overrides_normalizes_before_saving(self):
         from routes import settings as settings_route
 
