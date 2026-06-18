@@ -23,6 +23,7 @@ export interface DashboardReadinessInput {
   stopLossEnabled: boolean;
   trailingStopEnabled: boolean;
   premiumBufferEnabled: boolean;
+  liveExitAutomationSupported?: boolean;
 }
 
 export interface ReadinessAction {
@@ -105,7 +106,8 @@ function getSummary(
 
 export function buildDashboardReadiness(input: DashboardReadinessInput): DashboardReadiness {
   const status = input.status;
-  const exitGuardsEnabled = input.takeProfitEnabled || input.stopLossEnabled || input.trailingStopEnabled;
+  const exitGuardsConfigured = input.takeProfitEnabled || input.stopLossEnabled || input.trailingStopEnabled;
+  const exitGuardsActive = exitGuardsConfigured && Boolean(input.liveExitAutomationSupported);
 
   const items: ReadinessItem[] = [
     input.shutdownTriggered
@@ -180,7 +182,7 @@ export function buildDashboardReadiness(input: DashboardReadinessInput): Dashboa
           actionLabel: 'Open Trading',
           actionTarget: '/trading-settings',
         },
-    exitGuardsEnabled
+    exitGuardsActive
       ? {
           id: 'guards',
           label: 'Exit Guards',
@@ -190,6 +192,16 @@ export function buildDashboardReadiness(input: DashboardReadinessInput): Dashboa
           state: 'ready',
           icon: input.premiumBufferEnabled ? 'shield-checkmark' : 'shield-half',
         }
+      : exitGuardsConfigured
+        ? {
+            id: 'guards',
+            label: 'Exit Guards',
+            detail: 'Exit guard settings are configured, but active orders still need manual or broker-side handling.',
+            state: 'attention',
+            icon: 'shield-half',
+            actionLabel: 'Tune Risk',
+            actionTarget: '/risk-settings',
+          }
       : {
           id: 'guards',
           label: 'Exit Guards',

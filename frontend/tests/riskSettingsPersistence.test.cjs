@@ -16,3 +16,12 @@ test('risk settings screen loads and saves backend configuration', () => {
   assert.match(source, /api\.put\(`\$\{BACKEND_URL\}\/api\/auto-shutdown-settings`/);
   assert.match(source, /api\.put\(`\$\{BACKEND_URL\}\/api\/correlation-settings\?/);
 });
+
+test('risk settings cannot save defaults before a successful backend load', () => {
+  const source = fs.readFileSync(path.join(__dirname, '..', 'app', 'risk-settings.tsx'), 'utf8');
+
+  assert.match(source, /const \[settingsLoaded, setSettingsLoaded\] = useState\(false\)/);
+  assert.match(source, /setSettingsLoaded\(true\)/);
+  assert.match(source, /if \(!settingsLoaded\) \{/);
+  assert.match(source, /disabled=\{saving \|\| !settingsLoaded \|\| hasInvalidSettings\}/);
+});

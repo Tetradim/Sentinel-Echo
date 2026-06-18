@@ -97,6 +97,51 @@ function toNumber(value: unknown, fallback: number): number {
   return Number.isFinite(numeric) ? numeric : fallback;
 }
 
+function isPositive(value: number): boolean {
+  return Number.isFinite(value) && value > 0;
+}
+
+function isNonNegative(value: number): boolean {
+  return Number.isFinite(value) && value >= 0;
+}
+
+function getRiskSettingsValidationErrors(settings: RiskSettings): string[] {
+  const errors: string[] = [];
+  const positiveFields: [string, number][] = [
+    ['Max position size', settings.maxPositionSize],
+    ['Risk per trade', settings.riskPerTrade],
+    ['Stop loss percent', settings.stopLossPercentage],
+    ['Take profit percent', settings.takeProfitPercentage],
+    ['Trailing stop percent', settings.trailingStopPercent],
+    ['Trailing stop cents', settings.trailingStopCents],
+    ['Trailing hours', settings.trailingHours],
+    ['Max daily loss amount', settings.maxDailyLossAmount],
+    ['Max drawdown percent', settings.maxDrawdownPercent],
+  ];
+
+  positiveFields.forEach(([label, value]) => {
+    if (!isPositive(value)) errors.push(`${label} must be greater than 0.`);
+  });
+
+  if (!Number.isInteger(settings.defaultQuantity) || settings.defaultQuantity < 1) {
+    errors.push('Default quantity must be a whole number of at least 1.');
+  }
+  if (!Number.isInteger(settings.maxConsecutiveLosses) || settings.maxConsecutiveLosses < 1) {
+    errors.push('Max consecutive losses must be a whole number of at least 1.');
+  }
+  if (!Number.isInteger(settings.maxDailyLosses) || settings.maxDailyLosses < 1) {
+    errors.push('Max daily losses must be a whole number of at least 1.');
+  }
+  if (!Number.isInteger(settings.maxPositionsPerTicker) || !isNonNegative(settings.maxPositionsPerTicker)) {
+    errors.push('Max positions per ticker must be a whole number of 0 or more.');
+  }
+  if (!Number.isInteger(settings.maxPositionsPerSector) || !isNonNegative(settings.maxPositionsPerSector)) {
+    errors.push('Max positions per sector must be a whole number of 0 or more.');
+  }
+
+  return errors;
+}
+
 function RiskStat({ label, value, color }: { label: string; value: string; color?: string }) {
   return (
     <View style={styles.briefingStat}>
@@ -120,12 +165,12 @@ function RiskBriefing({ digest }: { digest: RiskDigest }) {
         </View>
         <View style={[styles.coverageBadge, { backgroundColor: toneColor + '18' }]}>
           <Text style={[styles.coverageValue, { color: toneColor }]}>{digest.guardCoveragePercent}%</Text>
-          <Text style={styles.coverageLabel}>covered</Text>
+          <Text style={styles.coverageLabel}>live</Text>
         </View>
       </View>
 
       <View style={styles.briefingStats}>
-        <RiskStat label="Guards" value={`${digest.enabledGuards}/6`} color={toneColor} />
+        <RiskStat label="Live Guards" value={`${digest.enabledGuards}/6`} color={toneColor} />
         <RiskStat label="Risk/Trade" value={digest.riskPerTradeLabel} />
         <RiskStat label="Max Size" value={digest.maxPositionSizeLabel} />
       </View>
@@ -142,7 +187,7 @@ function RiskBriefing({ digest }: { digest: RiskDigest }) {
         )) : (
           <View style={styles.warningRow}>
             <Ionicons name="shield-checkmark-outline" size={14} color="#22c55e" />
-            <Text style={styles.clearText}>All primary automation guardrails are armed.</Text>
+            <Text style={styles.clearText}>Verified live automation guardrails are active.</Text>
           </View>
         )}
       </View>
@@ -156,6 +201,7 @@ export default function RiskSettingsScreen() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [settingsLoaded, setSettingsLoaded] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
 
   const updateSetting = <K extends keyof RiskSettings>(key: K, value: RiskSettings[K]) => {
@@ -200,6 +246,7 @@ export default function RiskSettingsScreen() {
         maxPositionsPerTicker: toNumber(correlation.max_positions_per_ticker, DEFAULT_RISK_SETTINGS.maxPositionsPerTicker),
         maxPositionsPerSector: toNumber(base.max_positions_per_sector, DEFAULT_RISK_SETTINGS.maxPositionsPerSector),
       });
+      setSettingsLoaded(true);
       setLoadError(null);
     } catch (error) {
       console.error('Risk settings load failed:', error);
@@ -219,7 +266,24 @@ export default function RiskSettingsScreen() {
     fetchSettings();
   }, [fetchSettings]);
 
+  const retryFetchSettings = useCallback(() => {
+    if (!settingsLoaded) setLoading(true);
+    else setRefreshing(true);
+    fetchSettings();
+  }, [fetchSettings, settingsLoaded]);
+
+  const validationErrors = getRiskSettingsValidationErrors(settings);
+  const hasInvalidSettings = validationErrors.length > 0;
+
   const saveSettings = async () => {
+    if (!settingsLoaded) {
+      Alert.alert('Settings Not Loaded', 'Risk settings must load successfully before they can be saved.');
+      return;
+    }
+    if (hasInvalidSettings) {
+      Alert.alert('Invalid Settings', validationErrors[0]);
+      return;
+    }
     setSaving(true);
     try {
       await Promise.all([
@@ -498,12 +562,19 @@ export default function RiskSettingsScreen() {
             <Text style={styles.errorBannerText}>{loadError}</Text>
             <TouchableOpacity
               style={styles.errorBannerRetry}
-              onPress={fetchSettings}
+              onPress={retryFetchSettings}
               accessibilityRole="button"
             >
               <Ionicons name="refresh" size={13} color="#08111f" />
               <Text style={styles.errorBannerRetryText}>Retry</Text>
             </TouchableOpacity>
+          </View>
+        )}
+
+        {hasInvalidSettings && (
+          <View style={styles.errorBanner}>
+            <Ionicons name="alert-circle-outline" size={16} color="#f59e0b" />
+            <Text style={styles.errorBannerText}>{validationErrors[0]}</Text>
           </View>
         )}
         
@@ -530,9 +601,9 @@ export default function RiskSettingsScreen() {
         {/* Save Button */}
         <View style={styles.buttonContainer}>
           <TouchableOpacity
-            style={[styles.saveButton, saving && styles.saveButtonDisabled]}
+            style={[styles.saveButton, (saving || !settingsLoaded || hasInvalidSettings) && styles.saveButtonDisabled]}
             onPress={saveSettings}
-            disabled={saving}
+            disabled={saving || !settingsLoaded || hasInvalidSettings}
             accessibilityRole="button"
           >
             {saving ? (
@@ -540,7 +611,9 @@ export default function RiskSettingsScreen() {
             ) : (
               <Ionicons name="save-outline" size={18} color="#08111f" />
             )}
-            <Text style={styles.saveButtonText}>{saving ? 'Saving...' : 'Save Settings'}</Text>
+            <Text style={styles.saveButtonText}>
+              {saving ? 'Saving...' : !settingsLoaded ? 'Load Required' : hasInvalidSettings ? 'Fix Settings' : 'Save Settings'}
+            </Text>
           </TouchableOpacity>
         </View>
       </ScrollView>

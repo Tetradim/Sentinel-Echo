@@ -9,6 +9,8 @@ export interface DigestRiskSettings {
   autoShutdownEnabled?: boolean | null;
   maxPositionsPerTicker?: number | null;
   maxPositionsPerSector?: number | null;
+  liveExitAutomationSupported?: boolean | null;
+  sectorConcentrationSupported?: boolean | null;
 }
 
 export interface RiskDigestStatus {
@@ -51,13 +53,15 @@ function formatPercent(value: number): string {
 }
 
 export function summarizeRiskSettings(settings: DigestRiskSettings): RiskDigest {
+  const liveExitAutomationSupported = Boolean(settings.liveExitAutomationSupported);
+  const sectorConcentrationSupported = Boolean(settings.sectorConcentrationSupported);
   const guardChecks = [
-    Boolean(settings.stopLossEnabled),
-    Boolean(settings.takeProfitEnabled),
-    Boolean(settings.trailingStopEnabled),
+    Boolean(settings.stopLossEnabled) && liveExitAutomationSupported,
+    Boolean(settings.takeProfitEnabled) && liveExitAutomationSupported,
+    Boolean(settings.trailingStopEnabled) && liveExitAutomationSupported,
     Boolean(settings.autoShutdownEnabled),
     toNumber(settings.maxPositionsPerTicker) > 0,
-    toNumber(settings.maxPositionsPerSector) > 0,
+    toNumber(settings.maxPositionsPerSector) > 0 && sectorConcentrationSupported,
   ];
   const enabledGuards = guardChecks.filter(Boolean).length;
   const guardCoveragePercent = Math.round((enabledGuards / TOTAL_GUARDS) * 100);
@@ -65,6 +69,17 @@ export function summarizeRiskSettings(settings: DigestRiskSettings): RiskDigest 
   const maxPositionSize = toNumber(settings.maxPositionSize);
 
   const guardWarnings: RiskDigestWarning[] = [];
+  const hasConfiguredExitGuard =
+    Boolean(settings.stopLossEnabled) ||
+    Boolean(settings.takeProfitEnabled) ||
+    Boolean(settings.trailingStopEnabled);
+
+  if (hasConfiguredExitGuard && !liveExitAutomationSupported) {
+    guardWarnings.push({
+      title: 'Exit automation not wired',
+      detail: 'Stop, target, and trailing settings are saved but active orders are not staged automatically.',
+    });
+  }
   if (!settings.stopLossEnabled) {
     guardWarnings.push({ title: 'Stop loss disabled', detail: 'Downside exits will need manual handling.' });
   }
@@ -80,7 +95,12 @@ export function summarizeRiskSettings(settings: DigestRiskSettings): RiskDigest 
   if (toNumber(settings.maxPositionsPerTicker) <= 0) {
     guardWarnings.push({ title: 'Ticker cap missing', detail: 'Single-name concentration is uncapped.' });
   }
-  if (toNumber(settings.maxPositionsPerSector) <= 0) {
+  if (toNumber(settings.maxPositionsPerSector) > 0 && !sectorConcentrationSupported) {
+    guardWarnings.push({
+      title: 'Sector cap advisory',
+      detail: 'Sector limits are saved for review but the active risk check only enforces ticker caps.',
+    });
+  } else if (toNumber(settings.maxPositionsPerSector) <= 0) {
     guardWarnings.push({ title: 'Sector cap missing', detail: 'Sector concentration is uncapped.' });
   }
 
@@ -94,13 +114,15 @@ export function summarizeRiskSettings(settings: DigestRiskSettings): RiskDigest 
 
   let primaryStatus: RiskDigestStatus = {
     title: 'Guarded',
-    detail: 'Core exits, shutdowns, and concentration limits are armed.',
+    detail: 'Core exits, shutdowns, and concentration limits are armed in the active route.',
     tone: 'live',
   };
 
   if (guardWarnings.length > 0) {
     primaryStatus = {
-      title: 'Needs Guardrails',
+      title: guardWarnings.some((warning) => warning.title.includes('not wired') || warning.title.includes('advisory'))
+        ? 'Needs Live Wiring'
+        : 'Needs Guardrails',
       detail: `${guardWarnings.length} risk control${guardWarnings.length === 1 ? '' : 's'} need attention.`,
       tone: 'attention',
     };

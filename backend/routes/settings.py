@@ -339,18 +339,84 @@ async def reset_loss_counters(x_admin_key: Optional[str] = Header(default=None))
     return {"message": "Loss counters reset, trading re-enabled"}
 
 
+# Notification settings
+@router.get("/notification-settings")
+async def get_notification_settings():
+    """Get SMS and notification settings."""
+    settings = await db.get_settings()
+    return {
+        "sms_enabled": settings.get("sms_enabled", False),
+        "sms_phone_number": settings.get("sms_phone_number", ""),
+        "twilio_account_sid": settings.get("twilio_account_sid", ""),
+        "twilio_auth_token": "********" if settings.get("twilio_auth_token") else "",
+        "twilio_from_number": settings.get("twilio_from_number", ""),
+    }
+
+
+@router.put("/notification-settings")
+async def update_notification_settings(
+    sms_enabled: Optional[bool] = None,
+    sms_phone_number: Optional[str] = None,
+    twilio_account_sid: Optional[str] = None,
+    twilio_auth_token: Optional[str] = None,
+    twilio_from_number: Optional[str] = None,
+):
+    """Update SMS and notification settings."""
+    update: Dict[str, Any] = {}
+    if sms_enabled is not None:
+        update["sms_enabled"] = sms_enabled
+    if sms_phone_number is not None:
+        update["sms_phone_number"] = sms_phone_number.strip()
+    if twilio_account_sid is not None:
+        update["twilio_account_sid"] = twilio_account_sid.strip()
+    if twilio_auth_token is not None:
+        update["twilio_auth_token"] = twilio_auth_token.strip()
+    if twilio_from_number is not None:
+        update["twilio_from_number"] = twilio_from_number.strip()
+    if update:
+        await db.update_settings(update)
+    return {"message": "Notification settings updated"}
+
+
+@router.post("/notification-settings/test")
+async def test_sms_notification():
+    """Send a test SMS to verify Twilio credentials."""
+    from notifications import send_notification
+
+    settings = await db.get_settings()
+    if not settings.get("sms_enabled"):
+        raise HTTPException(status_code=400, detail="SMS notifications are disabled.")
+    entry = await send_notification(
+        event_type="test",
+        message="This is a test SMS from your Trading Bot. If you receive this, notifications are working!",
+        settings=settings,
+    )
+    if not entry["sent_sms"]:
+        raise HTTPException(status_code=500, detail=entry.get("error", "Send failed"))
+    return {"message": "Test SMS sent successfully."}
+
+
+@router.get("/notification-log")
+async def get_notification_log():
+    """Get the last notification events."""
+    from notifications import get_notification_log
+
+    return get_notification_log()
+
+
 # Broker Connection Check
 @router.post("/check-broker-connection")
 async def check_broker_connection():
     """Check if broker is connected"""
     from routes.health import bot_status
-    from order_execution import get_configured_broker_client
+    from order_execution import close_broker_client, get_configured_broker_client
 
     settings = await db.get_settings()
     if not settings:
         return {"connected": False, "broker": None, "error": "No settings configured"}
 
     active_broker = settings.get('active_broker', 'ibkr')
+    broker_client = None
     try:
         broker_client = get_configured_broker_client(settings, active_broker)
         connected = await broker_client.check_connection()
@@ -362,6 +428,9 @@ async def check_broker_connection():
         import logging as _log
         _log.getLogger(__name__).error("Broker connection check failed for %s: %s", active_broker, e)
         return {"connected": False, "broker": active_broker, "error": "Connection check failed — see server logs for details"}
+    finally:
+        if broker_client is not None:
+            await close_broker_client(broker_client)
 
 
 async def check_and_trigger_shutdown(realized_pnl: float):

@@ -35,14 +35,31 @@ const guardedSettings = {
   maxPositionsPerSector: 3,
 };
 
-test('summarizes fully guarded risk settings as ready', () => {
+test('flags configured guards that are not wired into active execution', () => {
   const digest = summarizeRiskSettings(guardedSettings);
+
+  assert.equal(digest.primaryStatus.title, 'Needs Live Wiring');
+  assert.equal(digest.primaryStatus.tone, 'attention');
+  assert.equal(digest.enabledGuards, 2);
+  assert.equal(digest.guardCoveragePercent, 33);
+  assert.equal(digest.riskPerTradeLabel, '1%');
+  assert.deepEqual(
+    digest.warningItems.map((item) => item.title),
+    ['Exit automation not wired', 'Sector cap advisory']
+  );
+});
+
+test('counts configured exit and sector guards when active execution support is explicit', () => {
+  const digest = summarizeRiskSettings({
+    ...guardedSettings,
+    liveExitAutomationSupported: true,
+    sectorConcentrationSupported: true,
+  });
 
   assert.equal(digest.primaryStatus.title, 'Guarded');
   assert.equal(digest.primaryStatus.tone, 'live');
   assert.equal(digest.enabledGuards, 6);
   assert.equal(digest.guardCoveragePercent, 100);
-  assert.equal(digest.riskPerTradeLabel, '1%');
   assert.deepEqual(digest.warningItems, []);
 });
 
@@ -55,6 +72,8 @@ test('flags missing exits and shutdown controls as guardrail gaps', () => {
     autoShutdownEnabled: false,
     maxPositionsPerTicker: 0,
     maxPositionsPerSector: 0,
+    liveExitAutomationSupported: true,
+    sectorConcentrationSupported: true,
   });
 
   assert.equal(digest.primaryStatus.title, 'Needs Guardrails');
@@ -77,6 +96,8 @@ test('flags missing exits and shutdown controls as guardrail gaps', () => {
 test('prioritizes sizing risk when allocation settings are too aggressive', () => {
   const digest = summarizeRiskSettings({
     ...guardedSettings,
+    liveExitAutomationSupported: true,
+    sectorConcentrationSupported: true,
     riskPerTrade: 3.5,
     maxPositionSize: 7500,
   });

@@ -52,6 +52,19 @@ async def _get_trade_by_id(trade_id: str) -> Optional[dict]:
     return next((trade for trade in trades if trade.get("id") == trade_id), None)
 
 
+async def _get_open_position_for_trade(trade_id: str) -> Optional[dict]:
+    if not hasattr(db, "get_positions"):
+        return None
+
+    positions = await db.get_positions()
+    for position in positions:
+        if position.get("status") == "closed":
+            continue
+        if trade_id in (position.get("trade_ids") or []):
+            return position
+    return None
+
+
 def _enum_value(value: Any) -> Any:
     return value.value if hasattr(value, "value") else value
 
@@ -159,6 +172,71 @@ async def get_alerts(limit: int = 50):
     return await db.get_alerts(limit)
 
 
+@router.post("/test-alert")
+async def create_test_alert():
+    """Create a safe simulated alert/trade/position for local UI testing."""
+    settings = await db.get_settings()
+    active_broker = str(_enum_value(settings.get("active_broker", "ibkr")))
+    now = datetime.now(timezone.utc)
+
+    from models import Alert
+
+    test_alert = Alert(
+        ticker="SPY",
+        strike=500.0,
+        option_type="CALL",
+        expiration="2026-06-26",
+        entry_price=1.25,
+        raw_message="TEST ALERT: BTO SPY 500C 2026-06-26 @ 1.25",
+        processed=True,
+        trade_executed=True,
+        trade_result="filled",
+    )
+    trade = Trade(
+        alert_id=test_alert.id,
+        ticker=test_alert.ticker,
+        strike=test_alert.strike,
+        option_type=test_alert.option_type,
+        expiration=test_alert.expiration,
+        entry_price=test_alert.entry_price,
+        current_price=test_alert.entry_price,
+        quantity=1,
+        side="BUY",
+        status="simulated",
+        broker=active_broker,
+        executed_at=now,
+        simulated=True,
+    )
+    position = Position(
+        ticker=test_alert.ticker,
+        strike=test_alert.strike,
+        option_type=test_alert.option_type,
+        expiration=test_alert.expiration,
+        entry_price=test_alert.entry_price,
+        current_price=test_alert.entry_price,
+        original_quantity=1,
+        remaining_quantity=1,
+        total_cost=test_alert.entry_price * 100,
+        broker=active_broker,
+        status="open",
+        opened_at=now,
+        simulated=True,
+        trade_ids=[trade.id],
+        highest_price=test_alert.entry_price,
+    )
+
+    await db.insert_alert(test_alert.model_dump(mode="json"))
+    await db.insert_trade(trade.model_dump(mode="json"))
+    await db.insert_position(position.model_dump(mode="json"))
+
+    return {
+        "message": "Test alert created",
+        "alert_id": test_alert.id,
+        "trade_id": trade.id,
+        "position_id": position.id,
+    }
+
+
 # Trades
 @router.get("/trades")
 async def get_trades(limit: int = 50):
@@ -176,6 +254,16 @@ async def close_trade(trade_id: str, request: CloseTradeRequest):
     entry_price = float(trade.get("entry_price") or 0)
     quantity = int(trade.get("quantity") or 0)
     realized_pnl = calculate_pnl(entry_price, request.exit_price, quantity)
+    position_close = None
+    linked_position = await _get_open_position_for_trade(trade_id)
+    if linked_position:
+        position_close = await _sell_position_at_price(
+            str(linked_position["id"]),
+            100,
+            request.exit_price,
+        )
+        realized_pnl = float(position_close.get("realized_pnl", realized_pnl))
+
     updates = {
         "status": "closed",
         "exit_price": request.exit_price,
@@ -190,6 +278,7 @@ async def close_trade(trade_id: str, request: CloseTradeRequest):
         "trade_id": trade_id,
         "realized_pnl": realized_pnl,
         "message": "Trade closed",
+        **(position_close or {}),
     }
 
 

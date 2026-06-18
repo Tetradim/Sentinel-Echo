@@ -99,6 +99,73 @@ class SourceOverrideRouteTests(unittest.TestCase):
         self.assertEqual(updated, {"max_positions_per_ticker": 4})
         self.assertEqual(fake_db.updated, [{"max_positions_per_ticker": 4}])
 
+    def test_settings_update_rejects_invalid_risk_numbers(self):
+        from pydantic import ValidationError
+        from models import SettingsUpdate
+
+        invalid_payloads = [
+            {"max_position_size": 0},
+            {"default_quantity": 0},
+            {"risk_per_trade": -0.1},
+            {"max_drawdown_percent": 0},
+            {"max_positions_per_sector": -1},
+            {"trailing_hours": 0},
+        ]
+
+        for payload in invalid_payloads:
+            with self.subTest(payload=payload):
+                with self.assertRaises(ValidationError):
+                    SettingsUpdate(**payload)
+
+    def test_notification_settings_round_trip_on_active_settings_route(self):
+        from routes import settings as settings_route
+
+        fake_db = FakeSettingsDb(
+            {
+                "sms_enabled": True,
+                "sms_phone_number": "+15551234567",
+                "twilio_account_sid": "AC123",
+                "twilio_auth_token": "secret-token",
+                "twilio_from_number": "+15557654321",
+            }
+        )
+        settings_route.set_db(fake_db)
+
+        current = asyncio.run(settings_route.get_notification_settings())
+        updated = asyncio.run(
+            settings_route.update_notification_settings(
+                sms_enabled=False,
+                sms_phone_number=" +15550001111 ",
+                twilio_account_sid=" AC999 ",
+                twilio_auth_token=" new-secret ",
+                twilio_from_number=" +15552223333 ",
+            )
+        )
+
+        self.assertEqual(
+            current,
+            {
+                "sms_enabled": True,
+                "sms_phone_number": "+15551234567",
+                "twilio_account_sid": "AC123",
+                "twilio_auth_token": "********",
+                "twilio_from_number": "+15557654321",
+            },
+        )
+        self.assertEqual(updated, {"message": "Notification settings updated"})
+        self.assertEqual(
+            fake_db.updated,
+            [
+                {
+                    "sms_enabled": False,
+                    "sms_phone_number": "+15550001111",
+                    "twilio_account_sid": "AC999",
+                    "twilio_auth_token": "new-secret",
+                    "twilio_from_number": "+15552223333",
+                }
+            ],
+        )
+
     def test_update_source_overrides_normalizes_before_saving(self):
         from routes import settings as settings_route
 

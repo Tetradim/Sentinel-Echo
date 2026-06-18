@@ -98,7 +98,7 @@ async def switch_broker_alias(broker_id: str):
 @router.post("/broker/check/{broker_id}")
 async def check_broker_alias(broker_id: str):
     """Check a specific broker connection without changing the active broker."""
-    from order_execution import get_configured_broker_client
+    from order_execution import close_broker_client, get_configured_broker_client
     from routes.health import update_bot_status
 
     try:
@@ -115,6 +115,7 @@ async def check_broker_alias(broker_id: str):
             "message": f"Broker '{broker_id}' has no saved configuration.",
         }
 
+    broker_client = None
     try:
         broker_client = get_configured_broker_client(settings, broker_id)
         connected = await broker_client.check_connection()
@@ -123,6 +124,9 @@ async def check_broker_alias(broker_id: str):
 
         _log.getLogger(__name__).error("Broker connection check failed for %s: %s", broker_id, exc)
         connected = False
+    finally:
+        if broker_client is not None:
+            await close_broker_client(broker_client)
 
     active_broker = settings.get("active_broker", "ibkr")
     if hasattr(active_broker, "value"):

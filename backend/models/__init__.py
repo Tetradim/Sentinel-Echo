@@ -311,26 +311,26 @@ class SettingsUpdate(BaseModel):
     active_broker: Optional[BrokerType] = None
     broker_configs: Optional[Dict[str, dict]] = None
     auto_trading_enabled: Optional[bool] = None
-    default_quantity: Optional[int] = None
+    default_quantity: Optional[int] = Field(default=None, ge=1)
     simulation_mode: Optional[bool] = None
-    max_position_size: Optional[float] = None
-    risk_per_trade: Optional[float] = None
-    max_drawdown_percent: Optional[float] = None
-    max_positions_per_ticker: Optional[int] = None
-    max_positions_per_sector: Optional[int] = None
+    max_position_size: Optional[float] = Field(default=None, gt=0)
+    risk_per_trade: Optional[float] = Field(default=None, gt=0)
+    max_drawdown_percent: Optional[float] = Field(default=None, gt=0)
+    max_positions_per_ticker: Optional[int] = Field(default=None, ge=0)
+    max_positions_per_sector: Optional[int] = Field(default=None, ge=0)
     averaging_down_enabled: Optional[bool] = None
-    averaging_down_threshold: Optional[float] = None
-    averaging_down_percentage: Optional[float] = None
-    averaging_down_max_buys: Optional[int] = None
+    averaging_down_threshold: Optional[float] = Field(default=None, ge=0)
+    averaging_down_percentage: Optional[float] = Field(default=None, ge=0)
+    averaging_down_max_buys: Optional[int] = Field(default=None, ge=0)
     take_profit_enabled: Optional[bool] = None
-    take_profit_percentage: Optional[float] = None
+    take_profit_percentage: Optional[float] = Field(default=None, gt=0)
     stop_loss_enabled: Optional[bool] = None
-    stop_loss_percentage: Optional[float] = None
+    stop_loss_percentage: Optional[float] = Field(default=None, gt=0)
     trailing_stop_enabled: Optional[bool] = None
     trailing_stop_type: Optional[str] = None
-    trailing_stop_percent: Optional[float] = None
-    trailing_stop_cents: Optional[float] = None
-    trailing_hours: Optional[float] = None
+    trailing_stop_percent: Optional[float] = Field(default=None, gt=0)
+    trailing_stop_cents: Optional[float] = Field(default=None, gt=0)
+    trailing_hours: Optional[float] = Field(default=None, gt=0)
 
 
 class BrokerInfo(BaseModel):
@@ -344,25 +344,25 @@ class BrokerInfo(BaseModel):
 
 class AveragingDownSettingsUpdate(BaseModel):
     averaging_down_enabled: Optional[bool] = None
-    averaging_down_threshold: Optional[float] = None
-    averaging_down_percentage: Optional[float] = None
-    averaging_down_max_buys: Optional[int] = None
+    averaging_down_threshold: Optional[float] = Field(default=None, ge=0)
+    averaging_down_percentage: Optional[float] = Field(default=None, ge=0)
+    averaging_down_max_buys: Optional[int] = Field(default=None, ge=0)
 
 
 class RiskManagementSettingsUpdate(BaseModel):
     take_profit_enabled: Optional[bool] = None
-    take_profit_percentage: Optional[float] = None
+    take_profit_percentage: Optional[float] = Field(default=None, gt=0)
     bracket_order_enabled: Optional[bool] = None
     stop_loss_enabled: Optional[bool] = None
-    stop_loss_percentage: Optional[float] = None
+    stop_loss_percentage: Optional[float] = Field(default=None, gt=0)
     stop_loss_order_type: Optional[str] = None
 
 
 class TrailingStopSettingsUpdate(BaseModel):
     trailing_stop_enabled: Optional[bool] = None
     trailing_stop_type: Optional[str] = None
-    trailing_stop_percent: Optional[float] = None
-    trailing_stop_cents: Optional[float] = None
+    trailing_stop_percent: Optional[float] = Field(default=None, gt=0)
+    trailing_stop_cents: Optional[float] = Field(default=None, gt=0)
 
 
 class AutoShutdownSettingsUpdate(BaseModel):

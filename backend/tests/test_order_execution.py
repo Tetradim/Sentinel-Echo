@@ -72,6 +72,31 @@ class OrderExecutionTests(unittest.TestCase):
         self.assertEqual(config["api_key"], "real-key")
         self.assertEqual(config["api_secret"], "real-secret")
 
+    def test_configured_broker_client_ignores_stored_duplicate_broker_type(self):
+        from models import BrokerType
+        from order_execution import get_configured_broker_client
+
+        settings = {
+            "active_broker": "alpaca",
+            "broker_configs": {
+                "alpaca": {
+                    "broker_type": "alpaca",
+                    "api_key": "real-key",
+                    "api_secret": "real-secret",
+                }
+            },
+        }
+        sentinel_client = object()
+
+        with patch("broker_clients.get_broker_client", return_value=sentinel_client) as factory:
+            client = get_configured_broker_client(settings, "alpaca")
+
+        self.assertIs(client, sentinel_client)
+        broker_type, broker_config = factory.call_args.args
+        self.assertEqual(broker_type, BrokerType.ALPACA)
+        self.assertEqual(broker_config.broker_type, BrokerType.ALPACA)
+        self.assertEqual(broker_config.api_key.get_secret_value(), "real-key")
+
     def test_secretstr_values_are_materialized_for_broker_clients(self):
         from models import BrokerConfig, BrokerType
         from order_execution import materialize_secret_values
