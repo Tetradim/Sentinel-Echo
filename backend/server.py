@@ -313,7 +313,6 @@ async def process_trade(alert: Alert, parsed: dict):
                     f"[process_trade] placed order {order_id} for "
                     f"{quantity}x {alert.ticker} ${alert.strike} {alert.option_type}"
                 )
-                trade_executed = True
             except Exception as e:
                 trade.status = "failed"
                 trade.error_message = str(e)
@@ -394,6 +393,7 @@ async def process_exit_alert(
     candidate_positions = open_positions + partial_positions
     source_config = source_config or {}
     any_submitted = False
+    any_executed = False
 
     try:
         if source_config.get("paper_shadow") and not settings.simulation_mode:
@@ -417,6 +417,7 @@ async def process_exit_alert(
                 await db_obj.insert_trade(shadow_trade.model_dump(mode="json"))
                 await db_obj.update_position(shadow_position.id, shadow_update)
                 any_submitted = True
+                any_executed = True
 
         exit_plans = build_exit_plans(
             candidate_positions,
@@ -432,7 +433,7 @@ async def process_exit_alert(
             logger.info("[process_exit_alert] recorded paper-shadow exit for %s", parsed)
         else:
             logger.info("[process_exit_alert] no matching open position for %s", parsed)
-        return any_submitted
+        return any_executed
 
     for plan in exit_plans:
         position = Position(**plan["position"])
@@ -486,6 +487,7 @@ async def process_exit_alert(
                 settings_raw,
             )
             any_submitted = True
+            any_executed = True
             continue
 
         try:
@@ -550,7 +552,7 @@ async def process_exit_alert(
                 settings_raw,
             )
 
-    return any_submitted
+    return any_executed
 
 
 def run_discord_bot(token: str, channel_ids: List[str]):
