@@ -10,7 +10,7 @@
     "android": "expo start --android",
     "ios": "expo start --ios",
     "web": "expo start --web",
-    "lint": "expo lint",
+    "lint": "expo lint app components constants utils",
     "test:readiness": "node --test tests/dashboardReadiness.test.cjs",
     "test:ui": "node --test tests/*.test.cjs"
   },
