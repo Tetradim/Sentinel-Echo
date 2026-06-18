@@ -3,7 +3,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Literal, Optional
-from uuid import uuid4
 
 
 OrderSide = Literal["BUY", "SELL"]
@@ -116,7 +115,23 @@ async def _apply_fill(
                 "order_id": context.order_id,
             },
         )
-        position = _entry_position(context, filled_qty, fill_price)
+        position_id = _entry_position_id(context)
+        existing_position = await _get_position_by_id(db, position_id)
+        if existing_position:
+            await _update_alert_status(
+                db,
+                context,
+                trade_executed=True,
+                trade_result=_fill_trade_result(trade_status),
+            )
+            return ReconciliationResult(
+                trade_status=trade_status,
+                position_status=existing_position.get("status"),
+                position_id=position_id,
+                message="already reconciled",
+            )
+
+        position = _entry_position(context, filled_qty, fill_price, position_id)
         position_id = await db.insert_position(position)
         await _update_alert_status(
             db,
@@ -136,6 +151,20 @@ async def _apply_fill(
     position = await db.get_position_by_id(context.position_id)
     if not position:
         raise ValueError(f"Position not found for sell fill: {context.position_id}")
+
+    if context.trade_id in (position.get("trade_ids") or []):
+        await _update_alert_status(
+            db,
+            context,
+            trade_executed=True,
+            trade_result=_fill_trade_result(trade_status),
+        )
+        return ReconciliationResult(
+            trade_status=trade_status,
+            position_status=position.get("status"),
+            position_id=context.position_id,
+            message="already reconciled",
+        )
 
     remaining_before = int(position.get("remaining_quantity") or position.get("quantity") or 0)
     exit_qty = min(filled_qty, remaining_before)
@@ -186,9 +215,24 @@ async def _apply_fill(
     )
 
 
-def _entry_position(context: OrderContext, quantity: int, fill_price: float) -> dict:
+def _entry_position_id(context: OrderContext) -> str:
+    return context.position_id or f"position-{context.trade_id}"
+
+
+async def _get_position_by_id(db, position_id: str) -> Optional[dict]:
+    if not hasattr(db, "get_position_by_id"):
+        return None
+    return await db.get_position_by_id(position_id)
+
+
+def _entry_position(
+    context: OrderContext,
+    quantity: int,
+    fill_price: float,
+    position_id: str,
+) -> dict:
     return {
-        "id": context.position_id or str(uuid4()),
+        "id": position_id,
         "alert_id": context.alert_id,
         "ticker": context.ticker,
         "strike": context.strike,

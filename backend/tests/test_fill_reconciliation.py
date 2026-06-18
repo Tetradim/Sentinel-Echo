@@ -12,6 +12,7 @@ class FakeLifecycleDb:
     def __init__(self):
         self.trade_updates = []
         self.alert_updates = []
+        self.position_updates = []
         self.positions = {}
         self.inserted_positions = []
 
@@ -30,6 +31,7 @@ class FakeLifecycleDb:
         return self.positions.get(position_id)
 
     async def update_position(self, position_id, updates):
+        self.position_updates.append((position_id, updates))
         position = dict(self.positions[position_id])
         if "$set" in updates:
             position.update(updates["$set"])
@@ -134,6 +136,31 @@ class FillReconciliationTests(unittest.TestCase):
         self.assertEqual(position["entry_price"], 1.35)
         self.assertEqual(position["total_cost"], 270.0)
 
+    def test_repeated_filled_entry_order_does_not_insert_duplicate_position(self):
+        from fill_reconciliation import BrokerOrderUpdate, OrderContext, reconcile_order_update
+
+        db = FakeLifecycleDb()
+        context = OrderContext(
+            trade_id="trade-entry",
+            order_id="order-entry",
+            side="BUY",
+            ticker="SPY",
+            strike=500.0,
+            option_type="CALL",
+            expiration="6/21",
+            requested_quantity=2,
+            broker="alpaca",
+            alert_id="alert-entry",
+        )
+        update = BrokerOrderUpdate(status="filled", filled_qty=2, avg_fill_price=1.35)
+
+        first = asyncio.run(reconcile_order_update(db, context, update))
+        second = asyncio.run(reconcile_order_update(db, context, update))
+
+        self.assertEqual(first.position_id, second.position_id)
+        self.assertEqual(len(db.inserted_positions), 1)
+        self.assertEqual(db.inserted_positions[0]["remaining_quantity"], 2)
+
     def test_filled_exit_order_reduces_remaining_quantity_and_closes_when_zero(self):
         from fill_reconciliation import BrokerOrderUpdate, OrderContext, reconcile_order_update
 
@@ -185,6 +212,47 @@ class FillReconciliationTests(unittest.TestCase):
         self.assertEqual(position["realized_pnl"], 125.0)
         self.assertIn("trade-exit", position["trade_ids"])
         self.assertIn("closed_at", position)
+
+    def test_repeated_filled_exit_order_does_not_reduce_position_twice(self):
+        from fill_reconciliation import BrokerOrderUpdate, OrderContext, reconcile_order_update
+
+        db = FakeLifecycleDb()
+        db.positions["position-1"] = {
+            "id": "position-1",
+            "ticker": "SPY",
+            "strike": 500.0,
+            "option_type": "CALL",
+            "expiration": "6/21",
+            "entry_price": 1.00,
+            "remaining_quantity": 2,
+            "realized_pnl": 0.0,
+            "trade_ids": ["trade-entry"],
+            "status": "open",
+            "broker": "alpaca",
+            "simulated": False,
+        }
+        context = OrderContext(
+            trade_id="trade-exit",
+            order_id="order-exit",
+            side="SELL",
+            ticker="SPY",
+            strike=500.0,
+            option_type="CALL",
+            expiration="6/21",
+            requested_quantity=1,
+            position_id="position-1",
+            broker="alpaca",
+        )
+        update = BrokerOrderUpdate(status="filled", filled_qty=1, avg_fill_price=1.50)
+
+        asyncio.run(reconcile_order_update(db, context, update))
+        asyncio.run(reconcile_order_update(db, context, update))
+
+        position = db.positions["position-1"]
+        self.assertEqual(position["remaining_quantity"], 1)
+        self.assertEqual(position["realized_pnl"], 50.0)
+        self.assertEqual(position["trade_ids"].count("trade-exit"), 1)
+        self.assertEqual(len(db.position_updates), 1)
 
 
 if __name__ == "__main__":
