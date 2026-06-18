@@ -1,70 +1,60 @@
 import React from 'react';
-import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
+import { ScrollView, View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { Stack, useRouter, usePathname } from 'expo-router';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import { Ionicons } from '@expo/vector-icons';
-
-const TABS = [
-  { name: 'index',            label: 'Dashboard', icon: 'pulse',            iconActive: 'pulse'            },
-  { name: 'alerts',       label: 'Alerts',    icon: 'notifications-outline', iconActive: 'notifications' },
-  { name: 'trades',       label: 'Trades',    icon: 'receipt-outline',   iconActive: 'receipt'          },
-  { name: 'positions',    label: 'Positions', icon: 'briefcase-outline', iconActive: 'briefcase'        },
-  { name: 'risk-settings',  label: 'Risk',    icon: 'shield-outline', iconActive: 'shield'            },
-  { name: 'trading-settings', label: 'Trading', icon: 'options-outline', iconActive: 'options'        },
-  { name: 'strike-selection', label: 'Strikes', icon: 'trending-up-outline', iconActive: 'trending-up'  },
-  { name: 'discord-settings', label: 'Discord', icon: 'chatbubbles-outline', iconActive: 'chatbubbles'  },
-  { name: 'settings',    label: 'Settings',  icon: 'settings-outline',  iconActive: 'settings'         },
-] as const;
+import {
+  getActiveOperatorTab,
+  getOperatorRoutePath,
+  OPERATOR_TABS,
+  shouldShowOperatorTabs,
+} from '../utils/operatorNavigation';
 
 function BottomTabBar() {
   const router = useRouter();
   const pathname = usePathname();
-
-  const currentTab = pathname === '/' ? 'index' : pathname.replace('/', '');
+  const currentTab = getActiveOperatorTab(pathname);
 
   return (
     <View style={styles.tabBar}>
-      {TABS.map((tab) => {
-        const isActive = currentTab === tab.name;
-        return (
-          <TouchableOpacity
-            key={tab.name}
-            style={styles.tabItem}
-            onPress={() => router.push(tab.name === 'index' ? '/' : `/${tab.name}`)}
-            activeOpacity={0.7}
-          >
-            <View style={[styles.tabIconWrap, isActive && styles.tabIconWrapActive]}>
-              <Ionicons
-                name={(isActive ? tab.iconActive : tab.icon) as any}
-                size={20}
-                color={isActive ? '#0ea5e9' : '#475569'}
-              />
-            </View>
-            <Text style={[styles.tabLabel, isActive && styles.tabLabelActive]}>
-              {tab.label}
-            </Text>
-          </TouchableOpacity>
-        );
-      })}
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        contentContainerStyle={styles.tabRail}
+      >
+        {OPERATOR_TABS.map((tab) => {
+          const isActive = currentTab === tab.name;
+          return (
+            <TouchableOpacity
+              key={tab.name}
+              style={[styles.tabItem, isActive && styles.tabItemActive]}
+              onPress={() => router.push(getOperatorRoutePath(tab.name) as any)}
+              activeOpacity={0.7}
+              accessibilityRole="button"
+              accessibilityState={{ selected: isActive }}
+            >
+              <View style={[styles.tabIconWrap, isActive && styles.tabIconWrapActive]}>
+                <Ionicons
+                  name={(isActive ? tab.iconActive : tab.icon) as any}
+                  size={19}
+                  color={isActive ? '#7dd3fc' : '#64748b'}
+                />
+              </View>
+              <Text style={[styles.tabLabel, isActive && styles.tabLabelActive]}>
+                {tab.label}
+              </Text>
+            </TouchableOpacity>
+          );
+        })}
+      </ScrollView>
     </View>
   );
 }
 
 export default function RootLayout() {
   const pathname = usePathname();
-  // Only show tab bar on main screens
-  const showTabs = [
-    '/',
-    '/positions',
-    '/trades',
-    '/alerts',
-    '/settings',
-    '/risk-settings',
-    '/trading-settings',
-    '/strike-selection',
-    '/discord-settings',
-  ].includes(pathname);
+  const showTabs = shouldShowOperatorTabs(pathname);
 
   return (
     <SafeAreaProvider>
@@ -101,35 +91,43 @@ const styles = StyleSheet.create({
     backgroundColor: '#080f1a',
   },
   tabBar: {
-    flexDirection: 'row',
     backgroundColor: '#0d1826',
     borderTopWidth: 1,
     borderTopColor: '#1e2d3d',
     paddingBottom: 8,
     paddingTop: 6,
-    paddingHorizontal: 4,
+  },
+  tabRail: {
+    paddingHorizontal: 8,
+    gap: 6,
   },
   tabItem: {
-    flex: 1,
+    minWidth: 72,
     alignItems: 'center',
     gap: 3,
+    borderRadius: 10,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+  },
+  tabItemActive: {
+    backgroundColor: '#08111f',
   },
   tabIconWrap: {
-    width: 36,
+    width: 38,
     height: 28,
     borderRadius: 8,
     alignItems: 'center',
     justifyContent: 'center',
   },
   tabIconWrapActive: {
-    backgroundColor: 'rgba(14, 165, 233, 0.12)',
+    backgroundColor: 'rgba(14, 165, 233, 0.16)',
   },
   tabLabel: {
     fontSize: 10,
-    color: '#475569',
-    fontWeight: '500',
+    color: '#64748b',
+    fontWeight: '700',
   },
   tabLabelActive: {
-    color: '#0ea5e9',
+    color: '#7dd3fc',
   },
 });
