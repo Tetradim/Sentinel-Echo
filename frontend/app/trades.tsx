@@ -138,6 +138,11 @@ export default function TradesScreen() {
 
   useEffect(() => { fetchTrades(); }, [fetchTrades]);
   const onRefresh = useCallback(() => { setRefreshing(true); fetchTrades(); }, [fetchTrades]);
+  const retryFetchTrades = useCallback(() => {
+    if (trades.length === 0) setLoading(true);
+    else setRefreshing(true);
+    fetchTrades();
+  }, [fetchTrades, trades.length]);
 
   const digest = summarizeTrades(trades);
   const filterOptions: { key: TradeFilter; label: string; count: number }[] = [
@@ -298,6 +303,14 @@ export default function TradesScreen() {
         <View style={s.errorBanner}>
           <Ionicons name="warning-outline" size={16} color="#f59e0b" />
           <Text style={s.errorBannerText}>{loadError}</Text>
+          <TouchableOpacity
+            style={s.errorBannerRetry}
+            onPress={retryFetchTrades}
+            accessibilityRole="button"
+          >
+            <Ionicons name="refresh" size={13} color="#08111d" />
+            <Text style={s.errorBannerRetryText}>Retry</Text>
+          </TouchableOpacity>
         </View>
       )}
 
@@ -411,6 +424,8 @@ const s = StyleSheet.create({
 
   errorBanner: { flexDirection: 'row', alignItems: 'center', gap: 8, marginHorizontal: 16, marginBottom: 10, padding: 10, borderRadius: 8, backgroundColor: '#1c1500', borderWidth: 1, borderColor: '#92400e' },
   errorBannerText: { flex: 1, fontSize: 12, color: '#f59e0b', fontWeight: '600' },
+  errorBannerRetry: { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: '#f59e0b', paddingHorizontal: 9, paddingVertical: 6, borderRadius: 6 },
+  errorBannerRetryText: { fontSize: 11, color: '#08111d', fontWeight: '900' },
 
   filterBar:  { flexDirection: 'row', paddingHorizontal: 16, gap: 8, marginBottom: 10 },
   filterBtn:  { flex: 1, alignItems: 'center', paddingHorizontal: 7, paddingVertical: 7, borderRadius: 8, backgroundColor: '#0d1826', borderWidth: 1, borderColor: '#1e2d3d' },

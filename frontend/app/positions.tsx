@@ -128,6 +128,11 @@ export default function PositionsScreen() {
 
   useEffect(() => { fetch(); }, [fetch]);
   const onRefresh = useCallback(() => { setRefreshing(true); fetch(); }, [fetch]);
+  const retryFetchPositions = useCallback(() => {
+    if (positions.length === 0) setLoading(true);
+    else setRefreshing(true);
+    fetch();
+  }, [fetch, positions.length]);
 
   const openSell = (p: Position) => {
     setSelected(p); setSellPct('50');
@@ -265,6 +270,14 @@ export default function PositionsScreen() {
         <View style={s.errorBanner}>
           <Ionicons name="warning-outline" size={16} color="#f59e0b" />
           <Text style={s.errorBannerText}>{loadError}</Text>
+          <TouchableOpacity
+            style={s.errorBannerRetry}
+            onPress={retryFetchPositions}
+            accessibilityRole="button"
+          >
+            <Ionicons name="refresh" size={13} color="#08111d" />
+            <Text style={s.errorBannerRetryText}>Retry</Text>
+          </TouchableOpacity>
         </View>
       )}
 
@@ -394,6 +407,8 @@ const s = StyleSheet.create({
 
   errorBanner: { flexDirection: 'row', alignItems: 'center', gap: 8, marginHorizontal: 16, marginBottom: 10, padding: 10, borderRadius: 8, backgroundColor: '#1c1500', borderWidth: 1, borderColor: '#92400e' },
   errorBannerText: { flex: 1, fontSize: 12, color: '#f59e0b', fontWeight: '600' },
+  errorBannerRetry: { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: '#f59e0b', paddingHorizontal: 9, paddingVertical: 6, borderRadius: 6 },
+  errorBannerRetryText: { fontSize: 11, color: '#08111d', fontWeight: '900' },
 
   filterBar:  { flexDirection: 'row', paddingHorizontal: 16, gap: 8, marginBottom: 10 },
   filterBtn:  { flex: 1, alignItems: 'center', paddingHorizontal: 8, paddingVertical: 7, borderRadius: 8, backgroundColor: '#0d1826', borderWidth: 1, borderColor: '#1e2d3d' },
