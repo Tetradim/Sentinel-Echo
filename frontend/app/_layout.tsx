@@ -71,6 +71,7 @@ export default function RootLayout() {
           <Stack.Screen name="alerts" />
           <Stack.Screen name="trades" />
           <Stack.Screen name="positions" />
+          <Stack.Screen name="operator-lab" />
           <Stack.Screen name="risk-settings" />
           <Stack.Screen name="trading-settings" />
           <Stack.Screen name="strike-selection" />

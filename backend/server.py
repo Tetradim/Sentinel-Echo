@@ -48,7 +48,7 @@ from database import init_database, get_db, USE_SQLITE, MongoDBDatabase
 from routes import (
     health_router, brokers_router, settings_router, 
     discord_router, profiles_router, trading_router,
-    analytics_router,
+    operator_router, analytics_router,
     init_routes, update_bot_status, set_discord_bot
 )
 
@@ -705,6 +705,7 @@ api_router.include_router(settings_router)
 api_router.include_router(discord_router)
 api_router.include_router(profiles_router)
 api_router.include_router(trading_router)
+api_router.include_router(operator_router)
 api_router.include_router(analytics_router)
 
 app.include_router(api_router)

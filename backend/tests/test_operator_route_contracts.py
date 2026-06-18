@@ -43,6 +43,7 @@ class FakeTradingDb:
         self.inserted_trades = []
         self.inserted_alerts = []
         self.inserted_positions = []
+        self.inserted_events = []
         self.trade_updates = []
         self.position_updates = []
 
@@ -81,6 +82,13 @@ class FakeTradingDb:
         self.inserted_positions.append(position)
         return position["id"]
 
+    async def insert_operator_event(self, event):
+        self.inserted_events.append(event)
+        return event["id"]
+
+    async def get_operator_events(self, limit=100):
+        return list(reversed(self.inserted_events))[:limit]
+
     async def get_settings(self):
         return {
             "active_broker": "ibkr",
@@ -113,6 +121,58 @@ class OperatorRouteContractTests(unittest.TestCase):
         self.assertIn(("POST", "/api/test-alert"), routes)
         self.assertIn(("POST", "/api/broker/switch/{broker_id}"), routes)
         self.assertIn(("POST", "/api/broker/check/{broker_id}"), routes)
+        self.assertIn(("GET", "/api/operator/events"), routes)
+        self.assertIn(("POST", "/api/operator/test-alert"), routes)
+        self.assertIn(("POST", "/api/operator/simulate-exit"), routes)
+
+    def test_operator_test_alert_creates_records_and_event(self):
+        from routes import operator as operator_route
+
+        fake_db = FakeTradingDb()
+        operator_route.set_db(fake_db)
+
+        response = asyncio.run(operator_route.create_operator_test_alert())
+
+        self.assertEqual(response["message"], "Operator test alert created")
+        self.assertEqual(len(fake_db.inserted_alerts), 1)
+        self.assertEqual(len(fake_db.inserted_trades), 1)
+        self.assertEqual(len(fake_db.inserted_positions), 1)
+        self.assertEqual(len(fake_db.inserted_events), 1)
+        self.assertEqual(fake_db.inserted_events[0]["category"], "test_lab")
+        self.assertEqual(fake_db.inserted_events[0]["action"], "test_alert_created")
+
+    def test_operator_events_return_newest_first_with_limit(self):
+        from routes import operator as operator_route
+
+        fake_db = FakeTradingDb()
+        operator_route.set_db(fake_db)
+        asyncio.run(fake_db.insert_operator_event({"id": "event-1", "timestamp": "1"}))
+        asyncio.run(fake_db.insert_operator_event({"id": "event-2", "timestamp": "2"}))
+
+        response = asyncio.run(operator_route.get_operator_events(limit=1))
+
+        self.assertEqual([event["id"] for event in response], ["event-2"])
+
+    def test_operator_simulate_exit_sells_first_open_position_and_logs_event(self):
+        from routes import operator as operator_route
+        from routes import settings as settings_route
+        from routes import trading as trading_route
+
+        fake_db = FakeTradingDb()
+        operator_route.set_db(fake_db)
+        trading_route.set_db(fake_db)
+        settings_route.set_db(fake_db)
+
+        response = asyncio.run(
+            operator_route.simulate_exit(
+                operator_route.OperatorSimulateExitRequest(exit_price=3.0, sell_percentage=50)
+            )
+        )
+
+        self.assertEqual(response["position_id"], "pos-1")
+        self.assertEqual(response["sold_quantity"], 2)
+        self.assertEqual(fake_db.position["remaining_quantity"], 2)
+        self.assertEqual(fake_db.inserted_events[-1]["action"], "simulated_exit")
 
     def test_broker_check_closes_temporary_client(self):
         from routes import brokers as brokers_route

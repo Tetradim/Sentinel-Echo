@@ -257,6 +257,16 @@ class Position(BaseModel):
     highest_price: Optional[float] = None
 
 
+class OperatorEvent(BaseModel):
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    category: str = Field(min_length=1, max_length=50)
+    action: str = Field(min_length=1, max_length=80)
+    summary: str = Field(min_length=1, max_length=240)
+    severity: str = "info"
+    details: Dict[str, object] = Field(default_factory=dict)
+
+
 class Settings(BaseModel):
     id: str = "main_settings"
     discord_token: str = ""

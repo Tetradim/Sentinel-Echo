@@ -175,7 +175,12 @@ async def get_alerts(limit: int = 50):
 @router.post("/test-alert")
 async def create_test_alert():
     """Create a safe simulated alert/trade/position for local UI testing."""
-    settings = await db.get_settings()
+    return await create_test_alert_records(db, message="Test alert created")
+
+
+async def create_test_alert_records(database, *, message: str = "Test alert created"):
+    """Create a safe simulated alert/trade/position set for local UI testing."""
+    settings = await database.get_settings()
     active_broker = str(_enum_value(settings.get("active_broker", "ibkr")))
     now = datetime.now(timezone.utc)
 
@@ -225,12 +230,12 @@ async def create_test_alert():
         highest_price=test_alert.entry_price,
     )
 
-    await db.insert_alert(test_alert.model_dump(mode="json"))
-    await db.insert_trade(trade.model_dump(mode="json"))
-    await db.insert_position(position.model_dump(mode="json"))
+    await database.insert_alert(test_alert.model_dump(mode="json"))
+    await database.insert_trade(trade.model_dump(mode="json"))
+    await database.insert_position(position.model_dump(mode="json"))
 
     return {
-        "message": "Test alert created",
+        "message": message,
         "alert_id": test_alert.id,
         "trade_id": trade.id,
         "position_id": position.id,

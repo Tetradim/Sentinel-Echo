@@ -323,6 +323,14 @@ def exercise_positions(page):
         click_text(page, label, optional=True)
 
 
+def exercise_operator_lab(page):
+    visit(page, "/operator-lab", "Operator Lab")
+    click_text(page, "Create Test Alert", optional=True)
+    click_text(page, "Sell 50% Test Position", optional=True)
+    click_text(page, "Refresh", optional=True)
+    visit(page, "/operator-lab", "Operator Lab after actions")
+
+
 def exercise_profiles(page):
     visit(page, "/profiles", "Profiles")
     click_selector(page, '[data-testid="add-profile-button"]', "add profile", optional=True)
@@ -451,6 +459,7 @@ def main():
             exercise_alerts,
             exercise_trades,
             exercise_positions,
+            exercise_operator_lab,
             exercise_profiles,
             exercise_broker_config,
             exercise_settings,

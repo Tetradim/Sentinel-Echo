@@ -165,6 +165,12 @@ class DatabaseInterface(ABC):
     @abstractmethod
     async def get_portfolio_summary(self) -> Dict[str, Any]: pass
 
+    @abstractmethod
+    async def get_operator_events(self, limit: int = 100) -> List[Dict[str, Any]]: pass
+
+    @abstractmethod
+    async def insert_operator_event(self, event: Dict[str, Any]) -> str: pass
+
 
 # ---------------------------------------------------------------------------
 # MongoDB implementation
@@ -354,6 +360,14 @@ class MongoDBDatabase(DatabaseInterface):
             'average_pnl': (t.get('total_realized', 0.0) / total_trades) if total_trades else 0.0,
         }
 
+    async def get_operator_events(self, limit: int = 100) -> List[Dict[str, Any]]:
+        events = await self.db.operator_events.find({}, {'_id': 0}).sort('timestamp', -1).limit(limit).to_list(length=limit)
+        return events
+
+    async def insert_operator_event(self, event: Dict[str, Any]) -> str:
+        await self.db.operator_events.insert_one(event)
+        return event.get('id', '')
+
 
 # ---------------------------------------------------------------------------
 # SQLite implementation  (C3: fully async via aiosqlite)
@@ -408,6 +422,14 @@ CREATE TABLE IF NOT EXISTS profiles (
 CREATE TABLE IF NOT EXISTS discord_patterns (
     id   TEXT PRIMARY KEY DEFAULT 'main_patterns',
     data TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS operator_events (
+    id        TEXT PRIMARY KEY,
+    timestamp TEXT,
+    category  TEXT DEFAULT '',
+    severity  TEXT DEFAULT '',
+    data      TEXT NOT NULL
 );
 '''
 
@@ -905,6 +927,41 @@ class SQLiteDatabase(DatabaseInterface):
             'worst_trade': tr['worst_trade'] if tr else 0.0,
             'average_pnl': (total_realized / total_trades) if total_trades else 0.0,
         }
+
+    # -- Operator events ---------------------------------------------------
+
+    async def get_operator_events(self, limit: int = 100) -> List[Dict[str, Any]]:
+        await self._ensure_ready()
+        import aiosqlite
+        async with aiosqlite.connect(self.db_path) as conn:
+            conn.row_factory = aiosqlite.Row
+            async with conn.execute(
+                'SELECT data FROM operator_events ORDER BY timestamp DESC LIMIT ?',
+                (limit,),
+            ) as cur:
+                rows = await cur.fetchall()
+        return [json.loads(r['data']) for r in rows]
+
+    async def insert_operator_event(self, event: Dict[str, Any]) -> str:
+        await self._ensure_ready()
+        import aiosqlite
+        timestamp = event.get('timestamp', datetime.now(timezone.utc).isoformat())
+        if hasattr(timestamp, 'isoformat'):
+            timestamp = timestamp.isoformat()
+        async with aiosqlite.connect(self.db_path) as conn:
+            await conn.execute(
+                '''INSERT INTO operator_events (id, timestamp, category, severity, data)
+                   VALUES (?, ?, ?, ?, ?)''',
+                (
+                    event.get('id'),
+                    timestamp,
+                    event.get('category', ''),
+                    event.get('severity', ''),
+                    json.dumps(event, default=str),
+                ),
+            )
+            await conn.commit()
+        return event.get('id', '')
 
 
 # ---------------------------------------------------------------------------
