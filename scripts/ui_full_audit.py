@@ -15,6 +15,20 @@ FRONTEND_URL = os.environ.get("FRONTEND_URL", "http://127.0.0.1:3003")
 BACKEND_URL = os.environ.get("BACKEND_URL", "http://127.0.0.1:8003")
 API_URL = f"{BACKEND_URL}/api"
 ARTIFACT_DIR = Path("data/ui-audit")
+BOTTOM_NAV_TARGETS = [
+    ("/", "Dashboard"),
+    ("/alerts", "Alerts"),
+    ("/trades", "Trades"),
+    ("/positions", "Positions"),
+    ("/operator-lab", "Lab"),
+    ("/strike-selection", "Strikes"),
+    ("/trading-settings", "Trading"),
+    ("/risk-settings", "Risk"),
+    ("/discord-settings", "Discord"),
+    ("/broker-config", "Broker"),
+    ("/profiles", "Profiles"),
+    ("/settings", "Settings"),
+]
 
 
 class Audit:
@@ -24,12 +38,17 @@ class Audit:
         self.console_errors = []
         self.page_errors = []
         self.dialogs = []
+        self.control_snapshots = []
+        self.state_checks = []
 
     def action(self, message):
         self.actions.append(message)
 
     def warning(self, message):
         self.warnings.append(message)
+
+    def state_check(self, name, payload):
+        self.state_checks.append({"name": name, "payload": payload})
 
     def fail_if_errors(self):
         expected_console_errors = [
@@ -248,6 +267,69 @@ def toggle_visible_switches(page, label, limit=20):
     audit.action(f"toggled {used} switches on {label}")
 
 
+def snapshot_controls(page, label):
+    controls = page.evaluate(
+        """
+        () => {
+          const selector = [
+            'button',
+            '[role="button"]',
+            '[role="switch"]',
+            'input',
+            'textarea',
+            'select'
+          ].join(',');
+          const seen = new Set();
+          return Array.from(document.querySelectorAll(selector))
+            .map((node, index) => {
+              const rect = node.getBoundingClientRect();
+              const style = window.getComputedStyle(node);
+              const text = (node.innerText || node.textContent || '').replace(/\\s+/g, ' ').trim();
+              const label =
+                node.getAttribute('aria-label') ||
+                node.getAttribute('title') ||
+                node.getAttribute('placeholder') ||
+                text ||
+                node.getAttribute('data-testid') ||
+                node.getAttribute('name') ||
+                node.id ||
+                '';
+              const key = `${node.tagName}:${node.getAttribute('role') || ''}:${label}:${Math.round(rect.x)}:${Math.round(rect.y)}:${Math.round(rect.width)}:${Math.round(rect.height)}`;
+              if (seen.has(key)) return null;
+              seen.add(key);
+              return {
+                index,
+                tag: node.tagName.toLowerCase(),
+                role: node.getAttribute('role') || '',
+                type: node.getAttribute('type') || '',
+                label: label.slice(0, 90),
+                testid: node.getAttribute('data-testid') || '',
+                checked: node.checked === true || node.getAttribute('aria-checked') === 'true',
+                disabled: node.disabled === true || node.getAttribute('aria-disabled') === 'true',
+                visible:
+                  rect.width > 0 &&
+                  rect.height > 0 &&
+                  style.visibility !== 'hidden' &&
+                  style.display !== 'none',
+              };
+            })
+            .filter(Boolean)
+            .filter((control) => control.visible);
+        }
+        """
+    )
+    audit.control_snapshots.append(
+        {
+            "label": label,
+            "url": page.url,
+            "count": len(controls),
+            "controls": controls,
+        }
+    )
+    audit.action(f"cataloged {len(controls)} visible controls on {label}")
+    return controls
+
+
 def visit(page, path, title):
     page.goto(f"{FRONTEND_URL}{path}", wait_until="domcontentloaded", timeout=30000)
     page.wait_for_load_state("domcontentloaded", timeout=10000)
@@ -257,6 +339,7 @@ def visit(page, path, title):
     if "Connection Error" in body or "Application error" in body:
         raise AssertionError(f"{title} rendered an error state:\n{body[:500]}")
     audit.action(f"visited {title} at {path}")
+    snapshot_controls(page, title)
     return body
 
 
@@ -280,6 +363,53 @@ def click_visible_role_buttons(page, label, limit=8):
         except Exception:
             continue
     audit.action(f"clicked {clicked} visible role buttons on {label}")
+
+
+def exercise_bottom_navigation(page):
+    visit(page, "/", "Bottom Navigation")
+    for path, label in BOTTOM_NAV_TARGETS:
+        if path == "/":
+            continue
+        locator = page.get_by_role("button", name=label)
+        try:
+            target = locator.last
+            if not visible(target):
+                raise AssertionError(f"bottom navigation button is not visible: {label}")
+            target.scroll_into_view_if_needed(timeout=1000)
+            target.click(timeout=2000)
+            page.wait_for_timeout(350)
+        except Exception as exc:
+            raise AssertionError(f"Could not click bottom navigation button: {label}") from exc
+        if not page.url.rstrip("/").endswith(path.rstrip("/")):
+            raise AssertionError(f"Bottom navigation {label} landed on {page.url}, expected {path}")
+        snapshot_controls(page, f"Bottom Navigation -> {label}")
+        audit.action(f"clicked bottom navigation tab: {label}")
+
+
+def verify_backend_state():
+    events = api("GET", "/operator/events", query={"limit": 50})
+    alerts = api("GET", "/alerts", query={"limit": 200})
+    trades = api("GET", "/trades", query={"limit": 200})
+    positions = api("GET", "/positions")
+    profiles = api("GET", "/profiles")
+    settings = api("GET", "/settings")
+
+    payload = {
+        "operator_events": len(events),
+        "alerts": len(alerts),
+        "trades": len(trades),
+        "positions": len(positions),
+        "profiles": len(profiles),
+        "simulation_mode": settings.get("simulation_mode"),
+        "auto_trading_enabled": settings.get("auto_trading_enabled"),
+    }
+    audit.state_check("post_interaction_backend_state", payload)
+    if payload["operator_events"] < 2:
+        raise AssertionError(f"Expected at least two operator events, got {payload['operator_events']}")
+    if payload["alerts"] < 3 or payload["trades"] < 3 or payload["positions"] < 2:
+        raise AssertionError(f"Trading records were not created as expected: {payload}")
+    if payload["profiles"] < 1:
+        raise AssertionError("Expected at least one profile after profile flow")
 
 
 def exercise_dashboard(page):
@@ -455,6 +585,7 @@ def main():
         )
 
         exercises = [
+            exercise_bottom_navigation,
             exercise_dashboard,
             exercise_alerts,
             exercise_trades,
@@ -473,11 +604,14 @@ def main():
         context.close()
         browser.close()
 
+    verify_backend_state()
     audit.fail_if_errors()
     result = {
         "actions": audit.actions,
         "warnings": audit.warnings,
         "dialogs": audit.dialogs,
+        "state_checks": audit.state_checks,
+        "control_snapshots": audit.control_snapshots,
         "screenshots": sorted(str(path) for path in ARTIFACT_DIR.glob("*.png")),
     }
     result_path = ARTIFACT_DIR / "ui-audit-result.json"
