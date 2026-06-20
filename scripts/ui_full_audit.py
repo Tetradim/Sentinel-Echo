@@ -177,6 +177,15 @@ def safe_name(name):
     return re.sub(r"[^a-zA-Z0-9_-]+", "-", name.strip("/").replace("/", "-") or "dashboard")
 
 
+def frontend_url(path):
+    separator = "&" if "?" in path else "?"
+    return f"{FRONTEND_URL}{path}{separator}{urllib.parse.urlencode({'backend_url': BACKEND_URL})}"
+
+
+def current_path(page):
+    return urllib.parse.urlparse(page.url).path.rstrip("/") or "/"
+
+
 def visible(locator):
     try:
         return locator.is_visible()
@@ -331,7 +340,7 @@ def snapshot_controls(page, label):
 
 
 def visit(page, path, title):
-    page.goto(f"{FRONTEND_URL}{path}", wait_until="domcontentloaded", timeout=30000)
+    page.goto(frontend_url(path), wait_until="domcontentloaded", timeout=30000)
     page.wait_for_load_state("domcontentloaded", timeout=10000)
     page.wait_for_timeout(1000)
     page.screenshot(path=str(ARTIFACT_DIR / f"{safe_name(path)}.png"), full_page=True)
@@ -381,6 +390,10 @@ def exercise_bottom_navigation(page):
         except Exception as exc:
             raise AssertionError(f"Could not click bottom navigation button: {label}") from exc
         if not page.url.rstrip("/").endswith(path.rstrip("/")):
+            if current_path(page) == (path.rstrip("/") or "/"):
+                snapshot_controls(page, f"Bottom Navigation -> {label}")
+                audit.action(f"clicked bottom navigation tab: {label}")
+                continue
             raise AssertionError(f"Bottom navigation {label} landed on {page.url}, expected {path}")
         snapshot_controls(page, f"Bottom Navigation -> {label}")
         audit.action(f"clicked bottom navigation tab: {label}")

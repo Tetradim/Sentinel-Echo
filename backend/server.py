@@ -28,6 +28,7 @@ from paper_shadow import (
 
 # Import utilities
 from discord_ingestion import DiscordIngestionDeps, handle_discord_message
+from openclaw_discord_config import resolve_saved_or_runtime_discord_config
 
 # Import new professional features
 from risk import is_duplicate_alert, calculate_position_size, check_correlation
@@ -48,7 +49,7 @@ from database import init_database, get_db, USE_SQLITE, MongoDBDatabase
 from routes import (
     health_router, brokers_router, settings_router, 
     discord_router, profiles_router, trading_router,
-    operator_router, analytics_router,
+    operator_router, analytics_router, simulation_engine_router,
     init_routes, update_bot_status, set_discord_bot
 )
 
@@ -631,10 +632,20 @@ async def lifespan(app: FastAPI):
     # Initialize routes with database abstraction
     init_routes(db)
 
-    token = os.environ.get('DISCORD_BOT_TOKEN', '').strip()
-    channel_ids = os.environ.get('DISCORD_CHANNEL_IDS', '').strip()
-    if token and channel_ids:
-        await init_discord_bot(token, channel_ids)
+    settings = await db.get_settings()
+    discord_config = resolve_saved_or_runtime_discord_config(settings, os.environ)
+    if discord_config.token and discord_config.channel_ids:
+        logger.info(
+            "Discord runtime config source=%s channel_count=%s",
+            discord_config.source,
+            len(discord_config.channel_ids),
+        )
+        await init_discord_bot(discord_config.token, discord_config.channel_ids)
+    elif discord_config.warnings:
+        logger.info(
+            "Discord runtime config unavailable: %s",
+            "; ".join(discord_config.warnings),
+        )
     
     yield
     
@@ -706,6 +717,7 @@ api_router.include_router(discord_router)
 api_router.include_router(profiles_router)
 api_router.include_router(trading_router)
 api_router.include_router(operator_router)
+api_router.include_router(simulation_engine_router)
 api_router.include_router(analytics_router)
 
 app.include_router(api_router)

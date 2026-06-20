@@ -35,7 +35,7 @@ function ProfileBriefing({ digest }: { digest: ProfilesDigest }) {
   const toneColor =
     digest.primaryStatus.tone === 'live' ? '#22c55e' :
     digest.primaryStatus.tone === 'attention' ? '#f59e0b' :
-    '#64748b';
+    '#68779b';
   const warnings = digest.warningItems.slice(0, 3);
 
   return (
@@ -260,7 +260,7 @@ export default function ProfilesScreen() {
               onPress={retryFetchProfiles}
               accessibilityRole="button"
             >
-              <Ionicons name="refresh" size={13} color="#08111d" />
+              <Ionicons name="refresh" size={13} color="#050416" />
               <Text style={styles.errorBannerRetryText}>Retry</Text>
             </TouchableOpacity>
           </View>
@@ -276,7 +276,7 @@ export default function ProfilesScreen() {
         {profiles.length === 0 ? (
           <View style={styles.emptyState}>
             <View style={styles.emptyIcon}>
-              <Ionicons name="people-outline" size={28} color="#7dd3fc" />
+              <Ionicons name="people-outline" size={28} color="#fb7185" />
             </View>
             <Text style={styles.emptyTitle}>No profiles yet</Text>
             <Text style={styles.emptyDetail}>
@@ -287,7 +287,7 @@ export default function ProfilesScreen() {
               onPress={() => setShowCreateModal(true)}
               accessibilityRole="button"
             >
-              <Ionicons name="add-circle-outline" size={17} color="#08111f" />
+              <Ionicons name="add-circle-outline" size={17} color="transparent" />
               <Text style={styles.emptyActionText}>Create Profile</Text>
             </TouchableOpacity>
           </View>
@@ -326,7 +326,7 @@ export default function ProfilesScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#0f172a' },
+  container: { flex: 1, backgroundColor: '#050416' },
   loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   header: { 
     flexDirection: 'row', 
@@ -335,14 +335,14 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20, 
     paddingVertical: 16, 
     borderBottomWidth: 1, 
-    borderBottomColor: '#1e293b' 
+    borderBottomColor: 'rgba(16, 9, 28, 0.88)'
   },
   backButton: { padding: 4 },
   headerTitle: { fontSize: 20, fontWeight: '700', color: '#fff' },
   addButton: { padding: 4 },
   content: { flex: 1, padding: 16 },
   digestCard: {
-    backgroundColor: '#0b1420',
+    backgroundColor: 'rgba(16, 9, 28, 0.88)',
     borderRadius: 14,
     padding: 14,
     borderWidth: 1,
@@ -356,14 +356,14 @@ const styles = StyleSheet.create({
   },
   digestTitleBlock: { flex: 1 },
   digestEyebrow: {
-    color: '#64748b',
+    color: '#68779b',
     fontSize: 10,
     fontWeight: '800',
     letterSpacing: 1.4,
     marginBottom: 5,
   },
-  digestTitle: { color: '#e2e8f0', fontSize: 18, fontWeight: '900' },
-  digestDetail: { color: '#94a3b8', fontSize: 12, lineHeight: 17, marginTop: 3 },
+  digestTitle: { color: '#edf3ff', fontSize: 18, fontWeight: '900' },
+  digestDetail: { color: '#aec0e5', fontSize: 12, lineHeight: 17, marginTop: 3 },
   coverageBadge: {
     minWidth: 84,
     height: 48,
@@ -372,23 +372,23 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   coverageValue: { fontSize: 18, fontWeight: '900' },
-  coverageLabel: { color: '#64748b', fontSize: 10, fontWeight: '800', marginTop: 1 },
+  coverageLabel: { color: '#68779b', fontSize: 10, fontWeight: '800', marginTop: 1 },
   digestStats: {
     flexDirection: 'row',
     marginTop: 12,
     paddingTop: 12,
     borderTopWidth: 1,
-    borderTopColor: '#132235',
+    borderTopColor: 'rgba(41, 33, 58, 0.82)',
   },
   digestStat: { flex: 1, alignItems: 'center' },
-  digestStatValue: { color: '#e2e8f0', fontSize: 12, fontWeight: '900' },
-  digestStatLabel: { color: '#64748b', fontSize: 9, fontWeight: '800', marginTop: 3 },
+  digestStatValue: { color: '#edf3ff', fontSize: 12, fontWeight: '900' },
+  digestStatLabel: { color: '#68779b', fontSize: 9, fontWeight: '800', marginTop: 3 },
   warningList: { marginTop: 12, gap: 8 },
   warningRow: {
     flexDirection: 'row',
     alignItems: 'flex-start',
     gap: 8,
-    backgroundColor: '#0d1826',
+    backgroundColor: 'rgba(16, 9, 28, 0.82)',
     borderRadius: 10,
     borderWidth: 1,
     borderColor: '#18283c',
@@ -396,8 +396,8 @@ const styles = StyleSheet.create({
   },
   warningCopy: { flex: 1 },
   warningTitle: { color: '#fbbf24', fontSize: 12, fontWeight: '800' },
-  warningDetail: { color: '#64748b', fontSize: 11, lineHeight: 15, marginTop: 2 },
-  clearText: { color: '#94a3b8', flex: 1, fontSize: 12, fontWeight: '700' },
+  warningDetail: { color: '#68779b', fontSize: 11, lineHeight: 15, marginTop: 2 },
+  clearText: { color: '#aec0e5', flex: 1, fontSize: 12, fontWeight: '700' },
   errorBanner: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -419,7 +419,7 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
     borderRadius: 6,
   },
-  errorBannerRetryText: { fontSize: 11, color: '#08111d', fontWeight: '900' },
+  errorBannerRetryText: { fontSize: 11, color: '#050416', fontWeight: '900' },
   infoCard: { 
     flexDirection: 'row', 
     backgroundColor: '#1e3a5f', 
@@ -431,10 +431,10 @@ const styles = StyleSheet.create({
   infoText: { flex: 1, color: '#93c5fd', fontSize: 13, lineHeight: 18 },
   emptyState: {
     alignItems: 'center',
-    backgroundColor: '#0d1826',
+    backgroundColor: 'rgba(16, 9, 28, 0.82)',
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: '#1e2d3d',
+    borderColor: '#29213a',
     padding: 22,
     marginBottom: 16,
   },
@@ -444,20 +444,20 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#0c2740',
+    backgroundColor: 'rgba(244, 63, 94, 0.18)',
     marginBottom: 12,
   },
-  emptyTitle: { color: '#e2e8f0', fontSize: 17, fontWeight: '900' },
-  emptyDetail: { color: '#94a3b8', fontSize: 13, lineHeight: 18, textAlign: 'center', marginTop: 6 },
+  emptyTitle: { color: '#edf3ff', fontSize: 17, fontWeight: '900' },
+  emptyDetail: { color: '#aec0e5', fontSize: 13, lineHeight: 18, textAlign: 'center', marginTop: 6 },
   emptyAction: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    backgroundColor: '#7dd3fc',
+    backgroundColor: '#fb7185',
     paddingHorizontal: 14,
     paddingVertical: 10,
     borderRadius: 8,
     marginTop: 16,
   },
-  emptyActionText: { color: '#08111f', fontSize: 13, fontWeight: '900' },
+  emptyActionText: { color: 'transparent', fontSize: 13, fontWeight: '900' },
 });

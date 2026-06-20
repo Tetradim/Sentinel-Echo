@@ -11,6 +11,17 @@ from contextlib import contextmanager
 
 DATABASE_PATH = os.environ.get('DATABASE_PATH', 'tradebot.db')
 
+
+def _json_default(value):
+    if hasattr(value, 'isoformat'):
+        return value.isoformat()
+    raise TypeError(f'Object of type {value.__class__.__name__} is not JSON serializable')
+
+
+def _json_dumps(data: Any) -> str:
+    return json.dumps(data, default=_json_default)
+
+
 def get_db_path():
     return DATABASE_PATH
 
@@ -153,7 +164,7 @@ def init_database():
             }
             cursor.execute(
                 'INSERT INTO settings (id, data) VALUES (?, ?)',
-                ('main_settings', json.dumps(default_settings))
+                ('main_settings', _json_dumps(default_settings))
             )
             conn.commit()
 
@@ -174,7 +185,7 @@ def update_settings(updates: Dict[str, Any]) -> Dict[str, Any]:
         cursor = conn.cursor()
         cursor.execute(
             'UPDATE settings SET data = ? WHERE id = ?',
-            (json.dumps(settings), 'main_settings')
+            (_json_dumps(settings), 'main_settings')
         )
         conn.commit()
     return settings
@@ -201,7 +212,7 @@ def insert_alert(alert: Dict[str, Any]) -> str:
             1 if alert.get('processed') else 0,
             1 if alert.get('trade_executed') else 0,
             alert.get('raw_message'),
-            json.dumps(alert)
+            _json_dumps(alert)
         ))
         conn.commit()
     return alert.get('id')
@@ -225,7 +236,7 @@ def update_alert(alert_id: str, updates: Dict[str, Any]):
             alert.update(updates)
             cursor.execute(
                 'UPDATE alerts SET data = ?, processed = ?, trade_executed = ? WHERE id = ?',
-                (json.dumps(alert), 1 if alert.get('processed') else 0, 
+                (_json_dumps(alert), 1 if alert.get('processed') else 0,
                  1 if alert.get('trade_executed') else 0, alert_id)
             )
             conn.commit()
@@ -258,7 +269,7 @@ def insert_trade(trade: Dict[str, Any]) -> str:
             1 if trade.get('simulated') else 0,
             trade.get('realized_pnl'),
             trade.get('unrealized_pnl'),
-            json.dumps(trade)
+            _json_dumps(trade)
         ))
         conn.commit()
     return trade.get('id')
@@ -292,7 +303,7 @@ def update_trade(trade_id: str, updates: Dict[str, Any]):
                        closed_at = ?
                 WHERE id = ?
             ''', (
-                json.dumps(trade), trade.get('status'), trade.get('exit_price'),
+                _json_dumps(trade), trade.get('status'), trade.get('exit_price'),
                 trade.get('current_price'), trade.get('realized_pnl'),
                 trade.get('unrealized_pnl'), trade.get('closed_at'), trade_id
             ))
@@ -339,7 +350,7 @@ def save_broker_config(broker_id: str, config: Dict[str, Any]):
         cursor.execute('''
             INSERT OR REPLACE INTO broker_configs (broker_id, config)
             VALUES (?, ?)
-        ''', (broker_id, json.dumps(config)))
+        ''', (broker_id, _json_dumps(config)))
         conn.commit()
 
 # FIXED C8: insert_position was missing — server.py was using insert_trade for positions
@@ -365,7 +376,7 @@ def insert_position(position: dict) -> str:
             position.get('original_quantity'),
             position.get('average_down_count', 0),
             position.get('initial_entry_price'),
-            json.dumps(position)
+            _json_dumps(position)
         ))
         conn.commit()
     return position.get('id', '')

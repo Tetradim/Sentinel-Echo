@@ -95,6 +95,10 @@ try {
     $env:USE_SQLITE = "true"
     $env:DATABASE_PATH = "data/ui-audit.sqlite3"
     $env:API_KEY = ""
+    $env:CONSOLIDATION_USE_OPENCLAW_DISCORD = "false"
+    $env:DISCORD_BOT_TOKEN = ""
+    $env:DISCORD_CHANNEL_IDS = ""
+    $env:ALLOWED_ORIGINS = "http://localhost:$FrontendPort,http://127.0.0.1:$FrontendPort,http://localhost:3000,http://127.0.0.1:3000,http://localhost:3003,http://127.0.0.1:3003,http://localhost:5173,http://127.0.0.1:5173"
 
     Write-Host "Starting backend on port $BackendPort"
     $backend = Start-Process `

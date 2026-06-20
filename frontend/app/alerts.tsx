@@ -43,7 +43,7 @@ function AlertBriefing({ digest }: { digest: AlertDigest }) {
   const toneColor =
     digest.primaryStatus.tone === 'live' ? '#22c55e' :
     digest.primaryStatus.tone === 'attention' ? '#f59e0b' :
-    '#64748b';
+    '#68779b';
 
   return (
     <View style={[s.digestCard, { borderColor: toneColor + '55' }]}>
@@ -153,7 +153,7 @@ export default function AlertsScreen() {
       <View style={s.cardBottom}>
         {a.channel_name ? (
           <View style={s.channelRow}>
-            <Ionicons name="chatbubble-outline" size={12} color="#334155" />
+            <Ionicons name="chatbubble-outline" size={12} color="#68779b" />
             <Text style={s.channelText}>#{a.channel_name}</Text>
           </View>
         ) : <View />}
@@ -187,7 +187,7 @@ export default function AlertsScreen() {
             onPress={retryFetchAlerts}
             accessibilityRole="button"
           >
-            <Ionicons name="refresh" size={13} color="#08111d" />
+            <Ionicons name="refresh" size={13} color="#050416" />
             <Text style={s.errorBannerRetryText}>Retry</Text>
           </TouchableOpacity>
         </View>
@@ -206,17 +206,17 @@ export default function AlertsScreen() {
       </View>
 
       {loading ? (
-        <View style={s.centered}><ActivityIndicator size="large" color="#0ea5e9" /></View>
+        <View style={s.centered}><ActivityIndicator size="large" color="#f43f5e" /></View>
       ) : (
         <FlatList
           data={filtered}
           renderItem={renderItem}
           keyExtractor={i => i.id}
           contentContainerStyle={s.list}
-          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#0ea5e9" />}
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#f43f5e" />}
           ListEmptyComponent={
             <View style={s.empty}>
-              <Ionicons name="notifications-off-outline" size={48} color="#1e2d3d" />
+              <Ionicons name="notifications-off-outline" size={48} color="#29213a" />
               <Text style={s.emptyTitle}>No alerts</Text>
               <Text style={s.emptySub}>Alerts from Discord will appear here</Text>
             </View>
@@ -228,47 +228,47 @@ export default function AlertsScreen() {
 }
 
 const s = StyleSheet.create({
-  container:      { flex: 1, backgroundColor: '#080f1a' },
+  container:      { flex: 1, backgroundColor: '#050416' },
   centered:       { flex: 1, alignItems: 'center', justifyContent: 'center' },
   header:         { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end', paddingHorizontal: 20, paddingTop: 16, paddingBottom: 12 },
-  eyebrow:        { fontSize: 10, color: '#0ea5e9', fontWeight: '700', letterSpacing: 2, marginBottom: 2 },
-  title:          { fontSize: 26, fontWeight: '800', color: '#e2e8f0' },
-  countBadge:     { backgroundColor: '#0d1826', borderRadius: 10, paddingHorizontal: 12, paddingVertical: 6, borderWidth: 1, borderColor: '#1e2d3d' },
-  countText:      { fontSize: 16, fontWeight: '700', color: '#94a3b8' },
+  eyebrow:        { fontSize: 10, color: '#f43f5e', fontWeight: '700', letterSpacing: 2, marginBottom: 2 },
+  title:          { fontSize: 26, fontWeight: '800', color: '#edf3ff' },
+  countBadge:     { backgroundColor: 'rgba(16, 9, 28, 0.82)', borderRadius: 10, paddingHorizontal: 12, paddingVertical: 6, borderWidth: 1, borderColor: '#29213a' },
+  countText:      { fontSize: 16, fontWeight: '700', color: '#aec0e5' },
 
-  digestCard:     { backgroundColor: '#0b1420', borderRadius: 14, marginHorizontal: 16, marginBottom: 12, padding: 14, borderWidth: 1 },
+  digestCard:     { backgroundColor: 'rgba(16, 9, 28, 0.88)', borderRadius: 14, marginHorizontal: 16, marginBottom: 12, padding: 14, borderWidth: 1 },
   digestTop:      { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 },
   digestTitleBlock:{ flex: 1 },
-  digestEyebrow:  { fontSize: 10, color: '#64748b', fontWeight: '800', letterSpacing: 1.4, marginBottom: 5 },
-  digestTitle:    { fontSize: 18, fontWeight: '800', color: '#e2e8f0' },
-  digestDetail:   { fontSize: 12, lineHeight: 17, color: '#94a3b8', marginTop: 3 },
+  digestEyebrow:  { fontSize: 10, color: '#68779b', fontWeight: '800', letterSpacing: 1.4, marginBottom: 5 },
+  digestTitle:    { fontSize: 18, fontWeight: '800', color: '#edf3ff' },
+  digestDetail:   { fontSize: 12, lineHeight: 17, color: '#aec0e5', marginTop: 3 },
   digestRate:     { minWidth: 58, height: 42, borderRadius: 10, flexDirection: 'row', alignItems: 'baseline', justifyContent: 'center', paddingTop: 6 },
   digestRateValue:{ fontSize: 22, fontWeight: '900' },
-  digestRateSuffix:{ fontSize: 12, color: '#64748b', fontWeight: '700' },
-  digestStats:    { flexDirection: 'row', marginTop: 12, paddingTop: 12, borderTopWidth: 1, borderTopColor: '#132235' },
+  digestRateSuffix:{ fontSize: 12, color: '#68779b', fontWeight: '700' },
+  digestStats:    { flexDirection: 'row', marginTop: 12, paddingTop: 12, borderTopWidth: 1, borderTopColor: 'rgba(41, 33, 58, 0.82)' },
   digestStat:     { flex: 1, alignItems: 'center' },
-  digestStatValue:{ fontSize: 14, fontWeight: '800', color: '#e2e8f0' },
-  digestStatLabel:{ fontSize: 9, color: '#64748b', marginTop: 3, fontWeight: '700' },
+  digestStatValue:{ fontSize: 14, fontWeight: '800', color: '#edf3ff' },
+  digestStatLabel:{ fontSize: 9, color: '#68779b', marginTop: 3, fontWeight: '700' },
 
   errorBanner:    { flexDirection: 'row', alignItems: 'center', gap: 8, marginHorizontal: 16, marginBottom: 10, padding: 10, borderRadius: 8, backgroundColor: '#1c1500', borderWidth: 1, borderColor: '#92400e' },
   errorBannerText:{ flex: 1, fontSize: 12, color: '#f59e0b', fontWeight: '600' },
   errorBannerRetry:{ flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: '#f59e0b', paddingHorizontal: 9, paddingVertical: 6, borderRadius: 6 },
-  errorBannerRetryText:{ fontSize: 11, color: '#08111d', fontWeight: '900' },
+  errorBannerRetryText:{ fontSize: 11, color: '#050416', fontWeight: '900' },
 
   filterBar:      { flexDirection: 'row', paddingHorizontal: 16, gap: 8, marginBottom: 12 },
-  filterBtn:      { flex: 1, alignItems: 'center', paddingHorizontal: 8, paddingVertical: 7, borderRadius: 8, backgroundColor: '#0d1826', borderWidth: 1, borderColor: '#1e2d3d' },
-  filterBtnActive:{ backgroundColor: '#0c2740', borderColor: '#0ea5e9' },
-  filterText:     { fontSize: 13, color: '#475569', fontWeight: '600' },
-  filterTextActive:{ color: '#0ea5e9' },
-  filterCount:    { fontSize: 11, color: '#334155', fontWeight: '800', marginTop: 2 },
-  filterCountActive:{ color: '#7dd3fc' },
+  filterBtn:      { flex: 1, alignItems: 'center', paddingHorizontal: 8, paddingVertical: 7, borderRadius: 8, backgroundColor: 'rgba(16, 9, 28, 0.82)', borderWidth: 1, borderColor: '#29213a' },
+  filterBtnActive:{ backgroundColor: 'rgba(244, 63, 94, 0.18)', borderColor: '#f43f5e' },
+  filterText:     { fontSize: 13, color: '#68779b', fontWeight: '600' },
+  filterTextActive:{ color: '#f43f5e' },
+  filterCount:    { fontSize: 11, color: '#68779b', fontWeight: '800', marginTop: 2 },
+  filterCountActive:{ color: '#fb7185' },
 
   list:           { paddingHorizontal: 16, paddingBottom: 16 },
 
-  card:           { backgroundColor: '#0d1826', borderRadius: 12, padding: 14, marginBottom: 8, borderWidth: 1, borderColor: '#1e2d3d' },
+  card:           { backgroundColor: 'rgba(16, 9, 28, 0.82)', borderRadius: 12, padding: 14, marginBottom: 8, borderWidth: 1, borderColor: '#29213a' },
   cardTop:        { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 },
   tickerWrap:     { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  ticker:         { fontSize: 18, fontWeight: '800', color: '#e2e8f0' },
+  ticker:         { fontSize: 18, fontWeight: '800', color: '#edf3ff' },
   typePill:       { paddingHorizontal: 7, paddingVertical: 3, borderRadius: 5 },
   typeText:       { fontSize: 11, fontWeight: '700' },
   statusPill:     { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 9, paddingVertical: 4, borderRadius: 6 },
@@ -276,16 +276,16 @@ const s = StyleSheet.create({
   statusText:     { fontSize: 11, fontWeight: '700' },
 
   grid:           { flexDirection: 'row', marginBottom: 12, gap: 4 },
-  gridItem:       { flex: 1, backgroundColor: '#111c2a', borderRadius: 7, padding: 8, alignItems: 'center' },
-  gridLabel:      { fontSize: 9, color: '#334155', fontWeight: '700', letterSpacing: 1, marginBottom: 3 },
-  gridValue:      { fontSize: 14, fontWeight: '700', color: '#e2e8f0' },
+  gridItem:       { flex: 1, backgroundColor: 'rgba(21, 16, 33, 0.72)', borderRadius: 7, padding: 8, alignItems: 'center' },
+  gridLabel:      { fontSize: 9, color: '#68779b', fontWeight: '700', letterSpacing: 1, marginBottom: 3 },
+  gridValue:      { fontSize: 14, fontWeight: '700', color: '#edf3ff' },
 
   cardBottom:     { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   channelRow:     { flexDirection: 'row', alignItems: 'center', gap: 5 },
-  channelText:    { fontSize: 11, color: '#334155' },
-  timestamp:      { fontSize: 10, color: '#334155' },
+  channelText:    { fontSize: 11, color: '#68779b' },
+  timestamp:      { fontSize: 10, color: '#68779b' },
 
   empty:          { alignItems: 'center', paddingVertical: 64, gap: 10 },
-  emptyTitle:     { fontSize: 18, fontWeight: '700', color: '#1e2d3d' },
-  emptySub:       { fontSize: 13, color: '#1e2d3d' },
+  emptyTitle:     { fontSize: 18, fontWeight: '700', color: '#29213a' },
+  emptySub:       { fontSize: 13, color: '#29213a' },
 });

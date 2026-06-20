@@ -69,7 +69,7 @@ function PositionBriefing({ digest }: { digest: PositionDigest }) {
   const toneColor =
     digest.primaryStatus.tone === 'live' ? '#22c55e' :
     digest.primaryStatus.tone === 'attention' ? '#f59e0b' :
-    '#64748b';
+    '#68779b';
 
   return (
     <View style={[s.digestCard, { borderColor: toneColor + '55' }]}>
@@ -170,7 +170,7 @@ export default function PositionsScreen() {
   ];
 
   const renderItem = ({ item: p }: { item: Position }) => {
-    const bColor  = BROKER_COLORS[p.broker] || '#64748b';
+    const bColor  = BROKER_COLORS[p.broker] || '#68779b';
     const bName   = BROKER_NAMES[p.broker] || p.broker;
     const isOpen  = p.status !== 'closed';
     const curr    = p.current_price ?? p.entry_price;
@@ -197,10 +197,10 @@ export default function PositionsScreen() {
               <Text style={[s.badgeText, { color: bColor }]}>{bName}</Text>
             </View>
             <View style={[s.badge, {
-              backgroundColor: p.status === 'open' ? '#14532d' : p.status === 'partial' ? '#422006' : '#1e2d3d'
+              backgroundColor: p.status === 'open' ? '#14532d' : p.status === 'partial' ? '#422006' : '#29213a'
             }]}>
               <Text style={[s.badgeText, {
-                color: p.status === 'open' ? '#4ade80' : p.status === 'partial' ? '#fb923c' : '#64748b'
+                color: p.status === 'open' ? '#4ade80' : p.status === 'partial' ? '#fb923c' : '#68779b'
               }]}>{p.status.toUpperCase()}</Text>
             </View>
           </View>
@@ -233,7 +233,7 @@ export default function PositionsScreen() {
         {/* Footer */}
         <View style={s.footer}>
           <View style={s.footerLeft}>
-            <Ionicons name="calendar-outline" size={12} color="#334155" />
+            <Ionicons name="calendar-outline" size={12} color="#68779b" />
             <Text style={s.footerText}>Exp: {p.expiration}</Text>
             <Text style={s.footerDot}>·</Text>
             <Text style={s.footerText}>{formatDate(isOpen ? p.opened_at : (p.closed_at || p.opened_at))}</Text>
@@ -275,7 +275,7 @@ export default function PositionsScreen() {
             onPress={retryFetchPositions}
             accessibilityRole="button"
           >
-            <Ionicons name="refresh" size={13} color="#08111d" />
+            <Ionicons name="refresh" size={13} color="#050416" />
             <Text style={s.errorBannerRetryText}>Retry</Text>
           </TouchableOpacity>
         </View>
@@ -317,17 +317,17 @@ export default function PositionsScreen() {
       </View>
 
       {loading ? (
-        <View style={s.centered}><ActivityIndicator size="large" color="#0ea5e9" /></View>
+        <View style={s.centered}><ActivityIndicator size="large" color="#f43f5e" /></View>
       ) : (
         <FlatList
           data={filteredPositions}
           renderItem={renderItem}
           keyExtractor={i => i.id}
           contentContainerStyle={s.list}
-          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#0ea5e9" />}
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#f43f5e" />}
           ListEmptyComponent={
             <View style={s.empty}>
-              <Ionicons name="briefcase-outline" size={48} color="#1e2d3d" />
+              <Ionicons name="briefcase-outline" size={48} color="#29213a" />
               <Text style={s.emptyTitle}>No positions</Text>
             </View>
           }
@@ -351,13 +351,13 @@ export default function PositionsScreen() {
             </View>
             <TextInput
               style={s.modalInput} value={sellPct} onChangeText={setSellPct}
-              keyboardType="decimal-pad" placeholder="%" placeholderTextColor="#334155"
+              keyboardType="decimal-pad" placeholder="%" placeholderTextColor="#68779b"
             />
 
             <Text style={s.modalLabel}>Exit Price</Text>
             <TextInput
               style={s.modalInput} value={exitPrice} onChangeText={setExitPrice}
-              keyboardType="decimal-pad" placeholder="0.00" placeholderTextColor="#334155"
+              keyboardType="decimal-pad" placeholder="0.00" placeholderTextColor="#68779b"
             />
 
             <View style={s.modalBtns}>
@@ -376,54 +376,54 @@ export default function PositionsScreen() {
 }
 
 const s = StyleSheet.create({
-  container:  { flex: 1, backgroundColor: '#080f1a' },
+  container:  { flex: 1, backgroundColor: '#050416' },
   centered:   { flex: 1, alignItems: 'center', justifyContent: 'center' },
   header:     { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end', paddingHorizontal: 20, paddingTop: 16, paddingBottom: 12 },
-  eyebrow:    { fontSize: 10, color: '#0ea5e9', fontWeight: '700', letterSpacing: 2, marginBottom: 2 },
-  title:      { fontSize: 26, fontWeight: '800', color: '#e2e8f0' },
+  eyebrow:    { fontSize: 10, color: '#f43f5e', fontWeight: '700', letterSpacing: 2, marginBottom: 2 },
+  title:      { fontSize: 26, fontWeight: '800', color: '#edf3ff' },
   headerStats:{ alignItems: 'flex-end' },
   headerPnl:  { fontSize: 20, fontWeight: '800' },
-  headerPnlSub: { fontSize: 11, color: '#475569', marginTop: 1 },
+  headerPnlSub: { fontSize: 11, color: '#68779b', marginTop: 1 },
 
-  strip:      { flexDirection: 'row', marginHorizontal: 16, backgroundColor: '#0d1826', borderRadius: 12, padding: 14, marginBottom: 10, borderWidth: 1, borderColor: '#1e2d3d', alignItems: 'center' },
+  strip:      { flexDirection: 'row', marginHorizontal: 16, backgroundColor: 'rgba(16, 9, 28, 0.82)', borderRadius: 12, padding: 14, marginBottom: 10, borderWidth: 1, borderColor: '#29213a', alignItems: 'center' },
   stripCell:  { flex: 1, alignItems: 'center' },
-  stripValue: { fontSize: 14, fontWeight: '800', color: '#e2e8f0' },
-  stripLabel: { fontSize: 9, color: '#475569', marginTop: 3, fontWeight: '600', letterSpacing: 0.5 },
-  stripDiv:   { width: 1, height: 30, backgroundColor: '#1e2d3d' },
+  stripValue: { fontSize: 14, fontWeight: '800', color: '#edf3ff' },
+  stripLabel: { fontSize: 9, color: '#68779b', marginTop: 3, fontWeight: '600', letterSpacing: 0.5 },
+  stripDiv:   { width: 1, height: 30, backgroundColor: '#29213a' },
 
-  digestCard: { backgroundColor: '#0b1420', borderRadius: 14, marginHorizontal: 16, marginBottom: 10, padding: 14, borderWidth: 1 },
+  digestCard: { backgroundColor: 'rgba(16, 9, 28, 0.88)', borderRadius: 14, marginHorizontal: 16, marginBottom: 10, padding: 14, borderWidth: 1 },
   digestTop:  { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 },
   digestTitleBlock: { flex: 1 },
-  digestEyebrow: { fontSize: 10, color: '#64748b', fontWeight: '800', letterSpacing: 1.4, marginBottom: 5 },
-  digestTitle: { fontSize: 18, fontWeight: '800', color: '#e2e8f0' },
-  digestDetail: { fontSize: 12, lineHeight: 17, color: '#94a3b8', marginTop: 3 },
+  digestEyebrow: { fontSize: 10, color: '#68779b', fontWeight: '800', letterSpacing: 1.4, marginBottom: 5 },
+  digestTitle: { fontSize: 18, fontWeight: '800', color: '#edf3ff' },
+  digestDetail: { fontSize: 12, lineHeight: 17, color: '#aec0e5', marginTop: 3 },
   digestExposure: { minWidth: 94, height: 42, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
   digestExposureValue: { fontSize: 17, fontWeight: '900' },
-  digestExposureLabel: { fontSize: 10, color: '#64748b', fontWeight: '700', marginTop: 1 },
-  digestStats: { flexDirection: 'row', marginTop: 12, paddingTop: 12, borderTopWidth: 1, borderTopColor: '#132235' },
+  digestExposureLabel: { fontSize: 10, color: '#68779b', fontWeight: '700', marginTop: 1 },
+  digestStats: { flexDirection: 'row', marginTop: 12, paddingTop: 12, borderTopWidth: 1, borderTopColor: 'rgba(41, 33, 58, 0.82)' },
   digestStat: { flex: 1, alignItems: 'center' },
-  digestStatValue: { fontSize: 14, fontWeight: '800', color: '#e2e8f0' },
-  digestStatLabel: { fontSize: 9, color: '#64748b', marginTop: 3, fontWeight: '700' },
+  digestStatValue: { fontSize: 14, fontWeight: '800', color: '#edf3ff' },
+  digestStatLabel: { fontSize: 9, color: '#68779b', marginTop: 3, fontWeight: '700' },
 
   errorBanner: { flexDirection: 'row', alignItems: 'center', gap: 8, marginHorizontal: 16, marginBottom: 10, padding: 10, borderRadius: 8, backgroundColor: '#1c1500', borderWidth: 1, borderColor: '#92400e' },
   errorBannerText: { flex: 1, fontSize: 12, color: '#f59e0b', fontWeight: '600' },
   errorBannerRetry: { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: '#f59e0b', paddingHorizontal: 9, paddingVertical: 6, borderRadius: 6 },
-  errorBannerRetryText: { fontSize: 11, color: '#08111d', fontWeight: '900' },
+  errorBannerRetryText: { fontSize: 11, color: '#050416', fontWeight: '900' },
 
   filterBar:  { flexDirection: 'row', paddingHorizontal: 16, gap: 8, marginBottom: 10 },
-  filterBtn:  { flex: 1, alignItems: 'center', paddingHorizontal: 8, paddingVertical: 7, borderRadius: 8, backgroundColor: '#0d1826', borderWidth: 1, borderColor: '#1e2d3d' },
-  filterBtnActive: { backgroundColor: '#0c2740', borderColor: '#0ea5e9' },
-  filterText: { fontSize: 13, color: '#475569', fontWeight: '600' },
-  filterTextActive: { color: '#0ea5e9' },
-  filterCount: { fontSize: 11, color: '#334155', fontWeight: '800', marginTop: 2 },
-  filterCountActive: { color: '#7dd3fc' },
+  filterBtn:  { flex: 1, alignItems: 'center', paddingHorizontal: 8, paddingVertical: 7, borderRadius: 8, backgroundColor: 'rgba(16, 9, 28, 0.82)', borderWidth: 1, borderColor: '#29213a' },
+  filterBtnActive: { backgroundColor: 'rgba(244, 63, 94, 0.18)', borderColor: '#f43f5e' },
+  filterText: { fontSize: 13, color: '#68779b', fontWeight: '600' },
+  filterTextActive: { color: '#f43f5e' },
+  filterCount: { fontSize: 11, color: '#68779b', fontWeight: '800', marginTop: 2 },
+  filterCountActive: { color: '#fb7185' },
 
   list:       { paddingHorizontal: 16, paddingBottom: 16 },
-  card:       { backgroundColor: '#0d1826', borderRadius: 12, padding: 14, marginBottom: 8, borderWidth: 1, borderColor: '#1e2d3d' },
+  card:       { backgroundColor: 'rgba(16, 9, 28, 0.82)', borderRadius: 12, padding: 14, marginBottom: 8, borderWidth: 1, borderColor: '#29213a' },
   cardClosed: { opacity: 0.7 },
   cardTop:    { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 },
   tickerRow:  { flexDirection: 'row', alignItems: 'center', gap: 7 },
-  ticker:     { fontSize: 18, fontWeight: '800', color: '#e2e8f0' },
+  ticker:     { fontSize: 18, fontWeight: '800', color: '#edf3ff' },
   typePill:   { paddingHorizontal: 7, paddingVertical: 3, borderRadius: 5 },
   typeText:   { fontSize: 11, fontWeight: '700' },
   simPill:    { backgroundColor: '#2d1f5e', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4 },
@@ -433,39 +433,39 @@ const s = StyleSheet.create({
   badgeText:  { fontSize: 10, fontWeight: '700' },
 
   grid:       { flexDirection: 'row', gap: 4, marginBottom: 10 },
-  gridCell:   { flex: 1, backgroundColor: '#111c2a', borderRadius: 7, padding: 8, alignItems: 'center' },
-  gridLabel:  { fontSize: 9, color: '#334155', fontWeight: '700', letterSpacing: 1, marginBottom: 3 },
-  gridValue:  { fontSize: 13, fontWeight: '700', color: '#e2e8f0' },
+  gridCell:   { flex: 1, backgroundColor: 'rgba(21, 16, 33, 0.72)', borderRadius: 7, padding: 8, alignItems: 'center' },
+  gridLabel:  { fontSize: 9, color: '#68779b', fontWeight: '700', letterSpacing: 1, marginBottom: 3 },
+  gridValue:  { fontSize: 13, fontWeight: '700', color: '#edf3ff' },
 
   pnlBar:     { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 10, borderRadius: 8, marginBottom: 10 },
-  pnlLabel:   { fontSize: 11, color: '#64748b', fontWeight: '600' },
+  pnlLabel:   { fontSize: 11, color: '#68779b', fontWeight: '600' },
   pnlRight:   { flexDirection: 'row', alignItems: 'center', gap: 5 },
   pnlValue:   { fontSize: 15, fontWeight: '800' },
 
   footer:     { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   footerLeft: { flexDirection: 'row', alignItems: 'center', gap: 5, flex: 1 },
-  footerText: { fontSize: 10, color: '#334155' },
-  footerDot:  { fontSize: 10, color: '#1e2d3d' },
-  sellBtn:    { backgroundColor: '#0c2740', paddingHorizontal: 16, paddingVertical: 6, borderRadius: 7, borderWidth: 1, borderColor: '#0ea5e9' },
-  sellBtnText:{ fontSize: 12, color: '#0ea5e9', fontWeight: '700' },
+  footerText: { fontSize: 10, color: '#68779b' },
+  footerDot:  { fontSize: 10, color: '#29213a' },
+  sellBtn:    { backgroundColor: 'rgba(244, 63, 94, 0.18)', paddingHorizontal: 16, paddingVertical: 6, borderRadius: 7, borderWidth: 1, borderColor: '#f43f5e' },
+  sellBtnText:{ fontSize: 12, color: '#f43f5e', fontWeight: '700' },
 
   empty:      { alignItems: 'center', paddingVertical: 64, gap: 10 },
-  emptyTitle: { fontSize: 18, fontWeight: '700', color: '#1e2d3d' },
+  emptyTitle: { fontSize: 18, fontWeight: '700', color: '#29213a' },
 
   overlay:    { flex: 1, backgroundColor: 'rgba(0,0,0,0.75)', alignItems: 'center', justifyContent: 'center', padding: 24 },
-  modal:      { backgroundColor: '#0d1826', borderRadius: 16, padding: 24, width: '100%', maxWidth: 400, borderWidth: 1, borderColor: '#1e2d3d' },
-  modalTitle: { fontSize: 18, fontWeight: '800', color: '#e2e8f0', marginBottom: 4 },
-  modalSub:   { fontSize: 13, color: '#475569', marginBottom: 20 },
-  modalLabel: { fontSize: 12, color: '#64748b', fontWeight: '600', marginBottom: 8 },
-  modalInput: { backgroundColor: '#111c2a', borderRadius: 9, padding: 13, color: '#e2e8f0', fontSize: 16, fontWeight: '700', borderWidth: 1, borderColor: '#1e2d3d', marginBottom: 16 },
+  modal:      { backgroundColor: 'rgba(16, 9, 28, 0.82)', borderRadius: 16, padding: 24, width: '100%', maxWidth: 400, borderWidth: 1, borderColor: '#29213a' },
+  modalTitle: { fontSize: 18, fontWeight: '800', color: '#edf3ff', marginBottom: 4 },
+  modalSub:   { fontSize: 13, color: '#68779b', marginBottom: 20 },
+  modalLabel: { fontSize: 12, color: '#68779b', fontWeight: '600', marginBottom: 8 },
+  modalInput: { backgroundColor: 'rgba(21, 16, 33, 0.72)', borderRadius: 9, padding: 13, color: '#edf3ff', fontSize: 16, fontWeight: '700', borderWidth: 1, borderColor: '#29213a', marginBottom: 16 },
   pctRow:     { flexDirection: 'row', gap: 8, marginBottom: 10 },
-  pctBtn:     { flex: 1, padding: 10, borderRadius: 8, backgroundColor: '#1e2d3d', alignItems: 'center' },
-  pctBtnActive: { backgroundColor: '#0c2740', borderWidth: 1, borderColor: '#0ea5e9' },
-  pctText:    { fontSize: 13, color: '#64748b', fontWeight: '700' },
-  pctTextActive: { color: '#0ea5e9' },
+  pctBtn:     { flex: 1, padding: 10, borderRadius: 8, backgroundColor: '#29213a', alignItems: 'center' },
+  pctBtnActive: { backgroundColor: 'rgba(244, 63, 94, 0.18)', borderWidth: 1, borderColor: '#f43f5e' },
+  pctText:    { fontSize: 13, color: '#68779b', fontWeight: '700' },
+  pctTextActive: { color: '#f43f5e' },
   modalBtns:  { flexDirection: 'row', gap: 10, marginTop: 4 },
-  modalCancel:  { flex: 1, padding: 14, borderRadius: 9, backgroundColor: '#1e2d3d', alignItems: 'center' },
-  modalCancelText: { color: '#64748b', fontWeight: '700' },
-  modalConfirm:  { flex: 1, padding: 14, borderRadius: 9, backgroundColor: '#0c2740', borderWidth: 1, borderColor: '#0ea5e9', alignItems: 'center' },
-  modalConfirmText: { color: '#0ea5e9', fontWeight: '700' },
+  modalCancel:  { flex: 1, padding: 14, borderRadius: 9, backgroundColor: '#29213a', alignItems: 'center' },
+  modalCancelText: { color: '#68779b', fontWeight: '700' },
+  modalConfirm:  { flex: 1, padding: 14, borderRadius: 9, backgroundColor: 'rgba(244, 63, 94, 0.18)', borderWidth: 1, borderColor: '#f43f5e', alignItems: 'center' },
+  modalConfirmText: { color: '#f43f5e', fontWeight: '700' },
 });

@@ -94,7 +94,7 @@ function eventTone(event: OperatorEvent): string {
   if (event.severity === 'error') return '#ef4444';
   if (event.severity === 'warning') return '#f59e0b';
   if (event.action.includes('exit')) return '#fb923c';
-  return '#0ea5e9';
+  return '#f43f5e';
 }
 
 function actionLabel(action: string): string {
@@ -148,7 +148,7 @@ function LabButton({
         <Text style={s.labButtonLabel}>{label}</Text>
         <Text style={s.labButtonSub}>{subLabel}</Text>
       </View>
-      <Ionicons name="chevron-forward" size={18} color="#334155" />
+      <Ionicons name="chevron-forward" size={18} color="#68779b" />
     </TouchableOpacity>
   );
 }
@@ -279,7 +279,7 @@ export default function OperatorLabScreen() {
     <SafeAreaView style={s.container}>
       <ScrollView
         contentContainerStyle={s.content}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#0ea5e9" />}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#f43f5e" />}
       >
         <View style={s.header}>
           <View>
@@ -292,7 +292,7 @@ export default function OperatorLabScreen() {
             disabled={refreshing}
             accessibilityRole="button"
           >
-            <Ionicons name="refresh" size={16} color="#7dd3fc" />
+            <Ionicons name="refresh" size={16} color="#fb7185" />
             <Text style={s.refreshText}>Refresh</Text>
           </TouchableOpacity>
         </View>
@@ -340,7 +340,7 @@ export default function OperatorLabScreen() {
               icon="notifications-outline"
               label="Create Test Alert"
               subLabel="SPY alert, trade, and position"
-              tone="#0ea5e9"
+              tone="#f43f5e"
               busy={runningAction === 'test-alert'}
               disabled={runningAction !== null}
               onPress={runTestAlert}
@@ -365,11 +365,11 @@ export default function OperatorLabScreen() {
 
           {loading ? (
             <View style={s.loadingBlock}>
-              <ActivityIndicator color="#0ea5e9" />
+              <ActivityIndicator color="#f43f5e" />
             </View>
           ) : events.length === 0 ? (
             <View style={s.emptyBlock}>
-              <Ionicons name="file-tray-outline" size={34} color="#1e2d3d" />
+              <Ionicons name="file-tray-outline" size={34} color="#29213a" />
               <Text style={s.emptyTitle}>No events</Text>
             </View>
           ) : (
@@ -402,7 +402,7 @@ export default function OperatorLabScreen() {
 
           {openPositions.length === 0 ? (
             <View style={s.emptyBlock}>
-              <Ionicons name="briefcase-outline" size={34} color="#1e2d3d" />
+              <Ionicons name="briefcase-outline" size={34} color="#29213a" />
               <Text style={s.emptyTitle}>No open positions</Text>
             </View>
           ) : (
@@ -437,35 +437,35 @@ export default function OperatorLabScreen() {
 }
 
 const s = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#080f1a' },
+  container: { flex: 1, backgroundColor: '#050416' },
   content: { paddingHorizontal: 16, paddingTop: 16, paddingBottom: 20 },
   header: { flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between', marginBottom: 12 },
-  eyebrow: { fontSize: 10, color: '#0ea5e9', fontWeight: '800', letterSpacing: 2, marginBottom: 2 },
-  title: { fontSize: 26, fontWeight: '800', color: '#e2e8f0' },
-  refreshButton: { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: '#0c2740', borderWidth: 1, borderColor: '#0ea5e9', borderRadius: 8, paddingHorizontal: 11, paddingVertical: 8 },
-  refreshText: { fontSize: 12, color: '#7dd3fc', fontWeight: '800' },
+  eyebrow: { fontSize: 10, color: '#f43f5e', fontWeight: '800', letterSpacing: 2, marginBottom: 2 },
+  title: { fontSize: 26, fontWeight: '800', color: '#edf3ff' },
+  refreshButton: { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: 'rgba(244, 63, 94, 0.18)', borderWidth: 1, borderColor: '#f43f5e', borderRadius: 8, paddingHorizontal: 11, paddingVertical: 8 },
+  refreshText: { fontSize: 12, color: '#fb7185', fontWeight: '800' },
 
   errorBanner: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 10, padding: 10, borderRadius: 8, backgroundColor: '#1c1500', borderWidth: 1, borderColor: '#92400e' },
   errorBannerText: { flex: 1, fontSize: 12, color: '#f59e0b', fontWeight: '600' },
 
-  briefing: { flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: '#0b1420', borderWidth: 1, borderColor: '#1e2d3d', borderRadius: 14, padding: 14, marginBottom: 10 },
+  briefing: { flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: 'rgba(16, 9, 28, 0.88)', borderWidth: 1, borderColor: '#29213a', borderRadius: 14, padding: 14, marginBottom: 10 },
   briefingCopy: { flex: 1 },
-  briefingEyebrow: { fontSize: 10, color: '#64748b', fontWeight: '800', letterSpacing: 1.4, marginBottom: 5 },
-  briefingTitle: { fontSize: 18, fontWeight: '900', color: '#e2e8f0' },
-  briefingDetail: { fontSize: 12, lineHeight: 17, color: '#94a3b8', marginTop: 3 },
+  briefingEyebrow: { fontSize: 10, color: '#68779b', fontWeight: '800', letterSpacing: 1.4, marginBottom: 5 },
+  briefingTitle: { fontSize: 18, fontWeight: '900', color: '#edf3ff' },
+  briefingDetail: { fontSize: 12, lineHeight: 17, color: '#aec0e5', marginTop: 3 },
   briefingGauge: { minWidth: 72, height: 54, borderRadius: 11, backgroundColor: 'rgba(14, 165, 233, 0.12)', alignItems: 'center', justifyContent: 'center' },
-  briefingGaugeValue: { fontSize: 22, fontWeight: '900', color: '#7dd3fc' },
-  briefingGaugeLabel: { fontSize: 10, color: '#64748b', fontWeight: '800' },
+  briefingGaugeValue: { fontSize: 22, fontWeight: '900', color: '#fb7185' },
+  briefingGaugeLabel: { fontSize: 10, color: '#68779b', fontWeight: '800' },
 
   statsGrid: { flexDirection: 'row', gap: 8, marginBottom: 10 },
-  statTile: { flex: 1, alignItems: 'center', backgroundColor: '#0d1826', borderWidth: 1, borderColor: '#1e2d3d', borderRadius: 10, paddingVertical: 11, paddingHorizontal: 6 },
-  statValue: { fontSize: 16, fontWeight: '900', color: '#e2e8f0' },
-  statLabel: { fontSize: 10, color: '#64748b', fontWeight: '700', marginTop: 3, textAlign: 'center' },
+  statTile: { flex: 1, alignItems: 'center', backgroundColor: 'rgba(16, 9, 28, 0.82)', borderWidth: 1, borderColor: '#29213a', borderRadius: 10, paddingVertical: 11, paddingHorizontal: 6 },
+  statValue: { fontSize: 16, fontWeight: '900', color: '#edf3ff' },
+  statLabel: { fontSize: 10, color: '#68779b', fontWeight: '700', marginTop: 3, textAlign: 'center' },
 
-  panel: { backgroundColor: '#0d1826', borderRadius: 12, borderWidth: 1, borderColor: '#1e2d3d', padding: 14, marginBottom: 10 },
+  panel: { backgroundColor: 'rgba(16, 9, 28, 0.82)', borderRadius: 12, borderWidth: 1, borderColor: '#29213a', padding: 14, marginBottom: 10 },
   panelHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 },
-  panelTitle: { fontSize: 16, color: '#e2e8f0', fontWeight: '900' },
-  panelMeta: { fontSize: 11, color: '#64748b', fontWeight: '800' },
+  panelTitle: { fontSize: 16, color: '#edf3ff', fontWeight: '900' },
+  panelMeta: { fontSize: 11, color: '#68779b', fontWeight: '800' },
   panelPill: { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: '#10251d', borderRadius: 999, paddingHorizontal: 8, paddingVertical: 4 },
   panelPillText: { fontSize: 10, color: '#22c55e', fontWeight: '900' },
 
@@ -474,29 +474,29 @@ const s = StyleSheet.create({
   labButtonDisabled: { opacity: 0.65 },
   labButtonIcon: { width: 40, height: 40, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
   labButtonTextWrap: { flex: 1 },
-  labButtonLabel: { fontSize: 14, color: '#e2e8f0', fontWeight: '900' },
-  labButtonSub: { fontSize: 11, color: '#64748b', fontWeight: '700', marginTop: 2 },
+  labButtonLabel: { fontSize: 14, color: '#edf3ff', fontWeight: '900' },
+  labButtonSub: { fontSize: 11, color: '#68779b', fontWeight: '700', marginTop: 2 },
 
   loadingBlock: { alignItems: 'center', paddingVertical: 24 },
   emptyBlock: { alignItems: 'center', paddingVertical: 28, gap: 8 },
-  emptyTitle: { color: '#334155', fontSize: 14, fontWeight: '800' },
+  emptyTitle: { color: '#68779b', fontSize: 14, fontWeight: '800' },
 
-  eventRow: { flexDirection: 'row', gap: 10, paddingVertical: 10, borderTopWidth: 1, borderTopColor: '#132235' },
+  eventRow: { flexDirection: 'row', gap: 10, paddingVertical: 10, borderTopWidth: 1, borderTopColor: 'rgba(41, 33, 58, 0.82)' },
   eventIcon: { width: 32, height: 32, borderRadius: 9, alignItems: 'center', justifyContent: 'center', marginTop: 2 },
   eventBody: { flex: 1 },
   eventTopLine: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10 },
-  eventAction: { flex: 1, color: '#e2e8f0', fontSize: 13, fontWeight: '900' },
-  eventTime: { fontSize: 10, color: '#475569', fontWeight: '700' },
-  eventSummary: { color: '#94a3b8', fontSize: 12, lineHeight: 17, marginTop: 2 },
-  eventCategory: { color: '#334155', fontSize: 10, fontWeight: '800', marginTop: 3, textTransform: 'uppercase' },
+  eventAction: { flex: 1, color: '#edf3ff', fontSize: 13, fontWeight: '900' },
+  eventTime: { fontSize: 10, color: '#68779b', fontWeight: '700' },
+  eventSummary: { color: '#aec0e5', fontSize: 12, lineHeight: 17, marginTop: 2 },
+  eventCategory: { color: '#68779b', fontSize: 10, fontWeight: '800', marginTop: 3, textTransform: 'uppercase' },
 
-  positionRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10, paddingVertical: 10, borderTopWidth: 1, borderTopColor: '#132235' },
+  positionRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10, paddingVertical: 10, borderTopWidth: 1, borderTopColor: 'rgba(41, 33, 58, 0.82)' },
   positionTickerLine: { flexDirection: 'row', alignItems: 'center', gap: 7 },
-  positionTicker: { fontSize: 15, color: '#e2e8f0', fontWeight: '900' },
+  positionTicker: { fontSize: 15, color: '#edf3ff', fontWeight: '900' },
   positionTypePill: { backgroundColor: '#10251d', borderRadius: 5, paddingHorizontal: 6, paddingVertical: 2 },
   positionTypeText: { color: '#22c55e', fontSize: 10, fontWeight: '900' },
-  positionSub: { color: '#64748b', fontSize: 11, marginTop: 3 },
+  positionSub: { color: '#68779b', fontSize: 11, marginTop: 3 },
   positionRight: { alignItems: 'flex-end' },
-  positionQty: { color: '#94a3b8', fontSize: 12, fontWeight: '800' },
+  positionQty: { color: '#aec0e5', fontSize: 12, fontWeight: '800' },
   positionPnl: { fontSize: 12, fontWeight: '900', marginTop: 3 },
 });

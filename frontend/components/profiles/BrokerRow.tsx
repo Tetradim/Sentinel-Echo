@@ -63,7 +63,7 @@ export const BrokerRow: React.FC<BrokerRowProps> = ({
             <Ionicons
               name={isExpanded ? 'chevron-up' : 'settings-outline'}
               size={18}
-              color="#64748b"
+              color="#68779b"
             />
           )}
         </TouchableOpacity>
@@ -84,7 +84,7 @@ export const BrokerRow: React.FC<BrokerRowProps> = ({
 
 const styles = StyleSheet.create({
   brokerCard: {
-    backgroundColor: '#0f172a',
+    backgroundColor: '#050416',
     borderRadius: 8,
     marginBottom: 8,
     overflow: 'hidden',
@@ -112,6 +112,6 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
   disabledText: {
-    color: '#64748b',
+    color: '#68779b',
   },
 });

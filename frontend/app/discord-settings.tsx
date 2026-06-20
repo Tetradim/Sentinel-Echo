@@ -116,7 +116,7 @@ function DiscordBriefing({ digest }: { digest: DiscordDigest }) {
   const toneColor =
     digest.primaryStatus.tone === 'live' ? '#22c55e' :
     digest.primaryStatus.tone === 'attention' ? '#f59e0b' :
-    '#64748b';
+    '#68779b';
   const warnings = digest.warningItems.slice(0, 3);
 
   return (
@@ -180,8 +180,8 @@ function ToggleRow({
       <Switch
         value={value}
         onValueChange={onValueChange}
-        trackColor={{ false: '#1e2d3d', true: '#164766' }}
-        thumbColor={value ? '#38bdf8' : '#64748b'}
+        trackColor={{ false: '#29213a', true: '#164766' }}
+        thumbColor={value ? '#f43f5e' : '#68779b'}
       />
     </View>
   );
@@ -210,7 +210,7 @@ function Field({
         value={value}
         onChangeText={onChangeText}
         placeholder={placeholder}
-        placeholderTextColor="#475569"
+        placeholderTextColor="#68779b"
         multiline={multiline}
         keyboardType={keyboardType}
         autoCapitalize="none"
@@ -278,7 +278,7 @@ export function DiscordSettingsPage() {
             <Text style={styles.title}>Discord Configuration</Text>
           </View>
           <TouchableOpacity style={styles.addIconButton} onPress={addCommunity} accessibilityRole="button">
-            <Ionicons name="add" size={20} color="#08111f" />
+            <Ionicons name="add" size={20} color="transparent" />
           </TouchableOpacity>
         </View>
 
@@ -304,7 +304,7 @@ export function DiscordSettingsPage() {
                 <Text style={styles.sectionHint}>Manage signal sources and automation mode per server.</Text>
               </View>
               <TouchableOpacity style={styles.miniAction} onPress={addCommunity}>
-                <Ionicons name="add" size={16} color="#7dd3fc" />
+                <Ionicons name="add" size={16} color="#fb7185" />
                 <Text style={styles.miniActionText}>Add</Text>
               </TouchableOpacity>
             </View>
@@ -316,8 +316,8 @@ export function DiscordSettingsPage() {
                     <Switch
                       value={community.enabled}
                       onValueChange={(value) => updateCommunity(community.id, 'enabled', value)}
-                      trackColor={{ false: '#1e2d3d', true: '#164766' }}
-                      thumbColor={community.enabled ? '#38bdf8' : '#64748b'}
+                      trackColor={{ false: '#29213a', true: '#164766' }}
+                      thumbColor={community.enabled ? '#f43f5e' : '#68779b'}
                     />
                     <View style={styles.communityTitleBlock}>
                       <Text style={styles.communityName}>{community.name}</Text>
@@ -480,11 +480,11 @@ export function DiscordSettingsPage() {
 
         <View style={styles.actionRow}>
           <TouchableOpacity style={styles.secondaryAction} onPress={resetSettings}>
-            <Ionicons name="refresh-outline" size={18} color="#7dd3fc" />
+            <Ionicons name="refresh-outline" size={18} color="#fb7185" />
             <Text style={styles.secondaryActionText}>Reset</Text>
           </TouchableOpacity>
           <TouchableOpacity style={styles.primaryAction} onPress={saveSettings}>
-            <Ionicons name="save-outline" size={18} color="#08111f" />
+            <Ionicons name="save-outline" size={18} color="transparent" />
             <Text style={styles.primaryActionText}>Save Discord Settings</Text>
           </TouchableOpacity>
         </View>
@@ -496,21 +496,21 @@ export function DiscordSettingsPage() {
 export default DiscordSettingsPage;
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#08111f' },
+  container: { flex: 1, backgroundColor: '#050416' },
   content: { padding: 16, paddingBottom: 32 },
   header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end', marginBottom: 12 },
-  eyebrow: { color: '#38bdf8', fontSize: 10, fontWeight: '800', letterSpacing: 1.8, marginBottom: 2 },
-  title: { color: '#e2e8f0', fontSize: 26, fontWeight: '900' },
+  eyebrow: { color: '#f43f5e', fontSize: 10, fontWeight: '800', letterSpacing: 1.8, marginBottom: 2 },
+  title: { color: '#edf3ff', fontSize: 26, fontWeight: '900' },
   addIconButton: {
     width: 38,
     height: 38,
     borderRadius: 10,
-    backgroundColor: '#38bdf8',
+    backgroundColor: '#f43f5e',
     alignItems: 'center',
     justifyContent: 'center',
   },
   digestCard: {
-    backgroundColor: '#0b1420',
+    backgroundColor: 'rgba(16, 9, 28, 0.88)',
     borderRadius: 14,
     padding: 14,
     borderWidth: 1,
@@ -518,28 +518,28 @@ const styles = StyleSheet.create({
   },
   digestTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 },
   digestTitleBlock: { flex: 1 },
-  digestEyebrow: { color: '#64748b', fontSize: 10, fontWeight: '800', letterSpacing: 1.4, marginBottom: 5 },
-  digestTitle: { color: '#e2e8f0', fontSize: 18, fontWeight: '900' },
-  digestDetail: { color: '#94a3b8', fontSize: 12, lineHeight: 17, marginTop: 3 },
+  digestEyebrow: { color: '#68779b', fontSize: 10, fontWeight: '800', letterSpacing: 1.4, marginBottom: 5 },
+  digestTitle: { color: '#edf3ff', fontSize: 18, fontWeight: '900' },
+  digestDetail: { color: '#aec0e5', fontSize: 12, lineHeight: 17, marginTop: 3 },
   communityBadge: { minWidth: 78, height: 48, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
   communityBadgeValue: { fontSize: 18, fontWeight: '900' },
-  communityBadgeLabel: { color: '#64748b', fontSize: 10, fontWeight: '800', marginTop: 1 },
+  communityBadgeLabel: { color: '#68779b', fontSize: 10, fontWeight: '800', marginTop: 1 },
   digestStats: {
     flexDirection: 'row',
     marginTop: 12,
     paddingTop: 12,
     borderTopWidth: 1,
-    borderTopColor: '#132235',
+    borderTopColor: 'rgba(41, 33, 58, 0.82)',
   },
   digestStat: { flex: 1, alignItems: 'center' },
-  digestStatValue: { color: '#e2e8f0', fontSize: 13, fontWeight: '900' },
-  digestStatLabel: { color: '#64748b', fontSize: 9, fontWeight: '800', marginTop: 3 },
+  digestStatValue: { color: '#edf3ff', fontSize: 13, fontWeight: '900' },
+  digestStatLabel: { color: '#68779b', fontSize: 9, fontWeight: '800', marginTop: 3 },
   warningList: { marginTop: 12, gap: 8 },
   warningRow: {
     flexDirection: 'row',
     alignItems: 'flex-start',
     gap: 8,
-    backgroundColor: '#0d1826',
+    backgroundColor: 'rgba(16, 9, 28, 0.82)',
     borderRadius: 10,
     borderWidth: 1,
     borderColor: '#18283c',
@@ -547,32 +547,32 @@ const styles = StyleSheet.create({
   },
   warningCopy: { flex: 1 },
   warningTitle: { color: '#fbbf24', fontSize: 12, fontWeight: '800' },
-  warningDetail: { color: '#64748b', fontSize: 11, lineHeight: 15, marginTop: 2 },
-  clearText: { color: '#94a3b8', flex: 1, fontSize: 12, fontWeight: '700' },
+  warningDetail: { color: '#68779b', fontSize: 11, lineHeight: 15, marginTop: 2 },
+  clearText: { color: '#aec0e5', flex: 1, fontSize: 12, fontWeight: '700' },
   tabRow: { flexDirection: 'row', gap: 8, marginBottom: 12 },
   tab: {
     flex: 1,
     alignItems: 'center',
-    backgroundColor: '#0d1826',
-    borderColor: '#1e2d3d',
+    backgroundColor: 'rgba(16, 9, 28, 0.82)',
+    borderColor: '#29213a',
     borderRadius: 8,
     borderWidth: 1,
     paddingVertical: 10,
   },
-  tabActive: { backgroundColor: '#0b2136', borderColor: '#38bdf8' },
-  tabText: { color: '#64748b', fontSize: 13, fontWeight: '800' },
-  tabTextActive: { color: '#7dd3fc' },
+  tabActive: { backgroundColor: 'rgba(244, 63, 94, 0.18)', borderColor: '#f43f5e' },
+  tabText: { color: '#68779b', fontSize: 13, fontWeight: '800' },
+  tabTextActive: { color: '#fb7185' },
   section: {
-    backgroundColor: '#0d1826',
+    backgroundColor: 'rgba(16, 9, 28, 0.82)',
     borderRadius: 12,
     padding: 16,
     borderWidth: 1,
-    borderColor: '#1e2d3d',
+    borderColor: '#29213a',
     marginBottom: 12,
   },
   sectionHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12, marginBottom: 14 },
-  sectionTitle: { color: '#e2e8f0', fontSize: 18, fontWeight: '900', marginBottom: 4 },
-  sectionHint: { color: '#64748b', fontSize: 12, lineHeight: 16, maxWidth: 260 },
+  sectionTitle: { color: '#edf3ff', fontSize: 18, fontWeight: '900', marginBottom: 4 },
+  sectionHint: { color: '#68779b', fontSize: 12, lineHeight: 16, maxWidth: 260 },
   miniAction: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -580,24 +580,24 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     borderWidth: 1,
     borderColor: '#164766',
-    backgroundColor: '#0b2136',
+    backgroundColor: 'rgba(244, 63, 94, 0.18)',
     paddingHorizontal: 10,
     paddingVertical: 7,
   },
-  miniActionText: { color: '#7dd3fc', fontSize: 12, fontWeight: '900' },
+  miniActionText: { color: '#fb7185', fontSize: 12, fontWeight: '900' },
   communityCard: {
-    backgroundColor: '#111c2a',
+    backgroundColor: 'rgba(21, 16, 33, 0.72)',
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: '#1e2d3d',
+    borderColor: '#29213a',
     padding: 14,
     marginBottom: 12,
   },
   communityTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 },
   communityTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 10, flex: 1 },
   communityTitleBlock: { flex: 1 },
-  communityName: { color: '#e2e8f0', fontSize: 16, fontWeight: '900' },
-  communityMeta: { color: '#64748b', fontSize: 10, fontWeight: '800', marginTop: 2 },
+  communityName: { color: '#edf3ff', fontSize: 16, fontWeight: '900' },
+  communityMeta: { color: '#68779b', fontSize: 10, fontWeight: '800', marginTop: 2 },
   removeButton: {
     width: 34,
     height: 34,
@@ -607,15 +607,15 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   field: { flex: 1, marginBottom: 14 },
-  label: { color: '#94a3b8', fontSize: 13, fontWeight: '800', marginBottom: 6 },
-  hint: { color: '#64748b', fontSize: 12, lineHeight: 16 },
+  label: { color: '#aec0e5', fontSize: 13, fontWeight: '800', marginBottom: 6 },
+  hint: { color: '#68779b', fontSize: 12, lineHeight: 16 },
   input: {
     minHeight: 46,
-    backgroundColor: '#0d1826',
-    borderColor: '#1e2d3d',
+    backgroundColor: 'rgba(16, 9, 28, 0.82)',
+    borderColor: '#29213a',
     borderRadius: 8,
     borderWidth: 1,
-    color: '#e2e8f0',
+    color: '#edf3ff',
     fontSize: 15,
     fontWeight: '700',
     paddingHorizontal: 12,
@@ -625,14 +625,14 @@ const styles = StyleSheet.create({
   presetButton: {
     borderRadius: 10,
     borderWidth: 1,
-    borderColor: '#1e2d3d',
-    backgroundColor: '#0d1826',
+    borderColor: '#29213a',
+    backgroundColor: 'rgba(16, 9, 28, 0.82)',
     padding: 11,
   },
-  presetButtonActive: { borderColor: '#38bdf8', backgroundColor: '#0b2136' },
-  presetTitle: { color: '#e2e8f0', fontSize: 13, fontWeight: '900' },
-  presetTitleActive: { color: '#7dd3fc' },
-  presetDetail: { color: '#64748b', fontSize: 11, fontWeight: '700', marginTop: 2 },
+  presetButtonActive: { borderColor: '#f43f5e', backgroundColor: 'rgba(244, 63, 94, 0.18)' },
+  presetTitle: { color: '#edf3ff', fontSize: 13, fontWeight: '900' },
+  presetTitleActive: { color: '#fb7185' },
+  presetDetail: { color: '#68779b', fontSize: 11, fontWeight: '700', marginTop: 2 },
   toggleRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -640,17 +640,17 @@ const styles = StyleSheet.create({
     gap: 12,
     paddingVertical: 10,
     borderTopWidth: 1,
-    borderTopColor: '#1e2d3d',
+    borderTopColor: '#29213a',
   },
   toggleCopy: { flex: 1 },
   requirementPanel: {
-    backgroundColor: '#111c2a',
+    backgroundColor: 'rgba(21, 16, 33, 0.72)',
     borderRadius: 10,
     borderWidth: 1,
-    borderColor: '#1e2d3d',
+    borderColor: '#29213a',
     padding: 12,
   },
-  requirementTitle: { color: '#e2e8f0', fontSize: 14, fontWeight: '900', marginBottom: 4 },
+  requirementTitle: { color: '#edf3ff', fontSize: 14, fontWeight: '900', marginBottom: 4 },
   twoColumn: { flexDirection: 'row', gap: 10 },
   actionRow: { flexDirection: 'row', gap: 10, marginTop: 4, marginBottom: 32 },
   secondaryAction: {
@@ -659,22 +659,22 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     borderWidth: 1,
     borderColor: '#164766',
-    backgroundColor: '#0b2136',
+    backgroundColor: 'rgba(244, 63, 94, 0.18)',
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 8,
   },
-  secondaryActionText: { color: '#7dd3fc', fontSize: 14, fontWeight: '900' },
+  secondaryActionText: { color: '#fb7185', fontSize: 14, fontWeight: '900' },
   primaryAction: {
     flex: 1.6,
     minHeight: 48,
     borderRadius: 10,
-    backgroundColor: '#38bdf8',
+    backgroundColor: '#f43f5e',
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 8,
   },
-  primaryActionText: { color: '#08111f', fontSize: 14, fontWeight: '900' },
+  primaryActionText: { color: 'transparent', fontSize: 14, fontWeight: '900' },
 });

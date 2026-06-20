@@ -18,13 +18,13 @@ export const TakeProfitCard: React.FC<{
   onToggleBracketOrder,
 }) => {
   return (
-    <View style={{ backgroundColor: '#1e293b', borderRadius: 12, padding: 16, marginHorizontal: 20, marginTop: 12, borderLeftWidth: 3, borderLeftColor: enabled ? '#22c55e' : '#374151' }}>
+    <View style={{ backgroundColor: 'rgba(16, 9, 28, 0.88)', borderRadius: 12, padding: 16, marginHorizontal: 20, marginTop: 12, borderLeftWidth: 3, borderLeftColor: enabled ? '#22c55e' : '#374151' }}>
       <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
           <Ionicons name="arrow-up-circle" size={24} color="#22c55e" />
           <View>
             <Text style={{ fontSize: 18, fontWeight: '600', color: '#fff' }}>Take Profit</Text>
-            <Text style={{ fontSize: 14, color: '#94a3b8', marginTop: 4 }}>
+            <Text style={{ fontSize: 14, color: '#aec0e5', marginTop: 4 }}>
               {enabled ? `Auto-sell at +${percentage}%` : 'Disabled'}
             </Text>
           </View>
@@ -40,16 +40,16 @@ export const TakeProfitCard: React.FC<{
           />
         )}
       </View>
-      <Text style={{ fontSize: 12, color: '#64748b', marginTop: 12 }}>
+      <Text style={{ fontSize: 12, color: '#68779b', marginTop: 12 }}>
         Overrides Discord sell commands when profit target hit
       </Text>
       {enabled && (
-        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: '#1e293b', padding: 10, borderRadius: 6, marginTop: 10 }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: 'rgba(16, 9, 28, 0.88)', padding: 10, borderRadius: 6, marginTop: 10 }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-            <Ionicons name="layers" size={18} color={bracketOrderEnabled ? '#3b82f6' : '#64748b'} />
+            <Ionicons name="layers" size={18} color={bracketOrderEnabled ? '#3b82f6' : '#68779b'} />
             <View>
-              <Text style={{ color: '#e2e8f0', fontSize: 13, fontWeight: '500' }}>Bracket Order</Text>
-              <Text style={{ color: '#64748b', fontSize: 11 }}>Submit TP + SL together</Text>
+              <Text style={{ color: '#edf3ff', fontSize: 13, fontWeight: '500' }}>Bracket Order</Text>
+              <Text style={{ color: '#68779b', fontSize: 11 }}>Submit TP + SL together</Text>
             </View>
           </View>
           <Switch
@@ -80,13 +80,13 @@ export const StopLossCard: React.FC<{
   onSetOrderType,
 }) => {
   return (
-    <View style={{ backgroundColor: '#1e293b', borderRadius: 12, padding: 16, marginHorizontal: 20, marginTop: 12, borderLeftWidth: 3, borderLeftColor: enabled ? '#ef4444' : '#374151' }}>
+    <View style={{ backgroundColor: 'rgba(16, 9, 28, 0.88)', borderRadius: 12, padding: 16, marginHorizontal: 20, marginTop: 12, borderLeftWidth: 3, borderLeftColor: enabled ? '#ef4444' : '#374151' }}>
       <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
           <Ionicons name="arrow-down-circle" size={24} color="#ef4444" />
           <View>
             <Text style={{ fontSize: 18, fontWeight: '600', color: '#fff' }}>Stop Loss</Text>
-            <Text style={{ fontSize: 14, color: '#94a3b8', marginTop: 4 }}>
+            <Text style={{ fontSize: 14, color: '#aec0e5', marginTop: 4 }}>
               {enabled ? `Auto-sell at -${percentage}% (${orderType})` : 'Disabled'}
             </Text>
           </View>
@@ -102,14 +102,14 @@ export const StopLossCard: React.FC<{
           />
         )}
       </View>
-      <Text style={{ fontSize: 12, color: '#64748b', marginTop: 12 }}>
+      <Text style={{ fontSize: 12, color: '#68779b', marginTop: 12 }}>
         Overrides Discord commands - protects against large losses
       </Text>
       {enabled && (
-        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: '#1e293b', padding: 10, borderRadius: 6, marginTop: 10 }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: 'rgba(16, 9, 28, 0.88)', padding: 10, borderRadius: 6, marginTop: 10 }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-            <Ionicons name="flash" size={18} color={orderType === 'market' ? '#ef4444' : '#64748b'} />
-            <Text style={{ color: '#e2e8f0', fontSize: 13, fontWeight: '500' }}>Order Type</Text>
+            <Ionicons name="flash" size={18} color={orderType === 'market' ? '#ef4444' : '#68779b'} />
+            <Text style={{ color: '#edf3ff', fontSize: 13, fontWeight: '500' }}>Order Type</Text>
           </View>
           <View style={{ flexDirection: 'row', gap: 6 }}>
             <TouchableOpacity
@@ -137,13 +137,13 @@ export const AveragingDownCard: React.FC<{
   isLoading: boolean;
 }> = ({ enabled, onToggle, isLoading }) => {
   return (
-    <View style={{ backgroundColor: '#1e293b', borderRadius: 12, padding: 16, marginHorizontal: 20, marginTop: 12, borderLeftWidth: 3, borderLeftColor: enabled ? '#f59e0b' : '#374151' }}>
+    <View style={{ backgroundColor: 'rgba(16, 9, 28, 0.88)', borderRadius: 12, padding: 16, marginHorizontal: 20, marginTop: 12, borderLeftWidth: 3, borderLeftColor: enabled ? '#f59e0b' : '#374151' }}>
       <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
           <Ionicons name="trending-down" size={24} color="#f59e0b" />
           <View>
             <Text style={{ fontSize: 18, fontWeight: '600', color: '#fff' }}>Averaging Down</Text>
-            <Text style={{ fontSize: 14, color: '#94a3b8', marginTop: 4 }}>
+            <Text style={{ fontSize: 14, color: '#aec0e5', marginTop: 4 }}>
               {enabled ? 'Buy more when price drops' : 'Disabled'}
             </Text>
           </View>
@@ -159,7 +159,7 @@ export const AveragingDownCard: React.FC<{
           />
         )}
       </View>
-      <Text style={{ fontSize: 12, color: '#64748b', marginTop: 12 }}>
+      <Text style={{ fontSize: 12, color: '#68779b', marginTop: 12 }}>
         Discord: "AVERAGE DOWN $TICKER" or "AVG DOWN $TICKER"
       </Text>
     </View>
@@ -175,13 +175,13 @@ export const TrailingStopCard: React.FC<{
   cents: number;
 }> = ({ enabled, onToggle, isLoading, type, percent, cents }) => {
   return (
-    <View style={{ backgroundColor: '#1e293b', borderRadius: 12, padding: 16, marginHorizontal: 20, marginTop: 12, borderLeftWidth: 3, borderLeftColor: enabled ? '#8b5cf6' : '#374151' }}>
+    <View style={{ backgroundColor: 'rgba(16, 9, 28, 0.88)', borderRadius: 12, padding: 16, marginHorizontal: 20, marginTop: 12, borderLeftWidth: 3, borderLeftColor: enabled ? '#8b5cf6' : '#374151' }}>
       <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
           <Ionicons name="git-branch" size={24} color="#8b5cf6" />
           <View>
             <Text style={{ fontSize: 18, fontWeight: '600', color: '#fff' }}>Trailing Stop</Text>
-            <Text style={{ fontSize: 14, color: '#94a3b8', marginTop: 4 }}>
+            <Text style={{ fontSize: 14, color: '#aec0e5', marginTop: 4 }}>
               {enabled 
                 ? type === 'percent'
                   ? `Trail -${percent}% from high`
@@ -201,7 +201,7 @@ export const TrailingStopCard: React.FC<{
           />
         )}
       </View>
-      <Text style={{ fontSize: 12, color: '#64748b', marginTop: 12 }}>
+      <Text style={{ fontSize: 12, color: '#68779b', marginTop: 12 }}>
         {type === 'percent' ? 'Percent trailing' : 'Premium (cents) trailing'} - locks in profits as price rises
       </Text>
     </View>
@@ -236,13 +236,13 @@ export const AutoShutdownCard: React.FC<{
   onUpdateMaxDaily,
 }) => {
   return (
-    <View style={{ backgroundColor: '#1e293b', borderRadius: 12, padding: 16, marginHorizontal: 20, marginTop: 12, borderLeftWidth: 3, borderLeftColor: shutdownTriggered ? '#dc2626' : enabled ? '#f97316' : '#374151' }}>
+    <View style={{ backgroundColor: 'rgba(16, 9, 28, 0.88)', borderRadius: 12, padding: 16, marginHorizontal: 20, marginTop: 12, borderLeftWidth: 3, borderLeftColor: shutdownTriggered ? '#dc2626' : enabled ? '#f97316' : '#374151' }}>
       <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
           <Ionicons name="power" size={24} color={shutdownTriggered ? '#dc2626' : '#f97316'} />
           <View>
             <Text style={{ fontSize: 18, fontWeight: '600', color: '#fff' }}>Auto Shutdown</Text>
-            <Text style={{ fontSize: 14, color: '#94a3b8', marginTop: 4 }}>
+            <Text style={{ fontSize: 14, color: '#aec0e5', marginTop: 4 }}>
               {shutdownTriggered 
                 ? 'SHUTDOWN TRIGGERED'
                 : enabled 
@@ -277,13 +277,13 @@ export const AutoShutdownCard: React.FC<{
         </View>
       ) : (
         <View>
-          <Text style={{ fontSize: 12, color: '#64748b', marginTop: 12 }}>
+          <Text style={{ fontSize: 12, color: '#68779b', marginTop: 12 }}>
             Losses: {consecutiveLosses}/{maxConsecutiveLosses} consecutive, {dailyLosses}/{maxDailyLosses} daily
           </Text>
           {enabled && (
             <View style={{ marginTop: 12 }}>
               <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
-                <Text style={{ color: '#94a3b8', fontSize: 12 }}>Max consecutive losses:</Text>
+                <Text style={{ color: '#aec0e5', fontSize: 12 }}>Max consecutive losses:</Text>
                 <View style={{ flexDirection: 'row', gap: 6 }}>
                   {[2, 3, 5, 7, 10].map((num) => (
                     <TouchableOpacity
@@ -302,7 +302,7 @@ export const AutoShutdownCard: React.FC<{
                 </View>
               </View>
               <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-                <Text style={{ color: '#94a3b8', fontSize: 12 }}>Max daily losses:</Text>
+                <Text style={{ color: '#aec0e5', fontSize: 12 }}>Max daily losses:</Text>
                 <View style={{ flexDirection: 'row', gap: 6 }}>
                   {[3, 5, 7, 10, 15].map((num) => (
                     <TouchableOpacity

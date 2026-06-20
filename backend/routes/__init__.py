@@ -8,6 +8,7 @@ from .discord import router as discord_router, set_db as set_discord_db, set_dis
 from .profiles import router as profiles_router, set_db as set_profiles_db
 from .trading import router as trading_router, set_db as set_trading_db
 from .operator import router as operator_router, set_db as set_operator_db
+from .simulation_engine import router as simulation_engine_router, set_db as set_simulation_engine_db
 # Advanced analytics routes
 from .analytics import router as analytics_router
 
@@ -21,6 +22,7 @@ def init_routes(database):
     set_profiles_db(database)
     set_trading_db(database)
     set_operator_db(database)
+    set_simulation_engine_db(database)
 
 
 __all__ = [
@@ -31,6 +33,7 @@ __all__ = [
     'profiles_router',
     'trading_router',
     'operator_router',
+    'simulation_engine_router',
     'analytics_router',
     'init_routes',
     'bot_status',

@@ -57,7 +57,7 @@ function BrokerBriefing({ digest }: { digest: BrokerConfigDigest }) {
   const toneColor =
     digest.primaryStatus.tone === 'live' ? '#22c55e' :
     digest.primaryStatus.tone === 'attention' ? '#f59e0b' :
-    '#64748b';
+    '#68779b';
   const warnings = digest.warningItems.slice(0, 3);
 
   return (
@@ -351,7 +351,7 @@ export default function BrokerConfigScreen() {
                         value={brokerConfigs[selectedBrokerInfo.id]?.[field.key] || ''}
                         onChangeText={(text) => updateBrokerConfig(selectedBrokerInfo.id, field.key, text)}
                         placeholder={field.placeholder}
-                        placeholderTextColor="#64748b"
+                        placeholderTextColor="#68779b"
                         secureTextEntry={field.type === 'password'}
                         autoCapitalize="none"
                       />
@@ -416,7 +416,7 @@ export default function BrokerConfigScreen() {
 
           {/* Help Section */}
           <View style={styles.helpSection}>
-            <Ionicons name="help-circle-outline" size={24} color="#64748b" />
+            <Ionicons name="help-circle-outline" size={24} color="#68779b" />
             <View style={styles.helpContent}>
               <Text style={styles.helpTitle}>Need Help?</Text>
               <Text style={styles.helpText}>
@@ -438,7 +438,7 @@ export default function BrokerConfigScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#0f172a',
+    backgroundColor: '#050416',
   },
   keyboardView: {
     flex: 1,
@@ -455,7 +455,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 12,
     borderBottomWidth: 1,
-    borderBottomColor: '#1e293b',
+    borderBottomColor: 'rgba(16, 9, 28, 0.88)',
   },
   backButton: {
     padding: 8,
@@ -472,7 +472,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   digestCard: {
-    backgroundColor: '#0b1420',
+    backgroundColor: 'rgba(16, 9, 28, 0.88)',
     borderRadius: 14,
     padding: 14,
     borderWidth: 1,
@@ -489,19 +489,19 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   digestEyebrow: {
-    color: '#64748b',
+    color: '#68779b',
     fontSize: 10,
     fontWeight: '800',
     letterSpacing: 1.4,
     marginBottom: 5,
   },
   digestTitle: {
-    color: '#e2e8f0',
+    color: '#edf3ff',
     fontSize: 18,
     fontWeight: '900',
   },
   digestDetail: {
-    color: '#94a3b8',
+    color: '#aec0e5',
     fontSize: 12,
     lineHeight: 17,
     marginTop: 3,
@@ -518,7 +518,7 @@ const styles = StyleSheet.create({
     fontWeight: '900',
   },
   readinessLabel: {
-    color: '#64748b',
+    color: '#68779b',
     fontSize: 10,
     fontWeight: '800',
     marginTop: 1,
@@ -528,19 +528,19 @@ const styles = StyleSheet.create({
     marginTop: 12,
     paddingTop: 12,
     borderTopWidth: 1,
-    borderTopColor: '#132235',
+    borderTopColor: 'rgba(41, 33, 58, 0.82)',
   },
   digestStat: {
     flex: 1,
     alignItems: 'center',
   },
   digestStatValue: {
-    color: '#e2e8f0',
+    color: '#edf3ff',
     fontSize: 12,
     fontWeight: '900',
   },
   digestStatLabel: {
-    color: '#64748b',
+    color: '#68779b',
     fontSize: 9,
     fontWeight: '800',
     marginTop: 3,
@@ -553,7 +553,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'flex-start',
     gap: 8,
-    backgroundColor: '#0d1826',
+    backgroundColor: 'rgba(16, 9, 28, 0.82)',
     borderRadius: 10,
     borderWidth: 1,
     borderColor: '#18283c',
@@ -568,13 +568,13 @@ const styles = StyleSheet.create({
     fontWeight: '800',
   },
   warningDetail: {
-    color: '#64748b',
+    color: '#68779b',
     fontSize: 11,
     lineHeight: 15,
     marginTop: 2,
   },
   clearText: {
-    color: '#94a3b8',
+    color: '#aec0e5',
     flex: 1,
     fontSize: 12,
     fontWeight: '700',
@@ -589,7 +589,7 @@ const styles = StyleSheet.create({
   brokerTab: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#1e293b',
+    backgroundColor: 'rgba(16, 9, 28, 0.88)',
     paddingHorizontal: 16,
     paddingVertical: 12,
     borderRadius: 10,
@@ -598,7 +598,7 @@ const styles = StyleSheet.create({
     borderColor: 'transparent',
   },
   brokerTabActive: {
-    backgroundColor: '#334155',
+    backgroundColor: '#68779b',
   },
   tabDot: {
     width: 8,
@@ -608,7 +608,7 @@ const styles = StyleSheet.create({
   },
   tabText: {
     fontSize: 14,
-    color: '#94a3b8',
+    color: '#aec0e5',
     fontWeight: '500',
   },
   tabTextActive: {
@@ -619,7 +619,7 @@ const styles = StyleSheet.create({
     marginLeft: 6,
   },
   configSection: {
-    backgroundColor: '#1e293b',
+    backgroundColor: 'rgba(16, 9, 28, 0.88)',
     marginHorizontal: 16,
     marginTop: 16,
     borderRadius: 12,
@@ -648,7 +648,7 @@ const styles = StyleSheet.create({
   },
   brokerDesc: {
     fontSize: 13,
-    color: '#94a3b8',
+    color: '#aec0e5',
     marginTop: 2,
   },
   statusRow: {
@@ -660,24 +660,24 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    backgroundColor: '#0f172a',
+    backgroundColor: '#050416',
     paddingHorizontal: 10,
     paddingVertical: 6,
     borderRadius: 6,
   },
   statusText: {
     fontSize: 12,
-    color: '#94a3b8',
+    color: '#aec0e5',
   },
   fieldsContainer: {
     borderTopWidth: 1,
-    borderTopColor: '#334155',
+    borderTopColor: '#68779b',
     paddingTop: 16,
   },
   fieldsTitle: {
     fontSize: 14,
     fontWeight: '600',
-    color: '#64748b',
+    color: '#68779b',
     marginBottom: 16,
     textTransform: 'uppercase',
     letterSpacing: 0.5,
@@ -688,17 +688,17 @@ const styles = StyleSheet.create({
   inputLabel: {
     fontSize: 14,
     fontWeight: '500',
-    color: '#e2e8f0',
+    color: '#edf3ff',
     marginBottom: 8,
   },
   textInput: {
-    backgroundColor: '#0f172a',
+    backgroundColor: '#050416',
     borderRadius: 8,
     padding: 12,
     fontSize: 16,
     color: '#fff',
     borderWidth: 1,
-    borderColor: '#334155',
+    borderColor: '#68779b',
   },
   selectContainer: {
     gap: 8,
@@ -706,11 +706,11 @@ const styles = StyleSheet.create({
   selectOption: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#0f172a',
+    backgroundColor: '#050416',
     padding: 12,
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: '#334155',
+    borderColor: '#68779b',
   },
   selectOptionActive: {
     borderColor: '#3b82f6',
@@ -721,7 +721,7 @@ const styles = StyleSheet.create({
     height: 18,
     borderRadius: 9,
     borderWidth: 2,
-    borderColor: '#64748b',
+    borderColor: '#68779b',
     marginRight: 10,
   },
   radioButtonActive: {
@@ -730,7 +730,7 @@ const styles = StyleSheet.create({
   },
   selectOptionText: {
     fontSize: 14,
-    color: '#94a3b8',
+    color: '#aec0e5',
   },
   selectOptionTextActive: {
     color: '#fff',
@@ -761,12 +761,12 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#0f172a',
+    backgroundColor: '#050416',
     paddingVertical: 12,
     borderRadius: 8,
     gap: 6,
     borderWidth: 1,
-    borderColor: '#334155',
+    borderColor: '#68779b',
   },
   activateBtn: {
     borderColor: '#22c55e',
@@ -793,7 +793,7 @@ const styles = StyleSheet.create({
   },
   helpSection: {
     flexDirection: 'row',
-    backgroundColor: '#1e293b',
+    backgroundColor: 'rgba(16, 9, 28, 0.88)',
     marginHorizontal: 16,
     marginTop: 16,
     padding: 16,
@@ -811,7 +811,7 @@ const styles = StyleSheet.create({
   },
   helpText: {
     fontSize: 13,
-    color: '#94a3b8',
+    color: '#aec0e5',
     lineHeight: 20,
   },
   bottomPadding: {

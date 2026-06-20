@@ -40,7 +40,7 @@ export const CreateProfileModal: React.FC<CreateProfileModalProps> = ({
             value={profileName}
             onChangeText={onNameChange}
             placeholder="e.g., Alpaca Bracket, Robinhood Alerts"
-            placeholderTextColor="#64748b"
+            placeholderTextColor="#68779b"
             autoCorrect={false}
             maxLength={50}
             testID="profile-name-input"
@@ -52,7 +52,7 @@ export const CreateProfileModal: React.FC<CreateProfileModalProps> = ({
             value={profileDescription}
             onChangeText={onDescriptionChange}
             placeholder="Optional description"
-            placeholderTextColor="#64748b"
+            placeholderTextColor="#68779b"
             autoCorrect={false}
             maxLength={200}
             testID="profile-description-input"
@@ -90,7 +90,7 @@ const styles = StyleSheet.create({
     padding: 20,
   },
   modal: {
-    backgroundColor: '#1e293b',
+    backgroundColor: 'rgba(16, 9, 28, 0.88)',
     borderRadius: 12,
     padding: 20,
     width: '100%',
@@ -104,18 +104,18 @@ const styles = StyleSheet.create({
   },
   inputLabel: {
     fontSize: 13,
-    color: '#94a3b8',
+    color: '#aec0e5',
     marginBottom: 6,
   },
   input: {
-    backgroundColor: '#0f172a',
+    backgroundColor: '#050416',
     borderRadius: 8,
     padding: 12,
     color: '#fff',
     fontSize: 14,
     marginBottom: 16,
     borderWidth: 1,
-    borderColor: '#334155',
+    borderColor: '#68779b',
   },
   modalButtons: {
     flexDirection: 'row',
@@ -128,7 +128,7 @@ const styles = StyleSheet.create({
     borderRadius: 6,
   },
   cancelButtonText: {
-    color: '#94a3b8',
+    color: '#aec0e5',
     fontWeight: '600',
   },
   createButton: {

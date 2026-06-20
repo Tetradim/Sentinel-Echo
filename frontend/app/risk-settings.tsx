@@ -529,7 +529,7 @@ export default function RiskSettingsScreen() {
     return (
       <SafeAreaView style={styles.container}>
         <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color="#38bdf8" />
+          <ActivityIndicator size="large" color="#f43f5e" />
         </View>
       </SafeAreaView>
     );
@@ -541,7 +541,7 @@ export default function RiskSettingsScreen() {
     <SafeAreaView style={styles.container}>
       <ScrollView
         contentContainerStyle={styles.content}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#38bdf8" />}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#f43f5e" />}
       >
         <View style={styles.header}>
           <View>
@@ -549,7 +549,7 @@ export default function RiskSettingsScreen() {
             <Text style={styles.title}>Risk Management</Text>
           </View>
           <View style={styles.headerBadge}>
-            <Ionicons name="shield-outline" size={14} color="#38bdf8" />
+            <Ionicons name="shield-outline" size={14} color="#f43f5e" />
             <Text style={styles.headerBadgeText}>{digest.enabledGuards}/6 guards</Text>
           </View>
         </View>
@@ -565,7 +565,7 @@ export default function RiskSettingsScreen() {
               onPress={retryFetchSettings}
               accessibilityRole="button"
             >
-              <Ionicons name="refresh" size={13} color="#08111f" />
+              <Ionicons name="refresh" size={13} color="transparent" />
               <Text style={styles.errorBannerRetryText}>Retry</Text>
             </TouchableOpacity>
           </View>
@@ -607,9 +607,9 @@ export default function RiskSettingsScreen() {
             accessibilityRole="button"
           >
             {saving ? (
-              <ActivityIndicator size="small" color="#08111f" />
+              <ActivityIndicator size="small" color="transparent" />
             ) : (
-              <Ionicons name="save-outline" size={18} color="#08111f" />
+              <Ionicons name="save-outline" size={18} color="transparent" />
             )}
             <Text style={styles.saveButtonText}>
               {saving ? 'Saving...' : !settingsLoaded ? 'Load Required' : hasInvalidSettings ? 'Fix Settings' : 'Save Settings'}
@@ -622,26 +622,26 @@ export default function RiskSettingsScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#08111f' },
+  container: { flex: 1, backgroundColor: '#050416' },
   loadingContainer: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   content: { padding: 16, paddingBottom: 32 },
   header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end', marginBottom: 12 },
-  eyebrow: { color: '#38bdf8', fontSize: 10, fontWeight: '800', letterSpacing: 1.8, marginBottom: 2 },
-  title: { fontSize: 26, fontWeight: '800', color: '#e2e8f0' },
+  eyebrow: { color: '#f43f5e', fontSize: 10, fontWeight: '800', letterSpacing: 1.8, marginBottom: 2 },
+  title: { fontSize: 26, fontWeight: '800', color: '#edf3ff' },
   headerBadge: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    backgroundColor: '#0b2136',
+    backgroundColor: 'rgba(244, 63, 94, 0.18)',
     borderWidth: 1,
     borderColor: '#164766',
     borderRadius: 999,
     paddingHorizontal: 10,
     paddingVertical: 6,
   },
-  headerBadgeText: { color: '#7dd3fc', fontSize: 11, fontWeight: '800' },
+  headerBadgeText: { color: '#fb7185', fontSize: 11, fontWeight: '800' },
   briefingCard: {
-    backgroundColor: '#0b1420',
+    backgroundColor: 'rgba(16, 9, 28, 0.88)',
     borderRadius: 14,
     padding: 14,
     borderWidth: 1,
@@ -649,28 +649,28 @@ const styles = StyleSheet.create({
   },
   briefingTop: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 },
   briefingTitleBlock: { flex: 1 },
-  briefingEyebrow: { color: '#64748b', fontSize: 10, fontWeight: '800', letterSpacing: 1.4, marginBottom: 5 },
-  briefingTitle: { color: '#e2e8f0', fontSize: 18, fontWeight: '900' },
-  briefingDetail: { color: '#94a3b8', fontSize: 12, lineHeight: 17, marginTop: 3 },
+  briefingEyebrow: { color: '#68779b', fontSize: 10, fontWeight: '800', letterSpacing: 1.4, marginBottom: 5 },
+  briefingTitle: { color: '#edf3ff', fontSize: 18, fontWeight: '900' },
+  briefingDetail: { color: '#aec0e5', fontSize: 12, lineHeight: 17, marginTop: 3 },
   coverageBadge: { minWidth: 84, height: 48, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
   coverageValue: { fontSize: 18, fontWeight: '900' },
-  coverageLabel: { color: '#64748b', fontSize: 10, fontWeight: '800', marginTop: 1 },
+  coverageLabel: { color: '#68779b', fontSize: 10, fontWeight: '800', marginTop: 1 },
   briefingStats: {
     flexDirection: 'row',
     marginTop: 12,
     paddingTop: 12,
     borderTopWidth: 1,
-    borderTopColor: '#132235',
+    borderTopColor: 'rgba(41, 33, 58, 0.82)',
   },
   briefingStat: { flex: 1, alignItems: 'center' },
-  briefingStatValue: { color: '#e2e8f0', fontSize: 14, fontWeight: '900' },
-  briefingStatLabel: { color: '#64748b', fontSize: 9, fontWeight: '800', marginTop: 3 },
+  briefingStatValue: { color: '#edf3ff', fontSize: 14, fontWeight: '900' },
+  briefingStatLabel: { color: '#68779b', fontSize: 9, fontWeight: '800', marginTop: 3 },
   warningList: { marginTop: 12, gap: 8 },
   warningRow: {
     flexDirection: 'row',
     alignItems: 'flex-start',
     gap: 8,
-    backgroundColor: '#0d1826',
+    backgroundColor: 'rgba(16, 9, 28, 0.82)',
     borderRadius: 10,
     borderWidth: 1,
     borderColor: '#18283c',
@@ -678,8 +678,8 @@ const styles = StyleSheet.create({
   },
   warningCopy: { flex: 1 },
   warningTitle: { color: '#fbbf24', fontSize: 12, fontWeight: '800' },
-  warningDetail: { color: '#64748b', fontSize: 11, lineHeight: 15, marginTop: 2 },
-  clearText: { color: '#94a3b8', fontSize: 12, fontWeight: '700', flex: 1 },
+  warningDetail: { color: '#68779b', fontSize: 11, lineHeight: 15, marginTop: 2 },
+  clearText: { color: '#aec0e5', fontSize: 12, fontWeight: '700', flex: 1 },
   errorBanner: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -701,39 +701,39 @@ const styles = StyleSheet.create({
     paddingHorizontal: 9,
     paddingVertical: 6,
   },
-  errorBannerRetryText: { color: '#08111f', fontSize: 11, fontWeight: '900' },
+  errorBannerRetryText: { color: 'transparent', fontSize: 11, fontWeight: '900' },
   tabBar: { marginBottom: 12 },
   tabRow: { flexDirection: 'row', gap: 8, paddingRight: 16 },
   tab: {
     paddingHorizontal: 14,
     paddingVertical: 9,
     borderRadius: 8,
-    backgroundColor: '#0d1826',
+    backgroundColor: 'rgba(16, 9, 28, 0.82)',
     borderWidth: 1,
-    borderColor: '#1e2d3d',
+    borderColor: '#29213a',
   },
-  tabActive: { backgroundColor: '#0c2740', borderColor: '#0ea5e9' },
-  tabText: { color: '#64748b', fontSize: 13, fontWeight: '700' },
-  tabTextActive: { color: '#7dd3fc' },
+  tabActive: { backgroundColor: 'rgba(244, 63, 94, 0.18)', borderColor: '#f43f5e' },
+  tabText: { color: '#68779b', fontSize: 13, fontWeight: '700' },
+  tabTextActive: { color: '#fb7185' },
   section: {
-    backgroundColor: '#0d1826',
+    backgroundColor: 'rgba(16, 9, 28, 0.82)',
     borderRadius: 12,
     padding: 16,
     marginBottom: 14,
     borderWidth: 1,
-    borderColor: '#1e2d3d',
+    borderColor: '#29213a',
   },
-  sectionTitle: { fontSize: 18, fontWeight: '800', color: '#e2e8f0', marginBottom: 16 },
+  sectionTitle: { fontSize: 18, fontWeight: '800', color: '#edf3ff', marginBottom: 16 },
   field: { marginBottom: 16 },
   row: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 12 },
-  label: { color: '#94a3b8', fontSize: 13, fontWeight: '700', marginBottom: 6 },
+  label: { color: '#aec0e5', fontSize: 13, fontWeight: '700', marginBottom: 6 },
   input: {
-    backgroundColor: '#111c2a',
-    color: '#e2e8f0',
+    backgroundColor: 'rgba(21, 16, 33, 0.72)',
+    color: '#edf3ff',
     padding: 12,
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: '#1e2d3d',
+    borderColor: '#29213a',
     fontSize: 16,
     fontWeight: '700',
   },
@@ -742,12 +742,12 @@ const styles = StyleSheet.create({
   saveButton: {
     minHeight: 48,
     borderRadius: 10,
-    backgroundColor: '#38bdf8',
+    backgroundColor: '#f43f5e',
     alignItems: 'center',
     justifyContent: 'center',
     flexDirection: 'row',
     gap: 8,
   },
   saveButtonDisabled: { opacity: 0.7 },
-  saveButtonText: { color: '#08111f', fontSize: 15, fontWeight: '900' },
+  saveButtonText: { color: 'transparent', fontSize: 15, fontWeight: '900' },
 });

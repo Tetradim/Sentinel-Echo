@@ -53,7 +53,7 @@ const DEFAULT_TRADING_SETTINGS: TradingSettings = {
 };
 
 const BROKERS: { id: BrokerId; label: string; detail: string; color: string }[] = [
-  { id: 'IBKR', label: 'IBKR', detail: 'Interactive Brokers', color: '#38bdf8' },
+  { id: 'IBKR', label: 'IBKR', detail: 'Interactive Brokers', color: '#f43f5e' },
   { id: 'ALPACA', label: 'Alpaca', detail: 'Equities and options', color: '#22c55e' },
   { id: 'TRADIER', label: 'Tradier', detail: 'Options API', color: '#f59e0b' },
   { id: 'TD', label: 'TD', detail: 'Legacy profile', color: '#a78bfa' },
@@ -74,7 +74,7 @@ function TradingBriefing({ digest }: { digest: TradingSettingsDigest }) {
   const toneColor =
     digest.primaryStatus.tone === 'live' ? '#22c55e' :
     digest.primaryStatus.tone === 'attention' ? '#f59e0b' :
-    '#64748b';
+    '#68779b';
   const warnings = digest.warningItems.slice(0, 3);
 
   return (
@@ -138,8 +138,8 @@ function ToggleRow({
       <Switch
         value={value}
         onValueChange={onValueChange}
-        trackColor={{ false: '#1e2d3d', true: '#164766' }}
-        thumbColor={value ? '#38bdf8' : '#64748b'}
+        trackColor={{ false: '#29213a', true: '#164766' }}
+        thumbColor={value ? '#f43f5e' : '#68779b'}
       />
     </View>
   );
@@ -166,7 +166,7 @@ function Field({
         value={value}
         onChangeText={onChangeText}
         placeholder={placeholder}
-        placeholderTextColor="#475569"
+        placeholderTextColor="#68779b"
         keyboardType={keyboardType}
         autoCapitalize="none"
       />
@@ -198,7 +198,7 @@ export function TradingSettingsPage() {
             <Ionicons
               name={settings.simulationMode ? 'flask-outline' : 'flash-outline'}
               size={14}
-              color={settings.simulationMode ? '#7dd3fc' : '#fbbf24'}
+              color={settings.simulationMode ? '#fb7185' : '#fbbf24'}
             />
             <Text style={[styles.modeBadgeText, !settings.simulationMode && styles.modeBadgeTextLive]}>
               {settings.simulationMode ? 'SIM' : 'LIVE'}
@@ -345,11 +345,11 @@ export function TradingSettingsPage() {
 
         <View style={styles.actionRow}>
           <TouchableOpacity style={styles.secondaryAction} onPress={() => setSettings(DEFAULT_TRADING_SETTINGS)}>
-            <Ionicons name="refresh-outline" size={18} color="#7dd3fc" />
+            <Ionicons name="refresh-outline" size={18} color="#fb7185" />
             <Text style={styles.secondaryActionText}>Reset</Text>
           </TouchableOpacity>
           <TouchableOpacity style={styles.primaryAction} onPress={saveSettings}>
-            <Ionicons name="save-outline" size={18} color="#08111f" />
+            <Ionicons name="save-outline" size={18} color="transparent" />
             <Text style={styles.primaryActionText}>Save Settings</Text>
           </TouchableOpacity>
         </View>
@@ -361,11 +361,11 @@ export function TradingSettingsPage() {
 export default TradingSettingsPage;
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#08111f' },
+  container: { flex: 1, backgroundColor: '#050416' },
   content: { padding: 16, paddingBottom: 32 },
   header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end', marginBottom: 12 },
-  eyebrow: { color: '#38bdf8', fontSize: 10, fontWeight: '800', letterSpacing: 1.8, marginBottom: 2 },
-  title: { color: '#e2e8f0', fontSize: 26, fontWeight: '900' },
+  eyebrow: { color: '#f43f5e', fontSize: 10, fontWeight: '800', letterSpacing: 1.8, marginBottom: 2 },
+  title: { color: '#edf3ff', fontSize: 26, fontWeight: '900' },
   modeBadge: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -375,12 +375,12 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 6,
   },
-  modeBadgeSim: { backgroundColor: '#0b2136', borderColor: '#164766' },
+  modeBadgeSim: { backgroundColor: 'rgba(244, 63, 94, 0.18)', borderColor: '#164766' },
   modeBadgeLive: { backgroundColor: '#2a2109', borderColor: '#7c4a03' },
-  modeBadgeText: { color: '#7dd3fc', fontSize: 11, fontWeight: '900' },
+  modeBadgeText: { color: '#fb7185', fontSize: 11, fontWeight: '900' },
   modeBadgeTextLive: { color: '#fbbf24' },
   digestCard: {
-    backgroundColor: '#0b1420',
+    backgroundColor: 'rgba(16, 9, 28, 0.88)',
     borderRadius: 14,
     padding: 14,
     borderWidth: 1,
@@ -388,28 +388,28 @@ const styles = StyleSheet.create({
   },
   digestTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 },
   digestTitleBlock: { flex: 1 },
-  digestEyebrow: { color: '#64748b', fontSize: 10, fontWeight: '800', letterSpacing: 1.4, marginBottom: 5 },
-  digestTitle: { color: '#e2e8f0', fontSize: 18, fontWeight: '900' },
-  digestDetail: { color: '#94a3b8', fontSize: 12, lineHeight: 17, marginTop: 3 },
+  digestEyebrow: { color: '#68779b', fontSize: 10, fontWeight: '800', letterSpacing: 1.4, marginBottom: 5 },
+  digestTitle: { color: '#edf3ff', fontSize: 18, fontWeight: '900' },
+  digestDetail: { color: '#aec0e5', fontSize: 12, lineHeight: 17, marginTop: 3 },
   scoreBadge: { minWidth: 78, height: 48, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
   scoreValue: { fontSize: 18, fontWeight: '900' },
-  scoreLabel: { color: '#64748b', fontSize: 10, fontWeight: '800', marginTop: 1 },
+  scoreLabel: { color: '#68779b', fontSize: 10, fontWeight: '800', marginTop: 1 },
   digestStats: {
     flexDirection: 'row',
     marginTop: 12,
     paddingTop: 12,
     borderTopWidth: 1,
-    borderTopColor: '#132235',
+    borderTopColor: 'rgba(41, 33, 58, 0.82)',
   },
   digestStat: { flex: 1, alignItems: 'center' },
-  digestStatValue: { color: '#e2e8f0', fontSize: 13, fontWeight: '900' },
-  digestStatLabel: { color: '#64748b', fontSize: 9, fontWeight: '800', marginTop: 3 },
+  digestStatValue: { color: '#edf3ff', fontSize: 13, fontWeight: '900' },
+  digestStatLabel: { color: '#68779b', fontSize: 9, fontWeight: '800', marginTop: 3 },
   warningList: { marginTop: 12, gap: 8 },
   warningRow: {
     flexDirection: 'row',
     alignItems: 'flex-start',
     gap: 8,
-    backgroundColor: '#0d1826',
+    backgroundColor: 'rgba(16, 9, 28, 0.82)',
     borderRadius: 10,
     borderWidth: 1,
     borderColor: '#18283c',
@@ -417,17 +417,17 @@ const styles = StyleSheet.create({
   },
   warningCopy: { flex: 1 },
   warningTitle: { color: '#fbbf24', fontSize: 12, fontWeight: '800' },
-  warningDetail: { color: '#64748b', fontSize: 11, lineHeight: 15, marginTop: 2 },
-  clearText: { color: '#94a3b8', flex: 1, fontSize: 12, fontWeight: '700' },
+  warningDetail: { color: '#68779b', fontSize: 11, lineHeight: 15, marginTop: 2 },
+  clearText: { color: '#aec0e5', flex: 1, fontSize: 12, fontWeight: '700' },
   section: {
-    backgroundColor: '#0d1826',
+    backgroundColor: 'rgba(16, 9, 28, 0.82)',
     borderRadius: 12,
     padding: 16,
     borderWidth: 1,
-    borderColor: '#1e2d3d',
+    borderColor: '#29213a',
     marginBottom: 12,
   },
-  sectionTitle: { color: '#e2e8f0', fontSize: 18, fontWeight: '900', marginBottom: 14 },
+  sectionTitle: { color: '#edf3ff', fontSize: 18, fontWeight: '900', marginBottom: 14 },
   toggleRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -435,19 +435,19 @@ const styles = StyleSheet.create({
     gap: 12,
     paddingVertical: 10,
     borderTopWidth: 1,
-    borderTopColor: '#132235',
+    borderTopColor: 'rgba(41, 33, 58, 0.82)',
   },
   toggleCopy: { flex: 1 },
   field: { flex: 1, marginBottom: 14 },
-  label: { color: '#94a3b8', fontSize: 13, fontWeight: '800', marginBottom: 6 },
-  hint: { color: '#64748b', fontSize: 12, lineHeight: 16 },
+  label: { color: '#aec0e5', fontSize: 13, fontWeight: '800', marginBottom: 6 },
+  hint: { color: '#68779b', fontSize: 12, lineHeight: 16 },
   input: {
     minHeight: 46,
-    backgroundColor: '#111c2a',
-    borderColor: '#1e2d3d',
+    backgroundColor: 'rgba(21, 16, 33, 0.72)',
+    borderColor: '#29213a',
     borderRadius: 8,
     borderWidth: 1,
-    color: '#e2e8f0',
+    color: '#edf3ff',
     fontSize: 15,
     fontWeight: '700',
     paddingHorizontal: 12,
@@ -455,46 +455,46 @@ const styles = StyleSheet.create({
   disabledBlock: { opacity: 0.5 },
   inlineInputRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   inlineInput: { flex: 1 },
-  inputSuffix: { color: '#64748b', fontSize: 14, fontWeight: '900' },
+  inputSuffix: { color: '#68779b', fontSize: 14, fontWeight: '900' },
   presetRow: { flexDirection: 'row', gap: 8, marginTop: 10, marginBottom: 8 },
   presetButton: {
     flex: 1,
     alignItems: 'center',
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: '#1e2d3d',
-    backgroundColor: '#111c2a',
+    borderColor: '#29213a',
+    backgroundColor: 'rgba(21, 16, 33, 0.72)',
     paddingVertical: 9,
   },
-  presetButtonActive: { borderColor: '#38bdf8', backgroundColor: '#0b2136' },
+  presetButtonActive: { borderColor: '#f43f5e', backgroundColor: 'rgba(244, 63, 94, 0.18)' },
   presetButtonDisabled: { opacity: 0.5 },
-  presetText: { color: '#64748b', fontSize: 13, fontWeight: '800' },
-  presetTextActive: { color: '#7dd3fc' },
+  presetText: { color: '#68779b', fontSize: 13, fontWeight: '800' },
+  presetTextActive: { color: '#fb7185' },
   brokerGrid: { gap: 8, marginBottom: 14 },
   brokerButton: {
     minHeight: 58,
     borderRadius: 10,
     borderWidth: 1,
-    borderColor: '#1e2d3d',
-    backgroundColor: '#111c2a',
+    borderColor: '#29213a',
+    backgroundColor: 'rgba(21, 16, 33, 0.72)',
     padding: 12,
   },
   brokerDot: { width: 8, height: 8, borderRadius: 999, marginBottom: 6 },
-  brokerLabel: { color: '#e2e8f0', fontSize: 14, fontWeight: '900' },
-  brokerDetail: { color: '#64748b', fontSize: 11, fontWeight: '700', marginTop: 2 },
+  brokerLabel: { color: '#edf3ff', fontSize: 14, fontWeight: '900' },
+  brokerDetail: { color: '#68779b', fontSize: 11, fontWeight: '700', marginTop: 2 },
   segmentRow: { flexDirection: 'row', gap: 8, marginBottom: 6 },
   segmentButton: {
     flex: 1,
     alignItems: 'center',
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: '#1e2d3d',
-    backgroundColor: '#111c2a',
+    borderColor: '#29213a',
+    backgroundColor: 'rgba(21, 16, 33, 0.72)',
     paddingVertical: 11,
   },
-  segmentButtonActive: { borderColor: '#38bdf8', backgroundColor: '#0b2136' },
-  segmentText: { color: '#64748b', fontSize: 13, fontWeight: '900' },
-  segmentTextActive: { color: '#7dd3fc' },
+  segmentButtonActive: { borderColor: '#f43f5e', backgroundColor: 'rgba(244, 63, 94, 0.18)' },
+  segmentText: { color: '#68779b', fontSize: 13, fontWeight: '900' },
+  segmentTextActive: { color: '#fb7185' },
   twoColumn: { flexDirection: 'row', gap: 10 },
   actionRow: { flexDirection: 'row', gap: 10, marginTop: 4, marginBottom: 32 },
   secondaryAction: {
@@ -503,22 +503,22 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     borderWidth: 1,
     borderColor: '#164766',
-    backgroundColor: '#0b2136',
+    backgroundColor: 'rgba(244, 63, 94, 0.18)',
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 8,
   },
-  secondaryActionText: { color: '#7dd3fc', fontSize: 14, fontWeight: '900' },
+  secondaryActionText: { color: '#fb7185', fontSize: 14, fontWeight: '900' },
   primaryAction: {
     flex: 1.4,
     minHeight: 48,
     borderRadius: 10,
-    backgroundColor: '#38bdf8',
+    backgroundColor: '#f43f5e',
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 8,
   },
-  primaryActionText: { color: '#08111f', fontSize: 14, fontWeight: '900' },
+  primaryActionText: { color: 'transparent', fontSize: 14, fontWeight: '900' },
 });

@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Consolidation Bridge</title>
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <main>
+      <h1>Discord Bridge</h1>
+      <label class="toggle">
+        <input id="enabled" type="checkbox" />
+        <span>Forward visible Discord messages</span>
+      </label>
+
+      <label class="toggle">
+        <input id="forwardExistingOnEnable" type="checkbox" />
+        <span>Also forward messages already visible when enabling</span>
+      </label>
+
+      <label>
+        Target URL
+        <input id="targetUrl" type="url" />
+      </label>
+
+      <label>
+        API key
+        <input id="apiKey" type="password" autocomplete="off" />
+      </label>
+
+      <button id="save" type="button">Save</button>
+      <p id="status"></p>
+    </main>
+    <script src="popup.js"></script>
+  </body>
+</html>

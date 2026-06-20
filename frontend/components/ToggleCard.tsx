@@ -79,7 +79,7 @@ export const NestedToggle: React.FC<NestedToggleProps> = ({
   return (
     <View style={styles.nestedContainer}>
       <View style={styles.nestedRow}>
-        <Ionicons name={icon} size={18} color={enabled ? iconColor : '#64748b'} />
+        <Ionicons name={icon} size={18} color={enabled ? iconColor : '#68779b'} />
         <View style={styles.nestedTextContainer}>
           <Text style={styles.nestedTitle}>{title}</Text>
           <Text style={styles.nestedSubtitle}>{subtitle}</Text>
@@ -128,7 +128,7 @@ export const ButtonGroup: React.FC<ButtonGroupProps> = ({
 
 const styles = StyleSheet.create({
   card: {
-    backgroundColor: '#1e293b',
+    backgroundColor: 'rgba(16, 9, 28, 0.88)',
     borderRadius: 12,
     padding: 16,
     marginHorizontal: 20,
@@ -152,14 +152,14 @@ const styles = StyleSheet.create({
   },
   subtitle: {
     fontSize: 14,
-    color: '#94a3b8',
+    color: '#aec0e5',
     marginTop: 4,
   },
   nestedContainer: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    backgroundColor: '#1e293b',
+    backgroundColor: 'rgba(16, 9, 28, 0.88)',
     padding: 10,
     borderRadius: 6,
     marginTop: 10,
@@ -171,12 +171,12 @@ const styles = StyleSheet.create({
   },
   nestedTextContainer: {},
   nestedTitle: {
-    color: '#e2e8f0',
+    color: '#edf3ff',
     fontSize: 13,
     fontWeight: '500',
   },
   nestedSubtitle: {
-    color: '#64748b',
+    color: '#68779b',
     fontSize: 11,
   },
   buttonGroup: {

@@ -10,7 +10,7 @@ export function Button({ children, onPress, variant = 'primary', style }: any) {
 }
 
 const styles = StyleSheet.create({
-  button: { backgroundColor: '#007AFF', padding: 12, borderRadius: 6, alignItems: 'center' },
-  outline: { backgroundColor: 'transparent', borderWidth: 1, borderColor: '#007AFF' },
+  button: { backgroundColor: '#f43f5e', padding: 12, borderRadius: 6, alignItems: 'center' },
+  outline: { backgroundColor: 'transparent', borderWidth: 1, borderColor: '#f43f5e' },
   text: { color: '#fff', fontWeight: '600' },
 });

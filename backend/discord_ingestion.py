@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from inspect import isawaitable
 from typing import Any, Callable, Optional
 
 from discord_alert_text import build_discord_alert_text
@@ -67,10 +68,10 @@ async def handle_discord_message(
     if duplicate_check(parsed):
         return DiscordIngestionResult(parsed=parsed, skip_reason="duplicate alert")
 
-    deps.update_status("last_alert_time", datetime.now(timezone.utc).isoformat())
+    await _maybe_await(deps.update_status("last_alert_time", datetime.now(timezone.utc).isoformat()))
     increment_alerts_processed = getattr(deps, "increment_alerts_processed", None)
     if increment_alerts_processed:
-        increment_alerts_processed()
+        await _maybe_await(increment_alerts_processed())
 
     alert = Alert(
         ticker=parsed.get("ticker", ""),
@@ -82,7 +83,7 @@ async def handle_discord_message(
         sell_percentage=parsed.get("sell_percentage"),
         raw_message=alert_text,
     )
-    deps.insert_alert(alert)
+    await _maybe_await(deps.insert_alert(alert))
 
     trade_requested = False
     skip_reason = ""
@@ -114,3 +115,9 @@ def _same_user(left, right) -> bool:
     if left_id is not None or right_id is not None:
         return left_id == right_id
     return left == right
+
+
+async def _maybe_await(value: Any) -> Any:
+    if isawaitable(value):
+        return await value
+    return value

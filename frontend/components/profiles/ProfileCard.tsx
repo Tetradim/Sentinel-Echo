@@ -76,7 +76,7 @@ export const ProfileCard: React.FC<ProfileCardProps> = ({
         <Ionicons 
           name={isExpanded ? "chevron-up" : "chevron-down"} 
           size={20} 
-          color="#64748b" 
+          color="#68779b"
         />
       </TouchableOpacity>
 
@@ -125,7 +125,7 @@ export const ProfileCard: React.FC<ProfileCardProps> = ({
 
 const styles = StyleSheet.create({
   profileCard: {
-    backgroundColor: '#1e293b',
+    backgroundColor: 'rgba(16, 9, 28, 0.88)',
     borderRadius: 12,
     marginBottom: 12,
     overflow: 'hidden',
@@ -166,13 +166,13 @@ const styles = StyleSheet.create({
   },
   profileDescription: {
     fontSize: 12,
-    color: '#64748b',
+    color: '#68779b',
     marginTop: 2,
     marginBottom: 2,
   },
   brokerCount: {
     fontSize: 12,
-    color: '#64748b',
+    color: '#68779b',
     marginTop: 4,
   },
   profileExpanded: {

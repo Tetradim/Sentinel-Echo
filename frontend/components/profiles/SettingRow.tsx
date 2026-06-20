@@ -110,11 +110,11 @@ const styles = StyleSheet.create({
   settingName: {
     fontSize: 13,
     fontWeight: '500',
-    color: '#e2e8f0',
+    color: '#edf3ff',
   },
   settingDesc: {
     fontSize: 11,
-    color: '#64748b',
+    color: '#68779b',
   },
   inputRow: {
     flexDirection: 'row',
@@ -123,7 +123,7 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
   percentInput: {
-    backgroundColor: '#1e293b',
+    backgroundColor: 'rgba(16, 9, 28, 0.88)',
     color: '#fff',
     borderRadius: 6,
     paddingHorizontal: 12,
@@ -138,7 +138,7 @@ const styles = StyleSheet.create({
     opacity: 0.4,
   },
   percentLabel: {
-    color: '#64748b',
+    color: '#68779b',
     fontSize: 12,
   },
 });

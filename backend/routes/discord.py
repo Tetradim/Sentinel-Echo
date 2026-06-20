@@ -1,18 +1,24 @@
 """
 Discord bot and alert patterns endpoints
 """
-from fastapi import APIRouter, HTTPException, BackgroundTasks, Body
+from fastapi import APIRouter, HTTPException, BackgroundTasks, Body, Request
+from pydantic import BaseModel, Field
 from models import Settings, DiscordAlertPatterns, DiscordAlertPatternsUpdate
+from discord_ingestion import DiscordIngestionDeps, handle_discord_message
+from discord_alert_text import build_discord_alert_text
 from risk import calculate_position_size
 from source_config import (
     apply_source_quantity_limits,
     resolve_source_config,
     source_skip_reason,
 )
-from typing import Any, Dict
+from types import SimpleNamespace
+from typing import Any, Dict, Mapping
 from utils import AVG_DOWN_KEYWORDS, BUY_KEYWORDS, SELL_KEYWORDS, parse_alert
+from openclaw_discord_config import DiscordRuntimeConfig, resolve_saved_or_runtime_discord_config
 import threading
 import logging
+import os
 import re
 
 _bot_start_lock = threading.Lock()  # FIXED M17: prevent double-start race
@@ -41,6 +47,31 @@ db = None
 # Discord bot references (will be set by main server)
 discord_bot = None
 discord_bot_thread = None
+_chrome_bridge_seen_event_ids: set[str] = set()
+_chrome_bridge_seen_event_order: list[str] = []
+_CHROME_BRIDGE_MAX_SEEN = 1000
+_LOCAL_CLIENT_HOSTS = {"127.0.0.1", "::1", "localhost"}
+
+
+class ChromeBridgeEmbed(BaseModel):
+    author_name: str | None = None
+    title: str | None = None
+    description: str | None = None
+    fields: list[dict[str, Any]] = Field(default_factory=list)
+    footer_text: str | None = None
+
+
+class ChromeBridgeMessage(BaseModel):
+    event_id: str = Field(..., min_length=1, max_length=240)
+    channel_id: str = Field(default="chrome-visible-discord", max_length=120)
+    channel_name: str = Field(default="chrome-visible-discord", max_length=120)
+    author_id: str | None = Field(default=None, max_length=120)
+    author_name: str = Field(default="Discord Chrome", max_length=120)
+    content: str = Field(default="", max_length=12000)
+    embeds: list[ChromeBridgeEmbed] = Field(default_factory=list)
+    url: str | None = Field(default=None, max_length=2048)
+    observed_at: str | None = Field(default=None, max_length=80)
+    source: str = Field(default="chrome-discord-bridge", max_length=80)
 
 
 def set_db(database):
@@ -61,17 +92,51 @@ def get_discord_bot():
     return discord_bot, discord_bot_thread
 
 
+def resolve_discord_start_config(
+    settings: dict | None,
+    *,
+    env: Mapping[str, str] | None = None,
+    openclaw_home=None,
+) -> DiscordRuntimeConfig:
+    """Resolve Discord config for the manual start route without exposing secrets."""
+    fallback_env = env if env is not None else os.environ
+    return resolve_saved_or_runtime_discord_config(
+        settings or {},
+        fallback_env,
+        openclaw_home=openclaw_home,
+    )
+
+
+def _normalize_channel_ids(channel_ids: list[str] | str) -> list[str]:
+    if isinstance(channel_ids, str):
+        raw_ids = channel_ids.split(",")
+    else:
+        raw_ids = channel_ids
+
+    result = []
+    seen = set()
+    for channel_id in raw_ids:
+        value = str(channel_id).strip()
+        if value and value not in seen:
+            result.append(value)
+            seen.add(value)
+    return result
+
+
 @router.post("/discord/start")
 async def start_discord_bot(background_tasks: BackgroundTasks):
     """Start the Discord bot"""
     global discord_bot_thread
     
     settings = await db.get_settings()
-    if not settings or not settings.get('discord_token'):
+    discord_config = resolve_discord_start_config(settings)
+    if not discord_config.token:
         raise HTTPException(status_code=400, detail="Discord token not configured")
+    if not discord_config.channel_ids:
+        raise HTTPException(status_code=400, detail="Discord channel IDs not configured")
     
-    token = settings['discord_token']
-    channel_ids = settings.get('discord_channel_ids', [])
+    token = discord_config.token
+    channel_ids = discord_config.channel_ids
     
     with _bot_start_lock:  # FIXED M17: atomic check-and-start
         if discord_bot_thread and discord_bot_thread.is_alive():
@@ -130,13 +195,13 @@ async def test_discord_connection():
         "success": True, 
         "status": "connected", 
         "message": "Discord bot connected and listening!",
-        "details": {
-            "bot_running": True, 
-            "monitoring_channels": settings.get('discord_channel_ids', []) or ["All channels"],
-            "auto_trading_enabled": bot_status.get('auto_trading_enabled', False),
-            "alerts_processed": bot_status.get('alerts_processed', 0)
+            "details": {
+                "bot_running": True,
+                "monitoring_channels": settings.get('discord_channel_ids', []) or ["All channels"],
+                "auto_trading_enabled": bool(settings.get('auto_trading_enabled', False)),
+                "alerts_processed": bot_status.get('alerts_processed', 0)
+            }
         }
-    }
 
 
 @router.post("/discord/parse-preview")
@@ -203,6 +268,154 @@ async def preview_discord_alert(request: Dict[str, Any] = Body(...)):
         "parser_metadata": parser_metadata,
         "execution_preview": execution_preview,
     }
+
+
+@router.post("/discord/chrome-bridge/message")
+async def ingest_chrome_bridge_message(
+    payload: ChromeBridgeMessage,
+    request: Request,
+):
+    """Ingest a Discord message observed from the local Chrome UI.
+
+    This endpoint is intentionally local-only. It exists for private servers
+    where the operator can view Discord in Chrome but cannot invite a bot.
+    """
+    _ensure_local_chrome_bridge_request(request)
+    if not db:
+        raise HTTPException(status_code=503, detail="database not initialized")
+
+    if _mark_chrome_bridge_seen(payload.event_id):
+        return {
+            "status": "duplicate",
+            "event_id": payload.event_id,
+            "alert_inserted": False,
+            "trade_requested": False,
+            "skip_reason": "duplicate bridge event",
+        }
+
+    synthetic_message = _chrome_bridge_to_message(payload)
+    alert_text = build_discord_alert_text(synthetic_message).strip()
+    if not alert_text:
+        raise HTTPException(status_code=400, detail="message content or embed text is required")
+
+    settings = await db.get_settings() if db else {}
+    channel_ids = _chrome_bridge_channel_ids(settings or {}, payload.channel_id)
+
+    async def process_trade_adapter(alert, parsed):
+        from server import process_trade
+
+        await process_trade(alert, parsed)
+
+    async def insert_alert_adapter(alert):
+        await db.insert_alert(alert.model_dump(mode="json"))
+
+    def update_status_adapter(key: str, value: Any):
+        from routes.health import update_bot_status
+
+        update_bot_status(key, value)
+
+    result = await handle_discord_message(
+        synthetic_message,
+        channel_ids=channel_ids,
+        deps=DiscordIngestionDeps(
+            load_settings=lambda: settings or {},
+            insert_alert=insert_alert_adapter,
+            process_trade=process_trade_adapter,
+            update_status=update_status_adapter,
+            is_duplicate_alert=lambda parsed: False,
+            increment_alerts_processed=_increment_chrome_bridge_alert_count,
+        ),
+        bot_user=None,
+    )
+
+    return {
+        "status": "accepted" if result.alert_inserted else "skipped",
+        "event_id": payload.event_id,
+        "source": payload.source,
+        "channel_id": payload.channel_id,
+        "channel_name": payload.channel_name,
+        "author_name": payload.author_name,
+        "raw_text": alert_text,
+        "parsed": result.parsed,
+        "alert_inserted": result.alert_inserted,
+        "trade_requested": result.trade_requested,
+        "skip_reason": result.skip_reason,
+    }
+
+
+def _ensure_local_chrome_bridge_request(request: Request) -> None:
+    if os.environ.get("CHROME_BRIDGE_ALLOW_REMOTE", "").lower() in {"1", "true", "yes"}:
+        return
+    host = request.client.host if request.client else ""
+    if host not in _LOCAL_CLIENT_HOSTS:
+        raise HTTPException(status_code=403, detail="chrome bridge endpoint only accepts local requests")
+
+
+def _mark_chrome_bridge_seen(event_id: str) -> bool:
+    if event_id in _chrome_bridge_seen_event_ids:
+        return True
+    _chrome_bridge_seen_event_ids.add(event_id)
+    _chrome_bridge_seen_event_order.append(event_id)
+    while len(_chrome_bridge_seen_event_order) > _CHROME_BRIDGE_MAX_SEEN:
+        old_event_id = _chrome_bridge_seen_event_order.pop(0)
+        _chrome_bridge_seen_event_ids.discard(old_event_id)
+    return False
+
+
+def _chrome_bridge_channel_ids(settings: Dict[str, Any], channel_id: str) -> list[str]:
+    configured = settings.get("chrome_bridge_channel_ids")
+    if configured is None:
+        return [str(channel_id)]
+    if isinstance(configured, str):
+        configured = configured.split(",")
+    normalized = [str(item).strip() for item in configured or [] if str(item).strip()]
+    return normalized
+
+
+def _chrome_bridge_to_message(payload: ChromeBridgeMessage):
+    embeds = []
+    for embed in payload.embeds:
+        embeds.append(
+            SimpleNamespace(
+                author=SimpleNamespace(name=embed.author_name or ""),
+                title=embed.title or "",
+                description=embed.description or "",
+                fields=[
+                    SimpleNamespace(
+                        name=str(field.get("name", "")),
+                        value=str(field.get("value", "")),
+                    )
+                    for field in embed.fields
+                ],
+                footer=SimpleNamespace(text=embed.footer_text or ""),
+            )
+        )
+
+    return SimpleNamespace(
+        id=payload.event_id,
+        content=payload.content,
+        embeds=embeds,
+        author=SimpleNamespace(
+            id=payload.author_id or payload.author_name or "chrome-observed-user",
+            name=payload.author_name,
+            display_name=payload.author_name,
+        ),
+        channel=SimpleNamespace(
+            id=str(payload.channel_id),
+            name=str(payload.channel_name or payload.channel_id),
+        ),
+        created_at=payload.observed_at,
+        jump_url=payload.url,
+    )
+
+
+def _increment_chrome_bridge_alert_count():
+    from routes.health import bot_status, update_bot_status
+
+    update_bot_status(
+        "alerts_processed",
+        bot_status.get("alerts_processed", 0) + 1,
+    )
 
 
 def _parse_alert_for_preview(

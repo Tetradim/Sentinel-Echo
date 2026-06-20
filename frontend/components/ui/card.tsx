@@ -22,9 +22,9 @@ export function CardContent({ children, style }: any) {
 }
 
 const styles = StyleSheet.create({
-  card: { backgroundColor: '#1e1e1e', borderRadius: 8, padding: 16, marginVertical: 8 },
+  card: { backgroundColor: 'rgba(16, 9, 28, 0.88)', borderRadius: 8, padding: 16, marginVertical: 8 },
   header: { marginBottom: 12 },
   title: { color: '#fff', fontSize: 18, fontWeight: 'bold' },
-  description: { color: '#888', fontSize: 14, marginTop: 4 },
+  description: { color: '#68779b', fontSize: 14, marginTop: 4 },
   content: { paddingTop: 8 },
 });

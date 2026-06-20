@@ -44,10 +44,10 @@ function statusInfo(status: string, simulated: boolean) {
   if (simulated && status !== 'closed') return { color: '#a78bfa', bg: '#2d1f5e', label: 'SIM' };
   switch (status) {
     case 'executed': return { color: '#4ade80', bg: '#14532d', label: 'OPEN' };
-    case 'closed':   return { color: '#38bdf8', bg: '#0c2740', label: 'CLOSED' };
+    case 'closed':   return { color: '#f43f5e', bg: 'rgba(244, 63, 94, 0.18)', label: 'CLOSED' };
     case 'failed':   return { color: '#f87171', bg: '#450a0a', label: 'FAILED' };
     case 'pending':  return { color: '#fb923c', bg: '#422006', label: 'PEND' };
-    default:         return { color: '#64748b', bg: '#1e2d3d', label: status.toUpperCase() };
+    default:         return { color: '#68779b', bg: '#29213a', label: status.toUpperCase() };
   }
 }
 
@@ -64,7 +64,7 @@ function TradeBriefing({ digest }: { digest: TradeDigest }) {
   const toneColor =
     digest.primaryStatus.tone === 'live' ? '#22c55e' :
     digest.primaryStatus.tone === 'attention' ? '#f59e0b' :
-    '#64748b';
+    '#68779b';
 
   return (
     <View style={[s.digestCard, { borderColor: toneColor + '55' }]}>
@@ -185,7 +185,7 @@ export default function TradesScreen() {
 
   const renderItem = ({ item: t }: { item: Trade }) => {
     const si = statusInfo(t.status, t.simulated);
-    const bColor = BROKER_COLORS[t.broker] || '#64748b';
+    const bColor = BROKER_COLORS[t.broker] || '#68779b';
     const bName  = BROKER_NAMES[t.broker] || t.broker;
     const pnl    = t.realized_pnl !== null ? t.realized_pnl : t.unrealized_pnl;
     const isOpen = t.status !== 'closed' && t.status !== 'failed';
@@ -308,7 +308,7 @@ export default function TradesScreen() {
             onPress={retryFetchTrades}
             accessibilityRole="button"
           >
-            <Ionicons name="refresh" size={13} color="#08111d" />
+            <Ionicons name="refresh" size={13} color="#050416" />
             <Text style={s.errorBannerRetryText}>Retry</Text>
           </TouchableOpacity>
         </View>
@@ -327,17 +327,17 @@ export default function TradesScreen() {
       </View>
 
       {loading ? (
-        <View style={s.centered}><ActivityIndicator size="large" color="#0ea5e9" /></View>
+        <View style={s.centered}><ActivityIndicator size="large" color="#f43f5e" /></View>
       ) : (
         <FlatList
           data={filtered}
           renderItem={renderItem}
           keyExtractor={i => i.id}
           contentContainerStyle={s.list}
-          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#0ea5e9" />}
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#f43f5e" />}
           ListEmptyComponent={
             <View style={s.empty}>
-              <Ionicons name="receipt-outline" size={48} color="#1e2d3d" />
+              <Ionicons name="receipt-outline" size={48} color="#29213a" />
               <Text style={s.emptyTitle}>No trades</Text>
             </View>
           }
@@ -353,7 +353,7 @@ export default function TradesScreen() {
             <Text style={s.modalLabel}>Exit Price</Text>
             <TextInput
               style={s.modalInput} value={exitPrice} onChangeText={setExitPrice}
-              keyboardType="decimal-pad" placeholder="0.00" placeholderTextColor="#334155"
+              keyboardType="decimal-pad" placeholder="0.00" placeholderTextColor="#68779b"
             />
             <View style={s.modalBtns}>
               <TouchableOpacity style={s.modalCancel} onPress={() => setShowClose(false)}>
@@ -376,13 +376,13 @@ export default function TradesScreen() {
             <Text style={s.modalLabel}>Current Price</Text>
             <TextInput
               style={s.modalInput} value={currPrice} onChangeText={setCurrPrice}
-              keyboardType="decimal-pad" placeholder="0.00" placeholderTextColor="#334155"
+              keyboardType="decimal-pad" placeholder="0.00" placeholderTextColor="#68779b"
             />
             <View style={s.modalBtns}>
               <TouchableOpacity style={s.modalCancel} onPress={() => setShowUpdate(false)}>
                 <Text style={s.modalCancelText}>Cancel</Text>
               </TouchableOpacity>
-              <TouchableOpacity style={[s.modalConfirm, { backgroundColor: '#0ea5e9' }]} onPress={updatePrice} disabled={submitting}>
+              <TouchableOpacity style={[s.modalConfirm, { backgroundColor: '#f43f5e' }]} onPress={updatePrice} disabled={submitting}>
                 {submitting ? <ActivityIndicator size="small" color="#fff" /> : <Text style={s.modalConfirmText}>Update</Text>}
               </TouchableOpacity>
             </View>
@@ -394,52 +394,52 @@ export default function TradesScreen() {
 }
 
 const s = StyleSheet.create({
-  container:  { flex: 1, backgroundColor: '#080f1a' },
+  container:  { flex: 1, backgroundColor: '#050416' },
   centered:   { flex: 1, alignItems: 'center', justifyContent: 'center' },
   header:     { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end', paddingHorizontal: 20, paddingTop: 16, paddingBottom: 12 },
-  eyebrow:    { fontSize: 10, color: '#0ea5e9', fontWeight: '700', letterSpacing: 2, marginBottom: 2 },
-  title:      { fontSize: 26, fontWeight: '800', color: '#e2e8f0' },
+  eyebrow:    { fontSize: 10, color: '#f43f5e', fontWeight: '700', letterSpacing: 2, marginBottom: 2 },
+  title:      { fontSize: 26, fontWeight: '800', color: '#edf3ff' },
   headerPnl:  { alignItems: 'flex-end' },
   headerPnlNum: { fontSize: 20, fontWeight: '800' },
-  headerPnlLabel: { fontSize: 11, color: '#475569', marginTop: 1 },
+  headerPnlLabel: { fontSize: 11, color: '#68779b', marginTop: 1 },
 
-  strip:      { flexDirection: 'row', marginHorizontal: 16, backgroundColor: '#0d1826', borderRadius: 12, padding: 12, marginBottom: 10, borderWidth: 1, borderColor: '#1e2d3d' },
+  strip:      { flexDirection: 'row', marginHorizontal: 16, backgroundColor: 'rgba(16, 9, 28, 0.82)', borderRadius: 12, padding: 12, marginBottom: 10, borderWidth: 1, borderColor: '#29213a' },
   stripCell:  { flex: 1, alignItems: 'center' },
-  stripValue: { fontSize: 13, fontWeight: '700', color: '#e2e8f0' },
-  stripLabel: { fontSize: 9, color: '#475569', marginTop: 2, fontWeight: '600', letterSpacing: 0.5 },
+  stripValue: { fontSize: 13, fontWeight: '700', color: '#edf3ff' },
+  stripLabel: { fontSize: 9, color: '#68779b', marginTop: 2, fontWeight: '600', letterSpacing: 0.5 },
 
-  digestCard: { backgroundColor: '#0b1420', borderRadius: 14, marginHorizontal: 16, marginBottom: 10, padding: 14, borderWidth: 1 },
+  digestCard: { backgroundColor: 'rgba(16, 9, 28, 0.88)', borderRadius: 14, marginHorizontal: 16, marginBottom: 10, padding: 14, borderWidth: 1 },
   digestTop:  { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 },
   digestTitleBlock: { flex: 1 },
-  digestEyebrow: { fontSize: 10, color: '#64748b', fontWeight: '800', letterSpacing: 1.4, marginBottom: 5 },
-  digestTitle: { fontSize: 18, fontWeight: '800', color: '#e2e8f0' },
-  digestDetail: { fontSize: 12, lineHeight: 17, color: '#94a3b8', marginTop: 3 },
+  digestEyebrow: { fontSize: 10, color: '#68779b', fontWeight: '800', letterSpacing: 1.4, marginBottom: 5 },
+  digestTitle: { fontSize: 18, fontWeight: '800', color: '#edf3ff' },
+  digestDetail: { fontSize: 12, lineHeight: 17, color: '#aec0e5', marginTop: 3 },
   digestPnl: { minWidth: 92, height: 42, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
   digestPnlValue: { fontSize: 17, fontWeight: '900' },
-  digestPnlLabel: { fontSize: 10, color: '#64748b', fontWeight: '700', marginTop: 1 },
-  digestStats: { flexDirection: 'row', marginTop: 12, paddingTop: 12, borderTopWidth: 1, borderTopColor: '#132235' },
+  digestPnlLabel: { fontSize: 10, color: '#68779b', fontWeight: '700', marginTop: 1 },
+  digestStats: { flexDirection: 'row', marginTop: 12, paddingTop: 12, borderTopWidth: 1, borderTopColor: 'rgba(41, 33, 58, 0.82)' },
   digestStat: { flex: 1, alignItems: 'center' },
-  digestStatValue: { fontSize: 14, fontWeight: '800', color: '#e2e8f0' },
-  digestStatLabel: { fontSize: 9, color: '#64748b', marginTop: 3, fontWeight: '700' },
+  digestStatValue: { fontSize: 14, fontWeight: '800', color: '#edf3ff' },
+  digestStatLabel: { fontSize: 9, color: '#68779b', marginTop: 3, fontWeight: '700' },
 
   errorBanner: { flexDirection: 'row', alignItems: 'center', gap: 8, marginHorizontal: 16, marginBottom: 10, padding: 10, borderRadius: 8, backgroundColor: '#1c1500', borderWidth: 1, borderColor: '#92400e' },
   errorBannerText: { flex: 1, fontSize: 12, color: '#f59e0b', fontWeight: '600' },
   errorBannerRetry: { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: '#f59e0b', paddingHorizontal: 9, paddingVertical: 6, borderRadius: 6 },
-  errorBannerRetryText: { fontSize: 11, color: '#08111d', fontWeight: '900' },
+  errorBannerRetryText: { fontSize: 11, color: '#050416', fontWeight: '900' },
 
   filterBar:  { flexDirection: 'row', paddingHorizontal: 16, gap: 8, marginBottom: 10 },
-  filterBtn:  { flex: 1, alignItems: 'center', paddingHorizontal: 7, paddingVertical: 7, borderRadius: 8, backgroundColor: '#0d1826', borderWidth: 1, borderColor: '#1e2d3d' },
-  filterBtnActive: { backgroundColor: '#0c2740', borderColor: '#0ea5e9' },
-  filterText: { fontSize: 13, color: '#475569', fontWeight: '600' },
-  filterTextActive: { color: '#0ea5e9' },
-  filterCount: { fontSize: 11, color: '#334155', fontWeight: '800', marginTop: 2 },
-  filterCountActive: { color: '#7dd3fc' },
+  filterBtn:  { flex: 1, alignItems: 'center', paddingHorizontal: 7, paddingVertical: 7, borderRadius: 8, backgroundColor: 'rgba(16, 9, 28, 0.82)', borderWidth: 1, borderColor: '#29213a' },
+  filterBtnActive: { backgroundColor: 'rgba(244, 63, 94, 0.18)', borderColor: '#f43f5e' },
+  filterText: { fontSize: 13, color: '#68779b', fontWeight: '600' },
+  filterTextActive: { color: '#f43f5e' },
+  filterCount: { fontSize: 11, color: '#68779b', fontWeight: '800', marginTop: 2 },
+  filterCountActive: { color: '#fb7185' },
 
   list:       { paddingHorizontal: 16, paddingBottom: 16 },
-  card:       { backgroundColor: '#0d1826', borderRadius: 12, padding: 14, marginBottom: 8, borderWidth: 1, borderColor: '#1e2d3d' },
+  card:       { backgroundColor: 'rgba(16, 9, 28, 0.82)', borderRadius: 12, padding: 14, marginBottom: 8, borderWidth: 1, borderColor: '#29213a' },
   cardTop:    { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 },
   tickerRow:  { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  ticker:     { fontSize: 18, fontWeight: '800', color: '#e2e8f0' },
+  ticker:     { fontSize: 18, fontWeight: '800', color: '#edf3ff' },
   typePill:   { paddingHorizontal: 7, paddingVertical: 3, borderRadius: 5 },
   typeText:   { fontSize: 11, fontWeight: '700' },
   badges:     { flexDirection: 'row', gap: 6 },
@@ -447,34 +447,34 @@ const s = StyleSheet.create({
   badgeText:  { fontSize: 10, fontWeight: '700' },
 
   grid:       { flexDirection: 'row', gap: 4, marginBottom: 10 },
-  gridCell:   { flex: 1, backgroundColor: '#111c2a', borderRadius: 7, padding: 8, alignItems: 'center' },
-  gridLabel:  { fontSize: 9, color: '#334155', fontWeight: '700', letterSpacing: 1, marginBottom: 3 },
-  gridValue:  { fontSize: 13, fontWeight: '700', color: '#e2e8f0' },
+  gridCell:   { flex: 1, backgroundColor: 'rgba(21, 16, 33, 0.72)', borderRadius: 7, padding: 8, alignItems: 'center' },
+  gridLabel:  { fontSize: 9, color: '#68779b', fontWeight: '700', letterSpacing: 1, marginBottom: 3 },
+  gridValue:  { fontSize: 13, fontWeight: '700', color: '#edf3ff' },
 
   pnlRow:     { flexDirection: 'row', alignItems: 'center', gap: 7, padding: 8, borderRadius: 7, marginBottom: 8 },
   pnlText:    { fontSize: 13, fontWeight: '700' },
   errorRow:   { flexDirection: 'row', alignItems: 'flex-start', gap: 6, backgroundColor: '#2d1515', borderRadius: 6, padding: 8, marginBottom: 8 },
   errorText:  { flex: 1, fontSize: 11, color: '#f87171' },
 
-  cardFooter: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingTop: 8, borderTopWidth: 1, borderTopColor: '#111c2a' },
-  footerTime: { fontSize: 10, color: '#334155' },
+  cardFooter: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingTop: 8, borderTopWidth: 1, borderTopColor: 'rgba(21, 16, 33, 0.72)' },
+  footerTime: { fontSize: 10, color: '#68779b' },
   actions:    { flexDirection: 'row', gap: 6 },
-  actionBtn:  { paddingHorizontal: 12, paddingVertical: 5, borderRadius: 6, backgroundColor: '#1e2d3d' },
+  actionBtn:  { paddingHorizontal: 12, paddingVertical: 5, borderRadius: 6, backgroundColor: '#29213a' },
   actionBtnClose: { backgroundColor: '#2d1515' },
-  actionBtnText: { fontSize: 12, color: '#94a3b8', fontWeight: '600' },
+  actionBtnText: { fontSize: 12, color: '#aec0e5', fontWeight: '600' },
 
   empty:      { alignItems: 'center', paddingVertical: 64, gap: 10 },
-  emptyTitle: { fontSize: 18, fontWeight: '700', color: '#1e2d3d' },
+  emptyTitle: { fontSize: 18, fontWeight: '700', color: '#29213a' },
 
   overlay:    { flex: 1, backgroundColor: 'rgba(0,0,0,0.7)', alignItems: 'center', justifyContent: 'center', padding: 24 },
-  modal:      { backgroundColor: '#0d1826', borderRadius: 16, padding: 24, width: '100%', maxWidth: 380, borderWidth: 1, borderColor: '#1e2d3d' },
-  modalTitle: { fontSize: 18, fontWeight: '800', color: '#e2e8f0', marginBottom: 4 },
-  modalSub:   { fontSize: 13, color: '#475569', marginBottom: 20 },
-  modalLabel: { fontSize: 12, color: '#64748b', fontWeight: '600', marginBottom: 8 },
-  modalInput: { backgroundColor: '#111c2a', borderRadius: 9, padding: 14, color: '#e2e8f0', fontSize: 18, fontWeight: '700', borderWidth: 1, borderColor: '#1e2d3d', marginBottom: 20 },
+  modal:      { backgroundColor: 'rgba(16, 9, 28, 0.82)', borderRadius: 16, padding: 24, width: '100%', maxWidth: 380, borderWidth: 1, borderColor: '#29213a' },
+  modalTitle: { fontSize: 18, fontWeight: '800', color: '#edf3ff', marginBottom: 4 },
+  modalSub:   { fontSize: 13, color: '#68779b', marginBottom: 20 },
+  modalLabel: { fontSize: 12, color: '#68779b', fontWeight: '600', marginBottom: 8 },
+  modalInput: { backgroundColor: 'rgba(21, 16, 33, 0.72)', borderRadius: 9, padding: 14, color: '#edf3ff', fontSize: 18, fontWeight: '700', borderWidth: 1, borderColor: '#29213a', marginBottom: 20 },
   modalBtns:  { flexDirection: 'row', gap: 10 },
-  modalCancel:  { flex: 1, padding: 14, borderRadius: 9, backgroundColor: '#1e2d3d', alignItems: 'center' },
-  modalCancelText: { color: '#64748b', fontWeight: '700' },
+  modalCancel:  { flex: 1, padding: 14, borderRadius: 9, backgroundColor: '#29213a', alignItems: 'center' },
+  modalCancelText: { color: '#68779b', fontWeight: '700' },
   modalConfirm:  { flex: 1, padding: 14, borderRadius: 9, backgroundColor: '#7f1d1d', alignItems: 'center' },
   modalConfirmText: { color: '#fff', fontWeight: '700' },
 });

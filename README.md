@@ -1,255 +1,114 @@
-# Consolidation Trading Bot
+# Consolidation Discord Options Bot
 
-<p align="center">
-  <img src="https://img.shields.io/badge/Python-3.11+-blue.svg" alt="Python">
-  <img src="https://img.shields.io/badge/Discord-API-green.svg" alt="Discord">
-  <img src="https://img.shields.io/badge/Docker-Ready-blue.svg" alt="Docker">
-  <img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License">
-</p>
+Consolidation is a Discord-driven options trading and testing bot. It listens to analyst alerts, parses options contracts, applies source policy and risk controls, records alerts, and can either simulate trades or submit broker orders when live trading is explicitly configured.
 
-A production-grade Discord-based options trading bot that listens to trade alerts from financial analysts and automatically executes trades through your broker. Designed for community-based trading where you follow analyst alerts.
+It also includes a preview-only bridge to the Sentinel Simulation Engine so recorded Discord alerts and market context can be replayed through Consolidation without inserting alerts or sending broker orders.
 
-## Table of Contents
+## Safety Boundary
 
-1. [What It Does](#what-it-does)
-2. [How It Works](#how-it-works)
-3. [Architecture](#architecture)
-4. [Features](#features)
-5. [Supported Brokers](#supported-brokers)
-6. [Installation](#installation)
-7. [Configuration](#configuration)
-8. [Trading Strategies](#trading-strategies)
-9. [Risk Management](#risk-management)
-10. [API Endpoints](#api-endpoints)
-11. [Monitoring](#monitoring)
-12. [Development](#development)
+This project can place broker orders when all of the following are true:
 
----
+- `SIMULATION_MODE=false`
+- auto trading is enabled
+- a source override allows automatic live execution
+- the active broker is configured
+- the active broker supports order-status polling
+- no runtime shutdown is active
 
-## What It Does
+Defaults are intentionally safer:
 
-### Core Functionality
+- `SIMULATION_MODE=true`
+- `auto_trading_enabled=false`
+- Discord intake only starts when a token and channel IDs are configured
+- setup diagnostics report missing live-trading prerequisites
+- parser preview and Simulation Engine replay preview do not mutate trading state
 
-**Consolidation** bridges your Discord community alerts with your brokerage account:
+Do not enable live trading until Discord parsing, source policy, broker credentials, order-status polling, and risk settings have been verified with real sample alerts.
 
-1. **Listens to Discord** - Monitors specified channels for trade alerts in any format
-2. **Parses Alerts** - Extracts ticker, strike, expiration, call/put, and action (BTO/STC/etc)
-3. **Validates Trades** - Runs risk checks before execution
-4. **Executes Orders** - Places trades through your broker's API
-5. **Manages Positions** - Sets profit targets, stop losses, trailing stops
-6. **Tracks P&L** - Monitors performance and provides analytics
+## Repository
 
-### Supported Trade Types
-
-| Alert Type | Description |
-|------------|-------------|
-| **BTO** | Buy to Open - Enter long position |
-| **STC** | Sell to Close - Exit long position |
-| **BTC** | Buy to Close - Exit short position |
-| **STO** | Sell to Open - Enter short position |
-
-### Supported Order Types
-
-- **Market Orders** - Immediate execution at best price
-- **Limit Orders** - Execute at specified price or better
-- **Stop Orders** - Trigger at specified price
-- **Bracket Orders** - Entry + profit target + stop loss
-- **Trailing Stops** - Dynamic stop that follows price
-
----
-
-## How It Works
-
-### High-Level Flow
-
-```
-┌─────────────────┐     ┌──────────────────┐     ┌─────────────────┐
-│  Discord Alert  │────▶│  Parse & Validate│────▶│  Risk Checks    │
-│  (Analyst msg)  │     │  (Extract fields)│     │  (Duplicate,    │
-└─────────────────┘     └──────────────────┘     │   correlation)  │
-                                                   └────────┬────────┘
-                                                            │
-                          ┌──────────────────┐              │
-                          │  Place Order     │◀─────────────┘
-                          │  (Broker API)    │
-                          └────────┬─────────┘
-                                   │
-                          ┌────────▼─────────┐
-                          │  Monitor Position│
-                          │  (PT/SL/Trailing)│
-                          └──────────────────┘
+```text
+C:\Users\Lite OS\Documents\Codex\2026-06-17\files-mentioned-by-the-user-readme\work\Consolidation
 ```
 
-### Alert Parsing Pipeline
+## Current Capability Map
 
-The bot uses a flexible parsing system that handles **32+ analyst formats**:
-
-```python
-# Example: Analyst sends "BTO AAPL 150C May 17 2024"
-# Bot extracts:
-{
-    "ticker": "AAPL",
-    "strike": 150,
-    "option_type": "CALL",
-    "expiration": "2024-05-17",
-    "alert_type": "BTO",
-    "quantity": 5
-}
-```
-
-**Supported Formats Include:**
-- Default, Enhanced Market, Vader, SwingTrader, ThetaGang
-- Momentum, Mean Reversion, Breakout, RSI, MACD
-- Iron Condor, Straddle, Strangle, Butterfly
-- Grid, DCA, Scalp, Swing, Trend
-- Chinese, Korean, and more...
-
-### Risk Validation
-
-Before any trade executes:
-
-1. **Duplicate Check** - Same alert within 60 seconds is blocked
-2. **Correlation Check** - Max positions per ticker (default: 3)
-3. **Position Size Check** - Won't exceed max position size
-4. **Daily Loss Check** - Stops trading if daily loss exceeds threshold
-5. **Drawdown Check** - Halts trading if portfolio drawdown exceeds limit
-
----
+| Area | Implemented capability |
+| --- | --- |
+| Discord intake | `discord.py` bot can monitor configured channels, ignore self messages, parse content plus embeds, and process alerts. |
+| Alert parsing | Extracts ticker, strike, option type, expiration, entry/exit price, alert type, sell percentage, and average-down intent. |
+| Parser preview | `/api/discord/parse-preview` evaluates raw alert text, source policy, parser confidence, warnings, and execution preview without inserting records. |
+| Custom patterns | Saved and preview-only buy, sell, partial sell, average down, stop loss, take profit, ignore, ticker regex, and case-sensitivity settings. |
+| Source policy | Per-channel or per-name overrides for enable/disable, paper-only, paper-shadow, manual confirmation, allowed actions, risk multiplier, max premium, max contracts, ticker allow/block lists, and notes. |
+| Alert persistence | Parsed alerts are stored with processing and execution status. |
+| Position sizing | Uses default quantity, max position size, and source risk multiplier, then applies max-contract limits. |
+| Risk controls | Duplicate alert checks, max positions per ticker, source policy, shutdown counters, stop loss, take profit, trailing stop, averaging down, and premium buffer settings. |
+| Simulated trading | In simulation mode, buy and sell alerts create local trades and positions without a broker. |
+| Live order submission | Live buy and sell paths use broker clients, deterministic client order IDs, pending trade records, and fill monitoring. |
+| Fill monitoring | Polls broker status, reconciles filled, partial, rejected, cancelled, expired, unconfirmed, and timeout states. |
+| Fill reconciliation | Updates trade, alert, and position truth from broker fill data and avoids duplicate reconciliation. |
+| Paper shadow | Live-capable sources can record simulated shadow entries/exits alongside live behavior without sending shadow orders. |
+| Broker configuration | Stores broker credentials, supports encrypted credential storage when `CREDENTIAL_KEY` is configured, and masks secrets in responses. |
+| Broker diagnostics | Broker switch/check endpoints and setup diagnostics report whether a broker is configured and whether order status is supported. |
+| Profiles | Multiple profiles with active brokers and per-broker risk/trading settings. |
+| Operator lab | Safe endpoints and UI screen for creating simulated test alerts and simulated exits. |
+| Notifications | Optional SMS/Twilio notification settings, test notification endpoint, notification log, and trade/shutdown notification hooks. |
+| Analytics | Heatmap, time series, advanced metrics, daily/weekly reports, tax report, and performance endpoints. |
+| Frontend | Expo/React Native Web dashboard with Dashboard, Alerts, Trades, Positions, Lab, Strikes, Trading, Risk, Discord, Broker, Profiles, and Settings tabs. |
+| Simulation Engine bridge | Fetches `simulation.consolidation.replay.v1` events and previews them through Consolidation parser/source policy in `preview_only_no_trades` mode. |
+| Chrome Discord bridge | Optional local-only unpacked Chrome extension can forward visible Discord Web messages into Consolidation when a bot cannot be invited. |
+| Local launcher | Windows launcher starts FastAPI backend and Expo web frontend on local ports with optional dependency installation and smoke test. |
 
 ## Architecture
 
-### System Overview
+```text
+Discord channel
+      |
+      v
+discord.py listener
+      |
+      v
+discord_ingestion.handle_discord_message
+      |
+      +--> parser and custom source policy
+      |
+      +--> alert record
+      |
+      +--> simulation trade or live broker order
+                  |
+                  v
+            fill monitor
+                  |
+                  v
+        trade, alert, position reconciliation
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                        Frontend (React/Expo)                    │
-│  ┌─────────┐ ┌────────┐ ┌──────────┐ ┌────────┐ ┌───────────┐ │
-│  │Dashboard│ │ Alerts │ │ Positions│ │ Trades │ │ Settings  │ │
-│  └────┬────┘ └───┬────┘ └────┬─────┘ └───┬────┘ └─────┬─────┘ │
-└───────┼─────────┼──────────┼───────────┼────────────┼────────┘
-        │         │          │           │            │
-        └─────────┴──────────┴───────────┴────────────┘
-                              │
-                    ┌─────────▼─────────┐
-                    │   Nginx Proxy     │
-                    │   (Rate Limiting) │
-                    └─────────┬─────────┘
-                              │
-        ┌─────────────────────┼─────────────────────┐
-        │                     │                     │
-┌───────▼───────┐   ┌────────▼────────┐   ┌────────▼────────┐
-│  FastAPI      │   │  Sentinel Edge  │   │  Discord Bot    │
-│  Backend      │   │  (Confidence)   │   │  (Alert Intake) │
-└───────┬───────┘   └─────────────────┘   └─────────────────┘
-        │
-┌───────┼───────────────────────────────────────────────────────┐
-│       │                    Data Layer                          │
-│  ┌────▼────┐   ┌─────────┐   ┌──────────┐   ┌────────────┐  │
-│  │ MongoDB │◀─▶│  Redis  │◀─▶│ SQLite   │◀─▶│  Brokers   │  │
-│  │(Primary)│   │(Cache)  │   │(Backup)  │   │(IBKR, etc) │  │
-│  └─────────┘   └─────────┘   └──────────┘   └────────────┘  │
-└───────────────────────────────────────────────────────────────┘
+FastAPI routes expose settings, alerts, trades, positions, brokers,
+profiles, operator lab, analytics, diagnostics, and Simulation Engine replay preview.
 ```
 
-### Component Descriptions
+## Quick Start: Local Windows Launcher
 
-| Component | Technology | Purpose |
-|-----------|------------|---------|
-| **Frontend** | React Native/Expo | Web dashboard for monitoring and control |
-| **Backend** | Python FastAPI | REST API, business logic, order management |
-| **Discord Bot** | discord.py | Listen to alerts, send notifications |
-| **Database** | MongoDB | Primary data store (positions, trades, settings) |
-| **Cache** | Redis | Session cache, rate limiting |
-| **Backup DB** | SQLite | Local fallback storage |
-| **Sentinel Edge** | Python | Market confidence analysis |
-| **Proxy** | Nginx | Rate limiting, SSL termination |
-
----
-
-## Features
-
-### Trading Features
-
-- **Multiple Broker Support** - IBKR, Alpaca, TD Ameritrade, and more
-- **Options Chain Integration** - Automatic strike selection (ATM, OTM, ITM, Delta, Risk/Reward)
-- **Multi-leg Strategies** - Spreads, straddles, strangles, iron condors
-- **Grid Trading** - Automated buy-low/sell-high in price range
-- **DCA (Dollar Cost Averaging)** - Average down with configurable steps
-- **Paper Trading** - Test strategies without real money
-
-### Analyst Alert Formats
-
-The bot parses **32 different formats** including:
-
-- **Directional**: Bullish, Bearish, Long, Short
-- **Strategy-specific**: Momentum, Mean Reversion, Breakout, Gap Fill
-- **Options**: Calls, Puts, Spreads, Iron Condors
-- **Regional**: English, Chinese (中文), Korean (한국어)
-
-### Position Management
-
-- **Profit Targets** - Exit when X% profit reached
-- **Stop Losses** - Limit downside with automatic exits
-- **Trailing Stops** - Lock in profits as price moves
-- **Partial Exits** - Take profit on portion of position
-- **Rollovers** - Roll expiring positions to next expiration
-
-### Risk Controls
-
-- **Duplicate Detection** - Block repeated alerts
-- **Correlation Limits** - Max positions per ticker
-- **Position Sizing** - Kelly Criterion-based sizing
-- **Sector Exposure** - Limit exposure by sector
-- **Daily Loss Limits** - Auto-halt after X% loss
-- **Drawdown Protection** - Pause trading after X% drawdown
-
----
-
-## Supported Brokers
-
-| Broker | Status | Features |
-|--------|--------|----------|
-| **Interactive Brokers** | ✅ | Stocks, Options, Futures, Forex, Crypto |
-| **Alpaca** | ✅ | Stocks, Options, Crypto |
-| **TD Ameritrade** | ✅ | Stocks, Options |
-| **Tradier** | ✅ | Stocks, Options |
-| **TradeStation** | ✅ | Stocks, Options, Futures |
-| **ThinkOrSwim** | ✅ | Stocks, Options, Futures |
-| **eTrade** | ✅ | Stocks, Options |
-| **Webull** | ✅ | Stocks, Options |
-| **Fidelity** | ✅ | Stocks, Options |
-| **Charles Schwab** | ✅ | Stocks, Options |
-| **Binance** | ✅ | Spot, Futures, Options |
-| **Coinbase** | ✅ | Spot, Futures |
-| **Kraken** | ✅ | Spot, Futures |
-| **Bybit** | ✅ | Spot, Futures, Options |
-| **Hyperliquid** | ✅ | Spot, Futures |
-| **Polymarket** | ✅ | Prediction Markets |
-| **Degiro** | ✅ | EU Stocks, Options |
-| **OANDA** | ✅ | Forex |
-| **Wealthsimple** | ✅ | Canadian Stocks |
-
----
-
-## Installation
-
-### Option 0: Windows Local Launcher
-
-For this workstation, use the local launcher from the repository root:
+From the repository root:
 
 ```powershell
 .\Launch-Consolidation-Bot.bat
 ```
 
-The launcher starts:
+Or run the PowerShell launcher directly:
+
+```powershell
+.\Launch-Consolidation-Bot.ps1
+```
+
+Default local ports:
 
 | Service | URL |
-|---------|-----|
+| --- | --- |
 | FastAPI backend | `http://127.0.0.1:8003` |
 | Expo web frontend | `http://127.0.0.1:3003` |
 | Health check | `http://127.0.0.1:8003/api/health` |
 
-Useful launcher flags:
+Useful flags:
 
 ```powershell
 .\Launch-Consolidation-Bot.ps1 -InstallDeps
@@ -258,304 +117,686 @@ Useful launcher flags:
 .\Launch-Consolidation-Bot.ps1 -SmokeTest
 ```
 
-The launcher creates `backend\.venv` when needed, installs backend/frontend dependencies when `-InstallDeps` is passed or dependencies are missing, stores local SQLite data under `data\consolidation.sqlite3`, and writes logs to `Consolidation-Discord-Bot.log` on the Desktop.
+The launcher:
 
-Discord intake is enabled only when `DISCORD_BOT_TOKEN` and `DISCORD_CHANNEL_IDS` are set. Without those values, the API and dashboard still run so you can configure settings, review diagnostics, and test parsing.
+1. Creates or reuses `backend\.venv`.
+2. Installs backend and frontend dependencies when requested or missing.
+3. Uses SQLite for local desktop mode.
+4. Starts the FastAPI backend.
+5. Starts the Expo web frontend.
+6. Verifies backend health and CORS.
+7. Opens the browser unless `-NoBrowser` is used.
+8. Writes a local launcher log to the Desktop.
 
-### Option 1: Windows Installer (Recommended)
+## Manual Local Start
 
-1. Download `TradeBot-Setup-1.0.0.exe` from releases
-2. Run as Administrator
-3. Follow installation wizard
-4. Edit configuration file
-5. Launch from desktop shortcut
+Backend:
 
-### Option 2: Docker Compose
-
-```bash
-# Clone the repository
-git clone https://github.com/Tetradim/Consolidation.git
-cd Consolidation
-
-# Copy environment file
-cp .env.example .env
-
-# Edit configuration
-# (See Configuration section below)
-
-# Start all services
-docker-compose up -d
-
-# View logs
-docker-compose logs -f
-```
-
-### Option 3: Manual Installation
-
-```bash
-# Prerequisites
-# - Python 3.11+
-# - MongoDB
-# - Redis
-
-# Clone and setup
-git clone https://github.com/Tetradim/Consolidation.git
-cd Consolidation
-
-# Backend
+```powershell
 python -m venv backend\.venv
 .\backend\.venv\Scripts\python.exe -m pip install -r backend\requirements.txt
-$env:PORT = "8003"
 $env:HOST = "127.0.0.1"
+$env:PORT = "8003"
 $env:USE_SQLITE = "true"
 $env:DATABASE_PATH = "data\consolidation.sqlite3"
 .\backend\.venv\Scripts\python.exe -m backend.run
+```
 
-# Frontend (separate terminal)
+Frontend:
+
+```powershell
 cd frontend
 npm install
 $env:EXPO_PUBLIC_BACKEND_URL = "http://127.0.0.1:8003"
 npm run web -- --port 3003
 ```
 
----
-
-## Configuration
-
-### Environment Variables
-
-Create a `.env` file with these settings:
-
-```env
-# ===================
-# Discord (Required)
-# ===================
-DISCORD_BOT_TOKEN=your-bot-token
-DISCORD_CHANNEL_IDS=123456789,987654321
-DISCORD_GUILD_ID=123456789
-
-# ===================
-# Database
-# ===================
-MONGO_URL=mongodb://localhost:27017
-MONGO_USER=tradebot
-MONGO_PASSWORD=your-secure-password
-DB_NAME=tradebot
-
-# ===================
-# Redis
-# ===================
-REDIS_URL=redis://localhost:6379
-
-# ===================
-# Broker (Choose one or more)
-# ===================
-# Interactive Brokers
-IBKR_GATEWAY_URL=https://localhost:5000
-IBKR_ACCOUNT_ID=DU123456
-
-# Alpaca
-ALPACA_API_KEY=your-key
-ALPACA_API_SECRET=your-secret
-ALPACA_PAPER=true
-
-# ===================
-# Security
-# ===================
-SECRET_KEY=random-32-character-string
-API_SECRET_KEY=random-admin-api-key
-
-# ===================
-# Trading
-# ===================
-SIMULATION_MODE=true
-DEFAULT_QUANTITY=5
-MAX_POSITION_SIZE=1000
-```
-
-### Discord Bot Setup
-
-1. Go to [Discord Developer Portal](https://discord.com/developers/applications)
-2. Create new application
-3. Add Bot user
-4. Enable Message Content Intent
-5. Copy Bot Token
-6. Invite bot to server with appropriate permissions
-7. Set `DISCORD_BOT_TOKEN` to the copied token
-8. Set `DISCORD_CHANNEL_IDS` to the comma-separated channel IDs the bot should monitor
-9. Launch the app and check `http://127.0.0.1:8003/api/health`
-
-Minimum Discord permissions:
-
-- View Channels
-- Read Message History
-- Send Messages
-- Use Slash Commands, if command handlers are enabled for your server
-
-Operational notes:
-
-- Start in `SIMULATION_MODE=true` until broker credentials, order-status polling, and risk settings are verified.
-- Keep auto-trading disabled until alert parsing has been tested against your analysts' real message formats.
-- The frontend reads `EXPO_PUBLIC_BACKEND_URL`; the launcher sets it to `http://127.0.0.1:8003`.
-
-### Broker Setup
-
-**Interactive Brokers:**
-1. Install IB Gateway
-2. Configure API access (port 5000)
-3. Note your account ID
-
-**Alpaca:**
-1. Create account at alpaca.markets
-2. Generate API keys
-3. Enable paper trading for testing
-
----
-
-## Trading Strategies
-
-### Built-in Strategies
-
-| Strategy | Description |
-|----------|-------------|
-| **Mean Reversion** | Buy oversold, sell overbought |
-| **Momentum** | Trade in direction of strong trends |
-| **Breakout** | Enter on price breakouts |
-| **RSI** | Trade based on RSI overbought/oversold |
-| **MACD** | Use MACD crossovers |
-| **Bollinger Bands** | Trade mean reversion with bands |
-
-### Options Strike Selection
-
-When selecting strikes, choose from:
-
-| Method | Description |
-|--------|-------------|
-| **ATM** | At-the-money (strike = current price) |
-| **OTM** | Out-of-the-money (directional bet) |
-| **ITM** | In-the-money (more conservative) |
-| **Delta** | Target specific delta (0.3, 0.5, 0.7) |
-| **Risk/Reward** | Fixed risk/reward ratio |
-| **High IV** | Highest implied volatility |
-| **Liquidity** | Most liquid strikes |
-
----
-
-## Risk Management
-
-### Position Sizing
-
-The bot uses Kelly Criterion-inspired sizing:
-
-```
-position_size = min(
-    max_capital / entry_price,    # Capital limit
-    risk_amount / stop_loss       # Risk-based limit
-)
-```
-
-### Risk Checks Order
-
-1. **Duplicate Alert** → Block if within 60 seconds
-2. **Max Positions** → Block if exceeds limit per ticker
-3. **Position Size** → Reduce if exceeds max
-4. **Sector Exposure** → Block if sector overweight
-5. **Daily Loss** → Halt if exceeded
-6. **Drawdown** → Pause if max drawdown reached
-
----
-
-## API Endpoints
-
-### Core Endpoints
-
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/health` | Health check |
-| GET | `/positions` | List open positions |
-| GET | `/trades` | Trade history |
-| GET | `/alerts` | Alert history |
-| POST | `/alerts/check` | Check alert confidence |
-| GET | `/settings` | Get settings |
-| PUT | `/settings` | Update settings |
-
-### Broker Endpoints
-
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/brokers` | List configured brokers |
-| POST | `/brokers/{id}/connect` | Connect broker |
-| POST | `/brokers/{id}/order` | Place order |
-| DELETE | `/brokers/{id}/order/{id}` | Cancel order |
-
-### Monitoring
-
-| Endpoint | Description |
-|----------|-------------|
-| `/metrics` | Prometheus metrics |
-| `/logs` | Application logs |
-
----
-
-## Monitoring
-
-### Grafana Dashboards
-
-Access at `http://localhost:3030`:
-
-- **Trading Overview** - P&L, win rate, drawdown
-- **Position Analytics** - Open positions, Greeks
-- **System Health** - API latency, error rates
-- **Broker Performance** - Order fill times
-
-### Prometheus Metrics
-
-Key metrics tracked:
-- `tradebot_orders_total` - Total orders placed
-- `tradebot_positions_active` - Open positions
-- `tradebot_pnl_total` - Cumulative P&L
-- `tradebot_alerts_processed` - Alerts processed
-- `tradebot_risk_blocked` - Risk check failures
-
----
-
-## Development
-
-### Local Ports
-
-| App | Backend | Frontend |
-|-----|---------|----------|
-| Consolidation Discord bot | `8003` | `3003` |
-
-### Project Structure
-
-```
-Consolidation/
-├── backend/
-│   ├── __main__.py          # Entry point
-│   ├── server.py            # FastAPI server
-│   ├── routes/              # API routes
-│   ├── brokers/             # Broker adapters
-│   ├── unified_risk.py      # Risk management
-│   ├── analyst_formats.py   # Alert parsers
-│   ├── options_chain.py     # Strike selection
-│   ├── grid_dca.py          # Trading strategies
-│   └── discord_config.py    # Discord integration
-├── frontend/
-│   ├── app/                 # Expo screens
-│   ├── components/          # React components
-│   └── utils/               # Frontend utilities
-├── nginx/                   # Nginx configs
-├── prometheus/              # Monitoring configs
-├── docker-compose.yml       # Full stack
-└── installer/               # Windows installer
-```
-
-### Running Tests
+## Docker Start
 
 ```bash
-cd backend
-pytest tests/ -v --cov=. --cov-report=html
+cp .env.example .env
+docker-compose up -d
+docker-compose logs -f
+```
+
+Use Docker when you want MongoDB, Prometheus, and nginx managed as a stack.
+
+## Environment Variables
+
+### Required For Discord Intake
+
+| Variable | Purpose |
+| --- | --- |
+| `DISCORD_BOT_TOKEN` | Bot token from Discord Developer Portal. |
+| `DISCORD_CHANNEL_IDS` | Comma-separated channel IDs to monitor. |
+| `DISCORD_GUILD_ID` | Optional guild ID. |
+| `CONSOLIDATION_USE_OPENCLAW_DISCORD` | Optional fallback toggle. Defaults to `true`; set to `false` to prevent reading local OpenClaw Discord config. |
+| `OPENCLAW_HOME` | Optional OpenClaw config directory. Defaults to the current user's `.openclaw` folder. |
+
+Discord intake starts when token and channel IDs are available from explicit Consolidation env vars. If either is missing and `CONSOLIDATION_USE_OPENCLAW_DISCORD` is not disabled, Consolidation falls back to the local OpenClaw `.env` token and enabled Discord channel IDs in `openclaw.json`. Explicit Consolidation env vars always win over OpenClaw values.
+
+### Server And Security
+
+| Variable | Purpose |
+| --- | --- |
+| `HOST` | Backend host, usually `127.0.0.1` locally. |
+| `PORT` | Backend port, default launcher port is `8003`. |
+| `API_KEY` | Optional API key. When set, requests need `X-API-Key` except `/api/health`. |
+| `ADMIN_API_KEY` | Required by sensitive admin operations such as resetting shutdown loss counters. |
+| `SECRET_KEY` | Application secret. |
+| `ALLOWED_ORIGINS` | Comma-separated CORS allow-list. |
+| `CREDENTIAL_KEY` | 32-byte hex key for encrypting stored broker credentials. |
+
+### Data
+
+| Variable | Purpose |
+| --- | --- |
+| `USE_SQLITE` | Enables local SQLite mode when true. |
+| `DATABASE_PATH` | SQLite database path, usually `data\consolidation.sqlite3`. |
+| `MONGO_URL` | MongoDB URL for server deployments. |
+| `DB_NAME` | Mongo database name. |
+| `REDIS_URL` | Redis URL for stack deployments. |
+
+### Frontend
+
+| Variable | Purpose |
+| --- | --- |
+| `EXPO_PUBLIC_BACKEND_URL` | Backend API base URL used by the frontend. |
+| `EXPO_PUBLIC_API_KEY` | Optional frontend API key header value. |
+| `EXPO_PUBLIC_DEMO_MODE` | Enables frontend demo mode where supported. |
+
+### Trading
+
+| Variable | Purpose |
+| --- | --- |
+| `SIMULATION_MODE` | Keep true until live execution is proven safe. |
+| `DEFAULT_QUANTITY` | Default contracts for buys. |
+| `MAX_POSITION_SIZE` | Max premium allocation per position. |
+| `PRICE_BUFFER` | Entry price buffer default. |
+
+### Simulation Engine Bridge
+
+| Variable | Purpose |
+| --- | --- |
+| `SIMULATION_ENGINE_REPLAY_URL` | Simulation Engine replay endpoint. Default: `http://127.0.0.1:9200/api/consolidation/replay/events`. |
+
+## Discord Setup
+
+1. Create an app in the Discord Developer Portal.
+2. Add a bot user.
+3. Enable Message Content Intent.
+4. Invite the bot to the server.
+5. Grant view channel and read message history permissions.
+6. Copy the bot token.
+7. Set `DISCORD_BOT_TOKEN`.
+8. Set `DISCORD_CHANNEL_IDS`.
+9. Start Consolidation.
+10. Check `/api/diagnostics/setup`.
+
+If OpenClaw is already configured on the same machine, Consolidation can reuse:
+
+- `C:\Users\Lite OS\.openclaw\.env` for `DISCORD_BOT_TOKEN`
+- `C:\Users\Lite OS\.openclaw\openclaw.json` for enabled Discord channel IDs
+
+This is a runtime fallback only. The token is not copied into the repo, not printed in diagnostics, and not written to the README. Set `CONSOLIDATION_USE_OPENCLAW_DISCORD=false` to force Consolidation to ignore OpenClaw.
+
+The fallback is used by automatic backend startup and by the `/api/discord/start` route, so the UI start button can launch the listener even when the saved Consolidation settings are empty.
+
+## Chrome Discord Bridge
+
+Use this only when the normal Discord bot cannot be invited to a private server but you can personally view the alert channel in Discord Web.
+
+The bridge lives here:
+
+```text
+tools\chrome-discord-bridge
+```
+
+Install it as an unpacked Chrome extension:
+
+1. Start Consolidation locally.
+2. Open `chrome://extensions`.
+3. Enable Developer mode.
+4. Click Load unpacked.
+5. Select `tools\chrome-discord-bridge`.
+6. Open Discord Web in Chrome.
+7. Click the extension icon and enable forwarding.
+
+Default target:
+
+```text
+POST http://127.0.0.1:8003/api/discord/chrome-bridge/message
+```
+
+The backend endpoint:
+
+- accepts local requests only by default
+- dedupes repeated DOM events by message event ID
+- converts the observed Chrome message into a Discord-like message object
+- uses `discord_ingestion.handle_discord_message`
+- applies the same parser, source policy, auto-trading, simulation, and manual-confirm controls as normal Discord intake
+
+The extension defaults to future messages only when enabled. It can forward already-visible messages only when you explicitly enable that popup option. The bridge does not use a Discord user token and does not post into the private server. It can only see messages currently rendered in Chrome, so keep it for local testing and operator-supervised workflows.
+
+Optional settings:
+
+| Setting | Purpose |
+| --- | --- |
+| `chrome_bridge_channel_ids` | Optional list or comma-separated string of allowed observed channel IDs. When unset, the incoming observed channel ID is accepted. |
+| `CHROME_BRIDGE_ALLOW_REMOTE` | Set to `true` only if you intentionally want to accept non-local bridge requests. |
+
+## Alert Parsing
+
+The parser supports common options alert language:
+
+```text
+BTO SPY 500C 6/21 @ 1.25
+BUY SPY 500 CALLS 6/21 @ 1.25
+STC SPY 500C 6/21 @ 1.40
+SELL 50% SPY 500 CALLS 6/21 @ 1.40
+AVG DOWN SPY 500C 6/21
+```
+
+Parsed fields include:
+
+- ticker
+- strike
+- option type
+- expiration
+- alert type
+- entry or exit price
+- sell percentage
+
+Embed-only alerts are supported through `discord_alert_text.py`, which combines message content, embed author, title, description, fields, and footer into one parseable string.
+
+## Parser Preview
+
+Use:
+
+```text
+POST /api/discord/parse-preview
+```
+
+Preview returns:
+
+- raw text
+- parsed alert
+- source config
+- skip reason
+- confidence
+- warnings
+- parser metadata
+- execution preview
+- estimated quantity and premium cost for buy-style alerts
+
+Preview does not insert alerts, create trades, or call brokers.
+
+## Custom Alert Patterns
+
+Configurable parser pattern groups:
+
+- `buy_patterns`
+- `sell_patterns`
+- `partial_sell_patterns`
+- `average_down_patterns`
+- `stop_loss_patterns`
+- `take_profit_patterns`
+- `ignore_patterns`
+- `ticker_pattern`
+- `case_sensitive`
+
+Validation protects against:
+
+- empty patterns
+- oversized patterns
+- invalid ticker regex
+- ticker regex without a capture group
+- unsafe nested quantifier shapes
+- overly broad wildcard quantifiers
+
+## Source Overrides
+
+Source overrides are keyed by channel ID or channel name. Channel ID wins first, then channel name.
+
+Supported fields:
+
+| Field | Purpose |
+| --- | --- |
+| `enabled` | Disable all alerts from the source when false. |
+| `paper_only` | Force source alerts into simulation mode. |
+| `paper_shadow` | Create linked simulated shadow records for live-capable alerts. |
+| `require_manual_confirm` | Insert alerts but do not request automatic trade execution. |
+| `allowed_actions` | Restrict to buy, sell, trim, close, or average_down. |
+| `ticker_allowlist` | Only allow listed tickers. |
+| `ticker_blocklist` | Block listed tickers. |
+| `max_premium` | Block buy/average-down alerts above this option premium. |
+| `risk_multiplier` | Adjust quantity sizing for the source. |
+| `max_contracts` | Cap contracts from this source. |
+| `notes` | Operator notes. |
+
+Skip reasons are surfaced in parser preview and ingestion results.
+
+## Trading Lifecycle
+
+### Discord Ingestion
+
+`discord_ingestion.handle_discord_message`:
+
+1. Skips self messages.
+2. Skips unmonitored channels.
+3. Builds combined alert text from content and embeds.
+4. Parses alert text.
+5. Resolves source config.
+6. Applies source skip policy.
+7. Applies duplicate detection.
+8. Inserts alert.
+9. Requests trade processing only when allowed.
+
+### Buy Alerts
+
+In simulation mode:
+
+1. Calculate quantity.
+2. Create a simulated trade.
+3. Create an open position.
+4. Mark the alert processed and executed.
+
+In live mode:
+
+1. Calculate quantity.
+2. Apply source limits.
+3. Run correlation checks.
+4. Apply premium buffer when enabled.
+5. Build deterministic broker-safe client order ID.
+6. Submit broker order.
+7. Store pending or failed trade.
+8. Start fill monitoring when broker submission succeeds.
+9. Let fill reconciliation update final alert/trade/position state.
+
+### Exit Alerts
+
+Exit alerts are `sell`, `trim`, and `close`.
+
+Exit planning matches open or partial positions by:
+
+- ticker
+- strike when present
+- option type when present
+- expiration when present
+
+It calculates quantity from sell percentage and requires an exit price from the alert or current position.
+
+In live mode, simulated and `:paper_shadow` positions are excluded from real broker exits.
+
+### Fill Monitoring
+
+The fill monitor polls broker order status and handles:
+
+- filled
+- partial
+- rejected
+- cancelled
+- expired
+- unknown
+- error
+- unconfirmed
+- timeout
+
+Fill reconciliation updates:
+
+- trade status
+- filled quantity
+- average fill price
+- position open, partial, or closed state
+- alert processed and execution result flags
+
+### Paper Shadow
+
+When a source has `paper_shadow=true` and the bot is not already in simulation mode:
+
+- live buy alerts can also create simulated shadow trade and position records
+- live exit alerts can update matching shadow positions without sending those positions to a broker
+
+This is useful for comparing live behavior against local simulated tracking.
+
+## Risk And Safety Controls
+
+Implemented controls include:
+
+- auto trading toggle
+- simulation mode
+- duplicate alert blocking
+- max positions per ticker
+- source enable/disable
+- allowed actions
+- ticker allow/block lists
+- max premium by source
+- risk multiplier by source
+- max contracts by source
+- premium buffer
+- averaging down settings
+- take profit settings
+- stop loss settings
+- trailing stop settings
+- auto shutdown settings
+- runtime loss counters
+- admin-protected loss counter reset
+- setup diagnostics
+- broker order-status support check
+
+Setup diagnostics:
+
+```text
+GET /api/diagnostics/setup
+```
+
+Reports:
+
+- Discord token/channel readiness
+- source override counts and validity
+- paper-only, paper-shadow, manual-confirm, and auto-live source counts
+- active broker configuration
+- order-status support
+- auto trading state
+- simulation mode
+- shutdown state
+- warnings
+
+No tokens or broker secrets are returned.
+
+## Broker Support Levels
+
+The repo contains configuration metadata for several brokers. Live execution requires order-status polling in the current server path.
+
+| Broker | Config UI/metadata | Connection check | Place order implementation | Order status polling | Live execution path |
+| --- | --- | --- | --- | --- | --- |
+| Alpaca | Yes | Yes | Yes | Yes | Supported when configured. |
+| Tradier | Yes | Yes | Yes | Yes | Supported when configured. |
+| IBKR | Yes | Yes | Has order submission logic | No current status polling | Blocked by live order-status requirement. |
+| TD Ameritrade/Schwab | Yes | Token/account check logic | Not fully implemented | No | Not live-ready. |
+| Thinkorswim/Schwab | Yes | Token/account check logic | Not fully implemented | No | Not live-ready. |
+| TradeStation | Yes | Token/account check logic | Not fully implemented | No | Not live-ready. |
+| Webull | Yes | Not implemented | Not implemented | No | Not live-ready. |
+| Robinhood | Yes | Not implemented | Not implemented | No | Not live-ready. |
+| Wealthsimple | Yes | Login check logic | Not implemented | No | Not live-ready. |
+
+Use `/api/diagnostics/setup` before live trading. If active broker order status is unsupported, live execution is not considered ready.
+
+## Frontend Tabs
+
+| Tab | Route | Purpose |
+| --- | --- | --- |
+| Dashboard | `/` | Bot status, portfolio summary, readiness, recent activity. |
+| Alerts | `/alerts` | Alert list and processing status. |
+| Trades | `/trades` | Trade list, filters, close/update actions. |
+| Positions | `/positions` | Open/partial/closed positions and position actions. |
+| Lab | `/operator-lab` | Safe test alert and simulated exit workflows. |
+| Strikes | `/strike-selection` | Strike selection workbench with strategy modes and mock chain data. |
+| Trading | `/trading-settings` | Order, buffer, quantity, and trade-management settings. |
+| Risk | `/risk-settings` | Risk-management settings and toggles. |
+| Discord | `/discord-settings` | Discord connection, parser patterns, and alert policy controls. |
+| Broker | `/broker-config` | Broker credentials, active broker, and connection checks. |
+| Profiles | `/profiles` | Profile creation, activation, broker toggles, and per-broker settings. |
+| Settings | `/settings` | General settings, notification controls, and operational settings. |
+
+## Simulation Engine Replay Bridge
+
+The bridge consumes the Simulation Engine contract:
+
+```text
+simulation.consolidation.replay.v1
+```
+
+Configure:
+
+```powershell
+$env:SIMULATION_ENGINE_REPLAY_URL = "http://127.0.0.1:9200/api/consolidation/replay/events"
+```
+
+Fetch raw replay events:
+
+```text
+GET /api/simulation-engine/replay-events
+```
+
+Preview replay events through Consolidation:
+
+```text
+POST /api/simulation-engine/replay-preview
+```
+
+Preview mode:
+
+```text
+preview_only_no_trades
+```
+
+The preview:
+
+- fetches recorded events from the Simulation Engine
+- parses the alert text with Consolidation parser logic
+- applies current source policy
+- includes Simulation Engine market snapshot and price drift context
+- reports whether the alert would insert
+- reports whether it would request a trade under current settings
+- does not insert alerts
+- does not create trades
+- does not contact brokers
+
+Example request:
+
+```json
+{
+  "channel_id": "123456789",
+  "since": "2026-06-19T14:30:00+00:00",
+  "limit": 100
+}
+```
+
+## API Reference
+
+All routes below are under `/api`.
+
+### Health
+
+| Method | Path | Purpose |
+| --- | --- | --- |
+| GET | `/health` | Basic health status. |
+| GET | `/status` | Runtime bot status. |
+| GET | `/diagnostics/setup` | Live-readiness diagnostics without secrets. |
+
+### Discord
+
+| Method | Path | Purpose |
+| --- | --- | --- |
+| POST | `/discord/start` | Start Discord bot thread from saved settings. |
+| POST | `/discord/stop` | Stop Discord bot. |
+| POST | `/discord/test-connection` | Report whether Discord bot is configured/running/connected. |
+| POST | `/discord/parse-preview` | Parse and policy-check text without side effects. |
+| POST | `/discord/chrome-bridge/message` | Local-only intake for visible Discord Web messages observed by the Chrome bridge. |
+| GET | `/discord/alert-patterns` | Read alert patterns. |
+| PUT | `/discord/alert-patterns` | Update alert patterns. |
+| POST | `/discord/alert-patterns/reset` | Reset patterns to defaults. |
+| POST | `/discord/alert-patterns/{pattern_type}/add` | Add one pattern. |
+| POST | `/discord/alert-patterns/{pattern_type}/remove` | Remove one pattern. |
+
+### Trading
+
+| Method | Path | Purpose |
+| --- | --- | --- |
+| GET | `/alerts` | List alert history. |
+| POST | `/test-alert` | Create safe test alert/trade/position records. |
+| GET | `/trades` | List trades. |
+| POST | `/trades/{trade_id}/close` | Close a trade. |
+| PUT | `/trades/{trade_id}/price` | Update current trade price. |
+| GET | `/positions` | List positions. |
+| POST | `/sell-position/{position_id}` | Sell a position. |
+| POST | `/positions/{position_id}/sell` | Sell a position with submitted details. |
+| GET | `/portfolio` | Portfolio summary. |
+
+### Operator Lab
+
+| Method | Path | Purpose |
+| --- | --- | --- |
+| GET | `/operator/events` | Recent operator events. |
+| POST | `/operator/test-alert` | Create simulated test alert/trade/position and log event. |
+| POST | `/operator/simulate-exit` | Simulate selling an open position and log event. |
+
+### Settings
+
+| Method | Path | Purpose |
+| --- | --- | --- |
+| GET | `/settings` | Read settings with decrypted runtime values and masked response secrets where applicable. |
+| PUT | `/settings` | Update settings and encrypt broker credentials before persistence. |
+| GET | `/source-overrides` | Read source policy overrides. |
+| PUT | `/source-overrides` | Update and validate source policy overrides. |
+| GET | `/correlation-settings` | Read max positions per ticker. |
+| PUT | `/correlation-settings` | Update max positions per ticker. |
+| POST | `/toggle-trading` | Toggle auto trading. |
+| POST | `/toggle-premium-buffer` | Toggle premium buffer. |
+| GET | `/premium-buffer-settings` | Read premium buffer config. |
+| PUT | `/premium-buffer-settings` | Update premium buffer amount. |
+| POST | `/toggle-averaging-down` | Toggle averaging down. |
+| GET | `/averaging-down-settings` | Read averaging down config. |
+| PUT | `/averaging-down-settings` | Update averaging down config. |
+| POST | `/toggle-take-profit` | Toggle take profit. |
+| POST | `/toggle-stop-loss` | Toggle stop loss. |
+| GET | `/risk-management-settings` | Read take-profit/stop-loss config. |
+| PUT | `/risk-management-settings` | Update take-profit/stop-loss config. |
+| POST | `/toggle-trailing-stop` | Toggle trailing stop. |
+| GET | `/trailing-stop-settings` | Read trailing stop config. |
+| PUT | `/trailing-stop-settings` | Update trailing stop config. |
+| POST | `/toggle-auto-shutdown` | Toggle auto shutdown. |
+| GET | `/auto-shutdown-settings` | Read shutdown config and runtime counters. |
+| PUT | `/auto-shutdown-settings` | Update shutdown config. |
+| POST | `/reset-loss-counters` | Admin-protected reset of shutdown counters. |
+| GET | `/notification-settings` | Read notification settings with masked secrets. |
+| PUT | `/notification-settings` | Update notification settings. |
+| POST | `/notification-settings/test` | Send test SMS notification. |
+| GET | `/notification-log` | Read in-memory notification log. |
+| POST | `/check-broker-connection` | Check active broker connection. |
+
+### Brokers
+
+| Method | Path | Purpose |
+| --- | --- | --- |
+| GET | `/brokers` | List broker metadata and risk warnings. |
+| GET | `/active-broker` | Read active broker. |
+| POST | `/active-broker/{broker_id}` | Set active broker. |
+| POST | `/broker/switch/{broker_id}` | Switch active broker. |
+| POST | `/broker/check/{broker_id}` | Check one broker and close temporary client. |
+
+### Profiles
+
+| Method | Path | Purpose |
+| --- | --- | --- |
+| GET | `/profiles` | List profiles. |
+| GET | `/profiles/active` | Get active profile. |
+| POST | `/profiles` | Create profile. |
+| PUT | `/profiles/{profile_id}` | Update profile metadata. |
+| POST | `/profiles/{profile_id}/activate` | Activate profile. |
+| DELETE | `/profiles/{profile_id}` | Delete profile. |
+| POST | `/profiles/{profile_id}/brokers/{broker_type}/toggle` | Toggle broker in profile. |
+| GET | `/profiles/{profile_id}/active-brokers` | List active brokers for profile. |
+| GET | `/profiles/{profile_id}/settings` | Read profile settings. |
+| PUT | `/profiles/{profile_id}/settings` | Update profile settings. |
+| POST | `/profiles/{profile_id}/settings/toggle/{setting_name}` | Toggle profile setting. |
+| GET | `/profiles/{profile_id}/brokers/{broker_id}/settings` | Read broker settings for profile. |
+| PUT | `/profiles/{profile_id}/brokers/{broker_id}/settings` | Update broker settings for profile. |
+| POST | `/profiles/{profile_id}/brokers/{broker_id}/settings/toggle/{setting_name}` | Toggle broker setting for profile. |
+| GET | `/profiles/{profile_id}/all-broker-settings` | Read all broker settings for profile. |
+
+### Analytics
+
+| Method | Path | Purpose |
+| --- | --- | --- |
+| GET | `/heatmap` | Heatmap data. |
+| GET | `/time-series` | Time-series analytics. |
+| GET | `/metrics/advanced` | Advanced metrics. |
+| GET | `/reports/daily` | Daily report. |
+| GET | `/reports/weekly` | Weekly report. |
+| GET | `/reports/tax` | Tax report data. |
+| GET | `/performance` | Performance summary. |
+
+### Simulation Engine
+
+| Method | Path | Purpose |
+| --- | --- | --- |
+| GET | `/simulation-engine/replay-events` | Fetch recorded replay events from Simulation Engine. |
+| POST | `/simulation-engine/replay-preview` | Preview replay events through Consolidation without side effects. |
+
+## Data Storage
+
+| Mode | Storage |
+| --- | --- |
+| Local launcher | SQLite at `data\consolidation.sqlite3`. |
+| Docker/server mode | MongoDB configured by `MONGO_URL` and `DB_NAME`. |
+| Runtime status | In-memory plus persisted settings/runtime fields where implemented. |
+| Launcher logs | Desktop `Consolidation-Discord-Bot.log`. |
+
+Broker credentials are encrypted before persistence when `CREDENTIAL_KEY` is set. Without it, the code warns that credentials may be stored in plaintext.
+
+## Project Structure
+
+```text
+Consolidation/
+  backend/
+    server.py                 FastAPI app, Discord bot lifecycle, trade processing
+    discord_ingestion.py      Discord alert ingestion pipeline
+    discord_alert_text.py     Message plus embed text extraction
+    source_config.py          Per-source policy normalization and checks
+    order_execution.py        Broker config resolution and client order IDs
+    fill_monitor.py           Broker order polling
+    fill_reconciliation.py    Trade/alert/position reconciliation
+    trade_lifecycle.py        Exit planning
+    paper_shadow.py           Paper-shadow records
+    simulation_replay.py      Simulation Engine replay client and preview builder
+    routes/                   FastAPI route modules
+    broker_clients/           Legacy broker client implementations
+    brokers/                  Broker metadata and adapter registry
+    database_sqlite.py        Local SQLite persistence
+    database/                 Database abstraction
+    tests/                    Backend unit tests
+  frontend/
+    app/                      Expo Router screens
+    components/               Shared UI components
+    utils/                    API client, digests, validation helpers
+    tests/                    Node tests for frontend logic
+  scripts/
+    ui_full_audit.py          Playwright UI audit harness
+    tradebot_cli.py           CLI helpers and dashboard route helpers
+  Launch-Consolidation-Bot.ps1
+  docker-compose.yml
+  nginx/
+  prometheus/
+```
+
+## Development Commands
+
+Backend tests:
+
+```powershell
+python -m unittest discover backend/tests -v
+```
+
+Targeted Simulation Engine bridge tests:
+
+```powershell
+python -m unittest backend.tests.test_simulation_replay -v
+```
+
+Frontend tests:
+
+```powershell
+cd frontend
+npm run test:ui
+```
+
+Frontend lint:
+
+```powershell
+cd frontend
+npm run lint
 ```
 
 Launcher smoke test:
@@ -564,327 +805,82 @@ Launcher smoke test:
 .\Launch-Consolidation-Bot.ps1 -SmokeTest
 ```
 
-Frontend run check:
+UI audit script:
 
 ```powershell
-cd frontend
-npm install
-$env:EXPO_PUBLIC_BACKEND_URL = "http://127.0.0.1:8003"
-npm run web -- --port 3003
+.\scripts\run_ui_full_audit.ps1
 ```
 
-### Adding New Broker
-
-1. Create adapter in `backend/brokers/`
-2. Inherit from `BrokerAdapter` base class
-3. Implement required methods
-4. Register in `broker_registry.py`
-
----
-
-## Roadmap: Planned Upgrades and Enhancements
-
-This is a living document of planned improvements across all features and tabs of the Consolidation Trading Bot.
-
----
-
-## Tab-by-Tab Enhancement Plan
-
-### 1. Dashboard (/)
-
-**Current Features:**
-- Bot status (Discord/broker connection)
-- Portfolio summary (total P&L, win rate, open positions)
-- Recent alerts and trades list
-- Shutdown status (max losses, daily limits)
-- Quick stats cards
-
-**Planned Enhancements:**
-- Real-time P&L Chart - Live updating chart with intraday/weekly/monthly views
-- Interactive Charts - Tap on positions to view detailed Greeks analysis
-- Custom Dashboard Widgets - User-selectable widgets and layout
-- Multiple Portfolio Views - Switch between simulated and live accounts
-- Performance Analytics - Sharpe ratio, max drawdown, win/loss streaks
-- Market Status Overlay - NASDAQ/open/closed indicator
-- Quick Actions - One-tap enable/disable auto-trading
-- Push Notifications - Critical alerts when not in app
-- Dark/Light Theme Toggle - User preference for appearance
-
-### 2. Alerts (/alerts)
-
-**Current Features:**
-- List of received Discord alerts
-- Alert processing status (processed/executed)
-- Filter by ticker, date, status
-- Alert confidence scoring
-
-**Planned Enhancements:**
-- Alert Replay - Re-process past alerts with current settings
-- Alert Templates - Save common alert formats for quick testing
-- Manual Alert Entry - Manually trigger alerts for testing
-- Alert Statistics - Charts showing alerts by hour/day/analyst
-- Analyst Ratings - Track performance per analyst
-- Alert Export - CSV/JSON export for analysis
-- Sound Alerts - Audio notification for new alerts
-
-### 3. Trades (/trades)
-
-**Current Features:**
-- Trade history with entry/exit prices
-- P&L per trade (realized/unrealized)
-- Filter by status, date, broker
-- Trade details view
-
-**Planned Enhancements:**
-- Trade Journal - Add notes to individual trades
-- Trade Tagging - Tag trades by strategy/sector
-- Advanced Filtering - Filter by multiple criteria
-- Trade Export - CSV export with all fields
-- Trade Replay - Visual replay of trade lifecycle
-- Commission Tracking - Track fees per broker
-- Trade Notes - Attach screenshots/memos to trades
-
-### 4. Positions (/positions)
-
-**Current Features:**
-- Open positions list
-- Position details (entry, current, P&L)
-- Greeks display (Delta, Gamma, Theta, Vega)
-- Position actions (close, adjust stop)
-
-**Planned Enhancements:**
-- Position Strategy View - Group by strategy type
-- Greeks Dashboard - Aggregate Greeks for portfolio
-- Position Alerts - Notify on delta/gamma thresholds
-- Position Roll - Roll positions to next expiration
-- Partial Close - Close percentage of position
-- Position Timer - Days to expiration countdown
-- IV Rank Display - Implied volatility rank
-- Delta Hedging - Auto-hedge delta exposure
-
-### 5. Risk Settings (/risk-settings)
-
-**Current Features:**
-- Max position size
-- Max positions per ticker
-- Daily loss limits
-- Drawdown limits
-- Correlation limits
-
-**Planned Enhancements:**
-- Advanced Risk Metrics - VaR, Conditional VaR
-- Sector Exposure Limits - Limits per sector (Tech, Energy, etc.)
-- Time-Based Limits - Different limits by time of day
-- Broker-Specific Limits - Per-broker position limits
-- Risk Score Display - Overall portfolio risk score
-- Stress Testing - Simulate market scenarios
-
-### 6. Trading Settings (/trading-settings)
-
-**Current Features:**
-- Default quantity
-- Order type preferences
-- Profit target %
-- Stop loss %
-- Trailing stop settings
-
-**Planned Enhancements:**
-- Multiple Strategies - Save/use different strategies per market
-- Time-Based Execution - Only trade during specific hours
-- Market Condition Filters - Skip on high VIX, specific hours
-- Order Type Presets - Quick switch between order types
-- Custom Bracket Builder - Advanced profit/stop construction
-- DCA Settings - Dollar-cost averaging configuration
-
-### 7. Strike Selection (/strike-selection)
-
-**Current Features:**
-- ATM/OTM/ITM selection
-- Delta targeting
-- Risk/reward mode
-- Liquidity filter
-
-**Planned Enhancements:**
-- IV-Adjusted Strikes - Adjust based on IV rank
-- Historical Strike Analysis - Past performance by strike
-- Strike Recommendations - AI Suggested strikes
-- Custom Formulas - User-defined strike math
-- Strike Watchlist - Monitor specific strikes
-
-### 8. Discord Settings (/discord-settings)
-
-**Current Features:**
-- Channel configuration
-- Alert format parser selection
-- Confidence thresholds
-
-**Planned Enhancements:**
-- Multi-Channel Support - Multiple analyst channels
-- Format A/B Testing - Test multiple parsers
-- Discord Bot Commands - Control via bot commands
-- Alert Feed Customization - Which alerts to process
-- Webhook Integration - Other platforms (Slack, Teams)
-
-### 9. Settings (/settings)
-
-**Current Features:**
-- Profile management
-- Broker configuration
-- Server settings
-- Notification preferences
-
-**Planned Enhancements:**
-- Cloud Sync - Sync settings across devices
-- Config Profiles - Switch between setups
-- Backup/Restore - JSON config backup
-- Remote Control - Control via API
-- Multi-Account - Handle multiple brokerage accounts
-- User Management - Team/clone with permissions
-
-### 10. Broker Configuration (/broker-config)
-
-**Current Features:**
-- Broker connection setup
-- Account info display
-- Paper/live trading toggle
-
-**Planned Enhancements:**
-- Broker Dashboard - Per-broker performance stats
-- Multi-Broker Support - Trade across brokers
-- Broker Health Check - Automated connection monitoring
-- Order Routing - Smart routing to best broker
-
----
-
-## Backend Enhancement Plan
-
-### Trading Engine
-- Options Chain Caching - Faster strike selection
-- Real-time Greeks - Live Greeks calculation
-- Advanced Order Types - OCO, OTO, TSLA-alike orders
-- Paper Trading Improvements - Simulated fills with slippage
-- Multi-leg Orders - Spreads, straddles, strangles
-
-### Risk Management
-- Real-time VaR - Value at Risk calculation
-- Correlation Matrix - Position correlation analysis
-- Sector Exposure - Sector-level limits
-- Margin Tracking - Detailed margin monitoring
-
-### Alert Processing
-- ML-Based Confidence - AI confidence scoring
-- Alert Deduplication - Cross-channel dedupe
-- Historical Analysis - Per-analyst performance
-
-### Analytics
-- Advanced P&L - Multi-leg analytics
-- Trade Attribution - Factor analysis
-- Benchmark Comparison - vs SPY, QQQ
-
----
-
-## Integration Enhancement Plan
-
-### Additional Brokers
-- Robinhood - Stocks, Options
-- SoFi - Stocks, Options
-- Webull - Stocks, Options
-- Charles Schwab - Stocks, Options
-- Futures Brokers - CME, CBOE futures
-
-### External Services
-- TradingView Alerts - TV webhook integration
-- Zapier Integration - 5000+ apps
-- Google Sheets - Export to Sheets
-- Excel Add-in - Real-time data in Excel
-
-### Communication
-- Slack Integration - Trade alerts to Slack
-- Telegram Integration - Trade alerts to Telegram
-- Email Notifications - Daily/weekly reports
-- SMS Alerts - Critical trade notifications
-
----
-
-## Analytics Enhancement Plan
-
-### Dashboard Analytics
-- Custom Charts - Build your own charts
-- Technical Overlays - Indicators on charts
-- Heatmaps - Sector/ticker heatmaps
-
-### Reporting
-- Daily Reports - Auto-generated daily P&L
-- Weekly Statements - Performance summary
-- Tax Reports - 8949 format export
-- Performance Attribution - Factor breakdown
-
----
-
-## Testing & QA
-
-- Automated Trading Tests - Backtest strategies
-- Paper Trading Mode - Full simulation mode
-- Strategy Backtesting - Historical validation
-- Parser Testing - Test alert parsers
-
----
-
-## Localization
-
-- Multi-language Support - ES, FR, DE, JP, CN
-- Local Currency - Display in various currencies
-- Time Zone Support - Global time zones
-
----
-
-## Performance & Scale
-
-- Caching Strategy - Redis optimization
-- Database Optimization - Query performance
-- API Rate Limiting - Respect broker limits
-- Connection Pooling - Efficient API usage
-
----
-
-## Prioritization Guide
-
-When implementing, prioritize by:
-
-1. Safety First - Risk management improvements
-2. User Requested - Most requested features
-3. High Impact - Features used frequently
-4. Low Effort - Quick wins
-5. Foundation - Enables other features
-
----
-
-## Contributing
-
-See CONTRIBUTING.md for guidelines on submitting enhancements.
-
----
-
-## License
-
-MIT License - See LICENSE file for details.
-
----
+## Common Workflows
+
+### Test Parsing Without Trading
+
+1. Start backend and frontend.
+2. Open Discord tab.
+3. Paste an analyst alert into parse preview.
+4. Review parser confidence, warnings, source config, skip reason, and execution preview.
+5. Adjust parser patterns or source overrides.
+
+### Build A Safe Source
+
+1. Add a source override keyed by channel ID.
+2. Start with `paper_only=true` or `require_manual_confirm=true`.
+3. Add ticker allow/block lists if needed.
+4. Add max premium and max contract caps.
+5. Use parse preview with real historical alerts.
+6. Only then consider automatic execution.
+
+### Replay Simulation Engine Data
+
+1. Run Sentinel Simulation Engine on port `9200`.
+2. Record or import Discord alerts and option market data there.
+3. Use its Consolidation Replay panel to verify events.
+4. Set `SIMULATION_ENGINE_REPLAY_URL` in Consolidation.
+5. Call `/api/simulation-engine/replay-preview`.
+6. Review what Consolidation would parse and whether it would request trades.
+
+### Live Trading Readiness Check
+
+1. Keep `SIMULATION_MODE=true`.
+2. Configure Discord token and channel IDs.
+3. Configure source overrides.
+4. Configure broker credentials.
+5. Call `/api/diagnostics/setup`.
+6. Resolve every warning.
+7. Confirm broker supports order status.
+8. Verify parse preview on real alert samples.
+9. Only then consider changing simulation and auto-trading settings.
+
+## Known Limitations
+
+- Live execution currently requires broker order-status support.
+- Alpaca and Tradier are the live-ready broker paths in the current server flow.
+- IBKR order submission logic exists, but live server execution rejects brokers without order-status polling.
+- Several broker adapters are configuration/check placeholders and are not live-order-ready.
+- Discord `/discord/test-connection` reports bot runtime state; it is not a full REST permission diagnostic.
+- Runtime bot status and notification log reset when the process restarts.
+- Simulation Engine replay preview is read-only and does not insert alerts or trades.
+- Some frontend strike-selection data is a workbench/mock chain rather than live option chain data.
+
+## Roadmap Candidates
+
+These are planned or candidate improvements, not guaranteed current behavior:
+
+- Full REST diagnostics for Discord token and channel access.
+- More broker order-status implementations.
+- Live option-chain backed strike selection.
+- Historical per-analyst performance scoring.
+- More robust multi-leg strategy execution.
+- Persistent notification log.
+- End-to-end Simulation Engine replay UI inside Consolidation.
+- Broader frontend coverage for all tabs and settings.
 
 ## Support
 
-- Issues: [GitHub Issues](https://github.com/Tetradim/Consolidation/issues)
-- Discussions: [GitHub Discussions](https://github.com/Tetradim/Consolidation/discussions)
+Repository:
 
----
+```text
+https://github.com/Tetradim/Consolidation
+```
 
-## Acknowledgments
-
-Built with:
-- [FastAPI](https://fastapi.tiangolo.com/) - Python web framework
-- [MongoDB](https://www.mongodb.com/) - Database
-- [Redis](https://redis.io/) - Caching
-- [Discord.py](https://discordpy.readthedocs.io/) - Discord API
-- [Expo](https://expo.dev/) - React Native framework
-- [NautilusTrader](https://nautilustrader.io/) - Architecture inspiration
-- [OctoBot](https://www.octobot.cloud/) - Strategy inspiration
+For local development, prefer the launcher and local SQLite mode first. Move to Docker/MongoDB only after the local workflow is verified.

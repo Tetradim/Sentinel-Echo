@@ -88,7 +88,7 @@ interface AlertPatterns {
 }
 
 // ── Reusable components ────────────────────────────────────────────────────────
-function SectionCard({ children, accent = '#0ea5e9' }: { children: React.ReactNode; accent?: string }) {
+function SectionCard({ children, accent = '#f43f5e' }: { children: React.ReactNode; accent?: string }) {
   return <View style={[s.card, { borderLeftColor: accent, borderLeftWidth: 3 }]}>{children}</View>;
 }
 
@@ -123,7 +123,7 @@ function Input({ value, onChange, placeholder, secure, numeric, disabled }: {
     <TextInput
       style={[s.input, disabled && s.inputDisabled]}
       value={value} onChangeText={onChange}
-      placeholder={placeholder} placeholderTextColor="#334155"
+      placeholder={placeholder} placeholderTextColor="#68779b"
       secureTextEntry={secure} autoCorrect={false} autoCapitalize="none"
       keyboardType={numeric ? 'decimal-pad' : 'default'}
       editable={!disabled}
@@ -131,7 +131,7 @@ function Input({ value, onChange, placeholder, secure, numeric, disabled }: {
   );
 }
 
-function SwitchRow({ label, sub, value, onChange, accent = '#0ea5e9' }: {
+function SwitchRow({ label, sub, value, onChange, accent = '#f43f5e' }: {
   label: string; sub?: string; value: boolean; onChange: (v: boolean) => void; accent?: string;
 }) {
   return (
@@ -143,7 +143,7 @@ function SwitchRow({ label, sub, value, onChange, accent = '#0ea5e9' }: {
       <TouchableOpacity 
         style={[
           s.customSwitch, 
-          { backgroundColor: value ? accent : '#1e2d3d' }
+          { backgroundColor: value ? accent : '#29213a' }
         ]} 
         onPress={() => onChange(!value)}
         activeOpacity={0.8}
@@ -171,7 +171,7 @@ function QuickSelect({ values, current, onChange, suffix = '' }: {
   );
 }
 
-function InfoBox({ text, color = '#0ea5e9' }: { text: string; color?: string }) {
+function InfoBox({ text, color = '#f43f5e' }: { text: string; color?: string }) {
   return (
     <View style={[s.infoBox, { borderLeftColor: color }]}>
       <Ionicons name="information-circle-outline" size={16} color={color} />
@@ -194,7 +194,7 @@ function SettingsBriefing({ digest }: { digest: SettingsDigest }) {
   const toneColor =
     digest.primaryStatus.tone === 'live' ? '#22c55e' :
     digest.primaryStatus.tone === 'attention' ? '#f59e0b' :
-    '#64748b';
+    '#68779b';
   const warnings = digest.warningItems.slice(0, 4);
   const hiddenWarningCount = Math.max(0, digest.warningItems.length - warnings.length);
 
@@ -487,18 +487,18 @@ export default function SettingsScreen() {
     { key: 'sell_patterns',         label: 'Sell',         color: '#ef4444', icon: 'arrow-down'    },
     { key: 'partial_sell_patterns', label: 'Partial',      color: '#f59e0b', icon: 'remove'        },
     { key: 'average_down_patterns', label: 'Avg Down',     color: '#a78bfa', icon: 'trending-down' },
-    { key: 'ignore_patterns',       label: 'Ignore',       color: '#64748b', icon: 'close-circle'  },
+    { key: 'ignore_patterns',       label: 'Ignore',       color: '#68779b', icon: 'close-circle'  },
   ] as const;
 
   if (loading) {
     return (
       <SafeAreaView style={s.container}>
-        <View style={s.centered}><ActivityIndicator size="large" color="#0ea5e9" /></View>
+        <View style={s.centered}><ActivityIndicator size="large" color="#f43f5e" /></View>
       </SafeAreaView>
     );
   }
 
-  const bColor = BROKER_COLORS[settings?.active_broker || ''] || '#0ea5e9';
+  const bColor = BROKER_COLORS[settings?.active_broker || ''] || '#f43f5e';
   const bName  = BROKER_NAMES[settings?.active_broker || ''] || 'None';
   const channelIdsForDigest = channelInput.split(',').map(channel => channel.trim()).filter(Boolean);
   const settingsDigest = settings
@@ -583,7 +583,7 @@ export default function SettingsScreen() {
                   <><Ionicons name="play" size={16} color="#fff" /><Text style={s.actionBtnText}>Start Bot</Text></>
                 )}
               </TouchableOpacity>
-              <TouchableOpacity style={[s.actionBtn, { backgroundColor: '#1e2d3d', flex: 1, borderWidth: 1, borderColor: '#5865F2' }]} onPress={testDiscord} disabled={discordTesting}>
+              <TouchableOpacity style={[s.actionBtn, { backgroundColor: '#29213a', flex: 1, borderWidth: 1, borderColor: '#5865F2' }]} onPress={testDiscord} disabled={discordTesting}>
                 {discordTesting ? <ActivityIndicator size="small" color="#5865F2" /> : (
                   <><Ionicons name="pulse" size={16} color="#5865F2" /><Text style={[s.actionBtnText, { color: '#5865F2' }]}>Test</Text></>
                 )}
@@ -613,7 +613,7 @@ export default function SettingsScreen() {
                 <Ionicons name="help-circle-outline" size={16} color="#5865F2" />
                 <Text style={s.guideToggleText}>How to create your Discord bot</Text>
               </View>
-              <Ionicons name={showGuide ? 'chevron-up' : 'chevron-down'} size={16} color="#475569" />
+              <Ionicons name={showGuide ? 'chevron-up' : 'chevron-down'} size={16} color="#68779b" />
             </TouchableOpacity>
 
             {showGuide && (
@@ -684,7 +684,7 @@ export default function SettingsScreen() {
             {/* Premium Buffer */}
             <View style={s.divider} />
             <Text style={s.subSectionLabel}>PREMIUM BUFFER</Text>
-            <SwitchRow label="Premium Buffer" sub="Skip trade if live price too far above alert price" value={settings?.premium_buffer_enabled || false} onChange={v => update('premium_buffer_enabled', v)} accent="#0ea5e9" />
+            <SwitchRow label="Premium Buffer" sub="Skip trade if live price too far above alert price" value={settings?.premium_buffer_enabled || false} onChange={v => update('premium_buffer_enabled', v)} accent="#f43f5e" />
             {settings?.premium_buffer_enabled && (
               <>
                 <FieldLabel label="Max Difference (cents)" hint="Skip if live premium exceeds alert price by this many ¢" />
@@ -928,10 +928,10 @@ export default function SettingsScreen() {
           </SectionCard>
 
           {/* ═══ ALERT PATTERNS ═══ */}
-          <SectionCard accent="#0ea5e9">
+          <SectionCard accent="#f43f5e">
             <TouchableOpacity style={s.patternsHeader} onPress={() => setShowPatterns(!showPatterns)}>
-              <SectionTitle icon="code-working" label="Alert Patterns" color="#0ea5e9" sub="Customize Discord keywords" />
-              <Ionicons name={showPatterns ? 'chevron-up' : 'chevron-down'} size={18} color="#475569" />
+              <SectionTitle icon="code-working" label="Alert Patterns" color="#f43f5e" sub="Customize Discord keywords" />
+              <Ionicons name={showPatterns ? 'chevron-up' : 'chevron-down'} size={18} color="#68779b" />
             </TouchableOpacity>
 
             {showPatterns && patterns && (
@@ -957,10 +957,10 @@ export default function SettingsScreen() {
                   {(patterns[patternType as keyof AlertPatterns] as string[] || []).map((p, i) => {
                     const pt = PATTERN_TYPES.find(t => t.key === patternType);
                     return (
-                      <View key={i} style={[s.chip, { borderColor: pt?.color || '#334155' }]}>
+                      <View key={i} style={[s.chip, { borderColor: pt?.color || '#68779b' }]}>
                         <Text style={s.chipText}>{p}</Text>
                         <TouchableOpacity onPress={() => removePattern(patternType, p)}>
-                          <Ionicons name="close" size={13} color="#64748b" />
+                          <Ionicons name="close" size={13} color="#68779b" />
                         </TouchableOpacity>
                       </View>
                     );
@@ -975,11 +975,11 @@ export default function SettingsScreen() {
                   <TextInput
                     style={[s.input, { flex: 1 }]}
                     value={newPattern} onChangeText={setNewPattern}
-                    placeholder="New keyword..." placeholderTextColor="#334155"
+                    placeholder="New keyword..." placeholderTextColor="#68779b"
                     autoCapitalize="characters"
                   />
                   <TouchableOpacity style={s.addPatternBtn} onPress={addPattern} disabled={addingPattern}>
-                    {addingPattern ? <ActivityIndicator size="small" color="#0ea5e9" /> : <Ionicons name="add" size={20} color="#0ea5e9" />}
+                    {addingPattern ? <ActivityIndicator size="small" color="#f43f5e" /> : <Ionicons name="add" size={20} color="#f43f5e" />}
                   </TouchableOpacity>
                 </View>
 
@@ -1151,18 +1151,18 @@ export default function SettingsScreen() {
 
 // ── Styles ─────────────────────────────────────────────────────────────────────
 const s = StyleSheet.create({
-  container:    { flex: 1, backgroundColor: '#080f1a' },
+  container:    { flex: 1, backgroundColor: '#050416' },
   centered:     { flex: 1, alignItems: 'center', justifyContent: 'center' },
   scroll:       { flex: 1 },
 
   header:       { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end', paddingHorizontal: 20, paddingTop: 16, paddingBottom: 12 },
-  headerEyebrow:{ fontSize: 10, color: '#0ea5e9', fontWeight: '700', letterSpacing: 2, marginBottom: 2 },
-  headerTitle:  { fontSize: 26, fontWeight: '800', color: '#e2e8f0' },
+  headerEyebrow:{ fontSize: 10, color: '#f43f5e', fontWeight: '700', letterSpacing: 2, marginBottom: 2 },
+  headerTitle:  { fontSize: 26, fontWeight: '800', color: '#edf3ff' },
   headerBtns:   { flexDirection: 'row', gap: 8, alignItems: 'center' },
-  discardBtn:   { paddingHorizontal: 12, paddingVertical: 8, borderRadius: 8, backgroundColor: '#1e2d3d' },
-  discardText:  { fontSize: 13, color: '#64748b', fontWeight: '600' },
-  saveBtn:      { paddingHorizontal: 16, paddingVertical: 8, borderRadius: 8, backgroundColor: '#0ea5e9' },
-  saveBtnDim:   { backgroundColor: '#1e2d3d' },
+  discardBtn:   { paddingHorizontal: 12, paddingVertical: 8, borderRadius: 8, backgroundColor: '#29213a' },
+  discardText:  { fontSize: 13, color: '#68779b', fontWeight: '600' },
+  saveBtn:      { paddingHorizontal: 16, paddingVertical: 8, borderRadius: 8, backgroundColor: '#f43f5e' },
+  saveBtnDim:   { backgroundColor: '#29213a' },
   saveBtnText:  { fontSize: 13, color: '#fff', fontWeight: '700' },
 
   simBanner:    { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: '#2d1f5e', marginHorizontal: 16, marginBottom: 8, padding: 10, borderRadius: 8, borderWidth: 1, borderColor: '#7c3aed' },
@@ -1170,48 +1170,48 @@ const s = StyleSheet.create({
   dirtyBar:     { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: '#1c1500', paddingHorizontal: 20, paddingVertical: 6 },
   dirtyText:    { fontSize: 11, color: '#92400e' },
 
-  card:         { backgroundColor: '#0d1826', borderRadius: 14, marginHorizontal: 16, marginBottom: 12, padding: 16, borderWidth: 1, borderColor: '#1e2d3d' },
-  digestCard:   { backgroundColor: '#0d1826', borderRadius: 14, marginHorizontal: 16, marginBottom: 12, padding: 16, borderWidth: 1 },
+  card:         { backgroundColor: 'rgba(16, 9, 28, 0.82)', borderRadius: 14, marginHorizontal: 16, marginBottom: 12, padding: 16, borderWidth: 1, borderColor: '#29213a' },
+  digestCard:   { backgroundColor: 'rgba(16, 9, 28, 0.82)', borderRadius: 14, marginHorizontal: 16, marginBottom: 12, padding: 16, borderWidth: 1 },
   digestTop:    { flexDirection: 'row', justifyContent: 'space-between', gap: 12, alignItems: 'flex-start' },
   digestTitleBlock: { flex: 1 },
-  digestEyebrow:{ fontSize: 10, color: '#64748b', fontWeight: '800', letterSpacing: 1.8, marginBottom: 4 },
+  digestEyebrow:{ fontSize: 10, color: '#68779b', fontWeight: '800', letterSpacing: 1.8, marginBottom: 4 },
   digestTitle:  { fontSize: 20, fontWeight: '900', color: '#f8fafc' },
-  digestDetail: { fontSize: 12, color: '#94a3b8', lineHeight: 18, marginTop: 4 },
+  digestDetail: { fontSize: 12, color: '#aec0e5', lineHeight: 18, marginTop: 4 },
   readinessBadge: { minWidth: 78, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 10, paddingVertical: 8, borderRadius: 10 },
   readinessValue: { fontSize: 20, fontWeight: '900' },
-  readinessLabel: { fontSize: 10, color: '#64748b', fontWeight: '700', textTransform: 'uppercase' },
+  readinessLabel: { fontSize: 10, color: '#68779b', fontWeight: '700', textTransform: 'uppercase' },
   digestStats:  { flexDirection: 'row', gap: 8, marginTop: 14 },
-  digestStat:   { flex: 1, minHeight: 58, borderRadius: 10, backgroundColor: '#08111d', borderWidth: 1, borderColor: '#1e2d3d', padding: 9, justifyContent: 'center' },
-  digestStatValue: { fontSize: 14, fontWeight: '900', color: '#e2e8f0' },
-  digestStatLabel: { fontSize: 10, color: '#475569', fontWeight: '700', marginTop: 3, textTransform: 'uppercase' },
+  digestStat:   { flex: 1, minHeight: 58, borderRadius: 10, backgroundColor: '#050416', borderWidth: 1, borderColor: '#29213a', padding: 9, justifyContent: 'center' },
+  digestStatValue: { fontSize: 14, fontWeight: '900', color: '#edf3ff' },
+  digestStatLabel: { fontSize: 10, color: '#68779b', fontWeight: '700', marginTop: 3, textTransform: 'uppercase' },
   digestMetaRow: { flexDirection: 'row', gap: 8, marginTop: 10, flexWrap: 'wrap' },
-  digestMetaText: { fontSize: 11, color: '#64748b', fontWeight: '700', backgroundColor: '#08111d', borderRadius: 7, paddingHorizontal: 9, paddingVertical: 5 },
+  digestMetaText: { fontSize: 11, color: '#68779b', fontWeight: '700', backgroundColor: '#050416', borderRadius: 7, paddingHorizontal: 9, paddingVertical: 5 },
   warningList:  { marginTop: 12, gap: 8 },
   warningRow:   { flexDirection: 'row', alignItems: 'flex-start', gap: 8 },
   warningCopy:  { flex: 1 },
-  warningTitle: { fontSize: 12, color: '#e2e8f0', fontWeight: '800' },
-  warningDetail:{ fontSize: 11, color: '#64748b', lineHeight: 16, marginTop: 1 },
-  clearText:    { flex: 1, fontSize: 12, color: '#94a3b8', lineHeight: 17 },
+  warningTitle: { fontSize: 12, color: '#edf3ff', fontWeight: '800' },
+  warningDetail:{ fontSize: 11, color: '#68779b', lineHeight: 16, marginTop: 1 },
+  clearText:    { flex: 1, fontSize: 12, color: '#aec0e5', lineHeight: 17 },
   hiddenWarningText: { fontSize: 11, color: '#f59e0b', fontWeight: '700', marginLeft: 22 },
   sectionTitle: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 16 },
   sectionIcon:  { width: 32, height: 32, borderRadius: 9, alignItems: 'center', justifyContent: 'center' },
-  sectionTitleText: { fontSize: 16, fontWeight: '800', color: '#e2e8f0' },
-  sectionTitleSub:  { fontSize: 11, color: '#475569', marginTop: 1 },
+  sectionTitleText: { fontSize: 16, fontWeight: '800', color: '#edf3ff' },
+  sectionTitleSub:  { fontSize: 11, color: '#68779b', marginTop: 1 },
 
-  subSectionLabel: { fontSize: 10, color: '#334155', fontWeight: '700', letterSpacing: 1.5, marginBottom: 10, marginTop: 6 },
-  divider:      { height: 1, backgroundColor: '#111c2a', marginVertical: 14 },
+  subSectionLabel: { fontSize: 10, color: '#68779b', fontWeight: '700', letterSpacing: 1.5, marginBottom: 10, marginTop: 6 },
+  divider:      { height: 1, backgroundColor: 'rgba(21, 16, 33, 0.72)', marginVertical: 14 },
 
   fieldLabelWrap: { marginBottom: 6, marginTop: 12 },
-  fieldLabel:   { fontSize: 13, fontWeight: '600', color: '#94a3b8' },
-  fieldHint:    { fontSize: 11, color: '#334155', marginTop: 2 },
+  fieldLabel:   { fontSize: 13, fontWeight: '600', color: '#aec0e5' },
+  fieldHint:    { fontSize: 11, color: '#68779b', marginTop: 2 },
 
-  input:        { backgroundColor: '#111c2a', borderRadius: 9, padding: 12, color: '#e2e8f0', fontSize: 15, borderWidth: 1, borderColor: '#1e2d3d', marginBottom: 4 },
+  input:        { backgroundColor: 'rgba(21, 16, 33, 0.72)', borderRadius: 9, padding: 12, color: '#edf3ff', fontSize: 15, borderWidth: 1, borderColor: '#29213a', marginBottom: 4 },
   inputDisabled:{ opacity: 0.4 },
 
   switchRow:    { flexDirection: 'row', alignItems: 'center', paddingVertical: 10 },
   switchLeft:   { flex: 1 },
-  switchLabel:  { fontSize: 14, fontWeight: '600', color: '#e2e8f0' },
-  switchSub:    { fontSize: 12, color: '#475569', marginTop: 1 },
+  switchLabel:  { fontSize: 14, fontWeight: '600', color: '#edf3ff' },
+  switchSub:    { fontSize: 12, color: '#68779b', marginTop: 1 },
   
   customSwitch: { 
     width: 44, 
@@ -1233,10 +1233,10 @@ const s = StyleSheet.create({
   },
 
   quickRow:     { flexDirection: 'row', gap: 6, marginBottom: 6, flexWrap: 'wrap' },
-  quickBtn:     { paddingHorizontal: 10, paddingVertical: 7, borderRadius: 7, backgroundColor: '#1e2d3d' },
-  quickBtnActive:{ backgroundColor: '#0c2740', borderWidth: 1, borderColor: '#0ea5e9' },
-  quickText:    { fontSize: 12, color: '#64748b', fontWeight: '600' },
-  quickTextActive: { color: '#0ea5e9' },
+  quickBtn:     { paddingHorizontal: 10, paddingVertical: 7, borderRadius: 7, backgroundColor: '#29213a' },
+  quickBtnActive:{ backgroundColor: 'rgba(244, 63, 94, 0.18)', borderWidth: 1, borderColor: '#f43f5e' },
+  quickText:    { fontSize: 12, color: '#68779b', fontWeight: '600' },
+  quickTextActive: { color: '#f43f5e' },
 
   twoCol:       { flexDirection: 'row', gap: 10 },
   twoColItem:   { flex: 1 },
@@ -1252,65 +1252,65 @@ const s = StyleSheet.create({
   resultError:  { backgroundColor: '#2d1515', borderColor: '#ef4444' },
   resultHeader: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 6 },
   resultTitle:  { fontSize: 15, fontWeight: '700' },
-  resultMsg:    { fontSize: 13, color: '#94a3b8', marginBottom: 4 },
-  resultDetail: { fontSize: 12, color: '#64748b' },
+  resultMsg:    { fontSize: 13, color: '#aec0e5', marginBottom: 4 },
+  resultDetail: { fontSize: 12, color: '#68779b' },
 
-  guideToggle:  { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 12, paddingTop: 12, borderTopWidth: 1, borderTopColor: '#1e2d3d' },
+  guideToggle:  { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 12, paddingTop: 12, borderTopWidth: 1, borderTopColor: '#29213a' },
   guideToggleLeft: { flexDirection: 'row', alignItems: 'center', gap: 7 },
-  guideToggleText: { fontSize: 13, color: '#94a3b8', fontWeight: '500' },
-  guide:        { backgroundColor: '#080f1a', borderRadius: 9, padding: 14, marginTop: 10, borderWidth: 1, borderColor: '#1e2d3d' },
+  guideToggleText: { fontSize: 13, color: '#aec0e5', fontWeight: '500' },
+  guide:        { backgroundColor: 'transparent', borderRadius: 9, padding: 14, marginTop: 10, borderWidth: 1, borderColor: '#29213a' },
   guideStep:    { marginBottom: 16 },
   guideStepHeader: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 6 },
   guideNum:     { width: 22, height: 22, borderRadius: 11, backgroundColor: '#5865F2', alignItems: 'center', justifyContent: 'center' },
   guideNumText: { fontSize: 11, fontWeight: '700', color: '#fff' },
-  guideStepTitle: { fontSize: 13, fontWeight: '700', color: '#e2e8f0' },
-  guideStepText: { fontSize: 12, color: '#64748b', lineHeight: 20, paddingLeft: 32 },
+  guideStepTitle: { fontSize: 13, fontWeight: '700', color: '#edf3ff' },
+  guideStepText: { fontSize: 12, color: '#68779b', lineHeight: 20, paddingLeft: 32 },
 
   brokerRow:    { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 12 },
   brokerDot:    { width: 10, height: 10, borderRadius: 5 },
   brokerName:   { fontSize: 16, fontWeight: '700', flex: 1 },
-  brokerConfigBtn: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 7, backgroundColor: '#0c2740' },
-  brokerConfigText: { fontSize: 12, color: '#0ea5e9', fontWeight: '600' },
+  brokerConfigBtn: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 7, backgroundColor: 'rgba(244, 63, 94, 0.18)' },
+  brokerConfigText: { fontSize: 12, color: '#f43f5e', fontWeight: '600' },
 
   segmentRow:   { flexDirection: 'row', gap: 6, marginBottom: 8 },
-  segBtn:       { flex: 1, padding: 10, borderRadius: 8, backgroundColor: '#1e2d3d', alignItems: 'center' },
-  segBtnActive: { backgroundColor: '#0c2740', borderWidth: 1, borderColor: '#0ea5e9' },
-  segText:      { fontSize: 13, color: '#64748b', fontWeight: '600' },
-  segTextActive:{ color: '#0ea5e9' },
+  segBtn:       { flex: 1, padding: 10, borderRadius: 8, backgroundColor: '#29213a', alignItems: 'center' },
+  segBtnActive: { backgroundColor: 'rgba(244, 63, 94, 0.18)', borderWidth: 1, borderColor: '#f43f5e' },
+  segText:      { fontSize: 13, color: '#68779b', fontWeight: '600' },
+  segTextActive:{ color: '#f43f5e' },
 
   simWarning:   { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: '#1a0f3d', borderRadius: 7, padding: 10, marginTop: 6, borderWidth: 1, borderColor: '#7c3aed' },
   simWarningText: { flex: 1, fontSize: 12, color: '#a78bfa' },
 
-  infoBox:      { flexDirection: 'row', alignItems: 'flex-start', gap: 8, backgroundColor: '#080f1a', borderRadius: 7, padding: 10, marginTop: 12, borderLeftWidth: 2 },
-  infoText:     { flex: 1, fontSize: 12, color: '#475569', lineHeight: 18 },
+  infoBox:      { flexDirection: 'row', alignItems: 'flex-start', gap: 8, backgroundColor: 'transparent', borderRadius: 7, padding: 10, marginTop: 12, borderLeftWidth: 2 },
+  infoText:     { flex: 1, fontSize: 12, color: '#68779b', lineHeight: 18 },
 
   patternsHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   patternsBody:   { marginTop: 14 },
   patternTypesRow:{ flexDirection: 'row', gap: 7 },
-  patternTypeBtn: { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 11, paddingVertical: 7, borderRadius: 7, backgroundColor: '#111c2a' },
-  patternTypeBtnText: { fontSize: 12, fontWeight: '600', color: '#64748b' },
+  patternTypeBtn: { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 11, paddingVertical: 7, borderRadius: 7, backgroundColor: 'rgba(21, 16, 33, 0.72)' },
+  patternTypeBtnText: { fontSize: 12, fontWeight: '600', color: '#68779b' },
   patternChips:   { flexDirection: 'row', flexWrap: 'wrap', gap: 7, marginBottom: 12 },
-  chip:           { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 6, backgroundColor: '#111c2a', borderWidth: 1 },
-  chipText:       { fontSize: 12, color: '#e2e8f0' },
-  noPatterns:     { fontSize: 12, color: '#334155', fontStyle: 'italic' },
+  chip:           { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 6, backgroundColor: 'rgba(21, 16, 33, 0.72)', borderWidth: 1 },
+  chipText:       { fontSize: 12, color: '#edf3ff' },
+  noPatterns:     { fontSize: 12, color: '#68779b', fontStyle: 'italic' },
   addPatternRow:  { flexDirection: 'row', gap: 8, marginBottom: 10 },
-  addPatternBtn:  { width: 44, alignItems: 'center', justifyContent: 'center', backgroundColor: '#0c2740', borderRadius: 9, borderWidth: 1, borderColor: '#0ea5e9' },
+  addPatternBtn:  { width: 44, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(244, 63, 94, 0.18)', borderRadius: 9, borderWidth: 1, borderColor: '#f43f5e' },
   resetPatternsBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 7, padding: 11, borderRadius: 8, backgroundColor: '#2d1515' },
   resetPatternsBtnText: { fontSize: 13, color: '#f87171', fontWeight: '600' },
 
-  thresholdBlock:  { backgroundColor: '#080f1a', borderRadius: 10, padding: 12, marginTop: 10, borderWidth: 1, borderColor: '#1e2d3d' },
+  thresholdBlock:  { backgroundColor: 'transparent', borderRadius: 10, padding: 12, marginTop: 10, borderWidth: 1, borderColor: '#29213a' },
   thresholdHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 },
-  thresholdLabel:  { fontSize: 13, fontWeight: '700', color: '#e2e8f0' },
-  thresholdHint:   { fontSize: 11, color: '#334155', marginTop: 2 },
-  stepperWrap:     { flexDirection: 'row', alignItems: 'center', gap: 0, backgroundColor: '#111c2a', borderRadius: 9, borderWidth: 1, borderColor: '#1e2d3d', overflow: 'hidden' },
-  stepperBtn:      { width: 36, height: 38, alignItems: 'center', justifyContent: 'center', backgroundColor: '#1e2d3d' },
+  thresholdLabel:  { fontSize: 13, fontWeight: '700', color: '#edf3ff' },
+  thresholdHint:   { fontSize: 11, color: '#68779b', marginTop: 2 },
+  stepperWrap:     { flexDirection: 'row', alignItems: 'center', gap: 0, backgroundColor: 'rgba(21, 16, 33, 0.72)', borderRadius: 9, borderWidth: 1, borderColor: '#29213a', overflow: 'hidden' },
+  stepperBtn:      { width: 36, height: 38, alignItems: 'center', justifyContent: 'center', backgroundColor: '#29213a' },
   stepperInputWrap:{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 4 },
-  stepperDollar:   { fontSize: 13, color: '#475569', fontWeight: '700' },
-  stepperInput:    { minWidth: 44, maxWidth: 72, height: 38, textAlign: 'center', color: '#e2e8f0', fontSize: 15, fontWeight: '800', paddingHorizontal: 6 },
+  stepperDollar:   { fontSize: 13, color: '#68779b', fontWeight: '700' },
+  stepperInput:    { minWidth: 44, maxWidth: 72, height: 38, textAlign: 'center', color: '#edf3ff', fontSize: 15, fontWeight: '800', paddingHorizontal: 6 },
   thresholdPresets:{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
-  preset:          { paddingHorizontal: 11, paddingVertical: 5, borderRadius: 6, backgroundColor: '#1e2d3d' },
+  preset:          { paddingHorizontal: 11, paddingVertical: 5, borderRadius: 6, backgroundColor: '#29213a' },
   presetActive:    { backgroundColor: '#2d1515', borderWidth: 1, borderColor: '#f87171' },
-  presetText:      { fontSize: 12, color: '#475569', fontWeight: '600' },
+  presetText:      { fontSize: 12, color: '#68779b', fontWeight: '600' },
   presetTextActive:{ color: '#f87171' },
 
   riskWarning:  { flexDirection: 'row', alignItems: 'flex-start', gap: 10, backgroundColor: '#1c1400', marginHorizontal: 16, marginTop: 4, padding: 14, borderRadius: 12, borderWidth: 1, borderColor: '#92400e' },
@@ -1318,6 +1318,6 @@ const s = StyleSheet.create({
 
   smsEventGrid:  { gap: 8, marginTop: 6 },
   smsEventRow:   { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 3 },
-  smsEventLabel: { fontSize: 13, color: '#64748b' },
+  smsEventLabel: { fontSize: 13, color: '#68779b' },
 
 });
