@@ -6,6 +6,7 @@ const MAX_OBSERVED = 2000;
 let enabled = false;
 let forwardExistingOnEnable = false;
 let observer = null;
+let heartbeatTimer = null;
 
 chrome.storage.local.get({ enabled: false, forwardExistingOnEnable: false }, (settings) => {
   enabled = Boolean(settings.enabled);
@@ -20,6 +21,7 @@ chrome.storage.onChanged.addListener((changes, areaName) => {
   }
   if (changes.enabled) {
     enabled = Boolean(changes.enabled.newValue);
+    publishHeartbeat();
     if (enabled) {
       if (forwardExistingOnEnable) {
         scanVisibleMessages();
@@ -49,6 +51,34 @@ function startObserver() {
     primeVisibleMessages();
   }
   console.info(BRIDGE_LOG_PREFIX, "observer ready");
+  startHeartbeat();
+}
+
+function startHeartbeat() {
+  if (heartbeatTimer) return;
+  publishHeartbeat();
+  heartbeatTimer = setInterval(publishHeartbeat, 30000);
+}
+
+function publishHeartbeat(status = "ok", details = {}) {
+  chrome.storage.local.get(
+    { lastForwardAt: "", lastForwardStatus: "" },
+    (settings) => {
+      chrome.runtime.sendMessage({
+        type: "consolidation:bridge-heartbeat",
+        payload: {
+          status,
+          bridge_enabled: enabled,
+          url: location.href,
+          channel_id: channelIdFromLocation(),
+          observed_at: new Date().toISOString(),
+          last_forward_at: settings.lastForwardAt || "",
+          last_forward_status: settings.lastForwardStatus || "",
+          details,
+        },
+      });
+    },
+  );
 }
 
 function primeVisibleMessages() {
@@ -102,11 +132,15 @@ function captureMessage(node) {
   chrome.runtime.sendMessage({ type: "consolidation:discord-message", payload }, (response) => {
     if (chrome.runtime.lastError) {
       console.warn(BRIDGE_LOG_PREFIX, chrome.runtime.lastError.message);
+      publishHeartbeat("forward_error", { error: chrome.runtime.lastError.message });
       return;
     }
     if (!response || !response.ok) {
       console.warn(BRIDGE_LOG_PREFIX, response && response.error ? response.error : "forward failed");
+      publishHeartbeat("forward_error", { error: response && response.error ? response.error : "forward failed" });
+      return;
     }
+    publishHeartbeat("ok", { last_event_id: payload.event_id });
   });
 }
 

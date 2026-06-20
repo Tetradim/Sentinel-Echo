@@ -1,8 +1,11 @@
 import asyncio
+import os
 import pathlib
 import sys
+import tempfile
 import types
 import unittest
+from datetime import datetime, timezone
 
 
 BACKEND_DIR = pathlib.Path(__file__).resolve().parents[1]
@@ -25,9 +28,28 @@ class FakeChromeBridgeDb:
 class ChromeBridgeRouteTests(unittest.TestCase):
     def setUp(self):
         from routes import discord as discord_route
+        import bridge_health
 
         discord_route._chrome_bridge_seen_event_ids.clear()
         discord_route._chrome_bridge_seen_event_order.clear()
+        bridge_health._last_heartbeat = None
+        bridge_health._last_attention_key = None
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.old_capture_dir = os.environ.get("ALERT_CAPTURE_DIR")
+        self.old_event_dir = os.environ.get("BOT_EVENT_BUS_DIR")
+        os.environ["ALERT_CAPTURE_DIR"] = str(pathlib.Path(self.temp_dir.name) / "captures")
+        os.environ["BOT_EVENT_BUS_DIR"] = str(pathlib.Path(self.temp_dir.name) / "events")
+
+    def tearDown(self):
+        if self.old_capture_dir is None:
+            os.environ.pop("ALERT_CAPTURE_DIR", None)
+        else:
+            os.environ["ALERT_CAPTURE_DIR"] = self.old_capture_dir
+        if self.old_event_dir is None:
+            os.environ.pop("BOT_EVENT_BUS_DIR", None)
+        else:
+            os.environ["BOT_EVENT_BUS_DIR"] = self.old_event_dir
+        self.temp_dir.cleanup()
 
     def test_chrome_bridge_message_flows_through_discord_ingestion(self):
         from routes import discord as discord_route
@@ -62,6 +84,24 @@ class ChromeBridgeRouteTests(unittest.TestCase):
         self.assertEqual(result["parsed"]["ticker"], "SPY")
         self.assertEqual(fake_db.alerts[0]["ticker"], "SPY")
         self.assertEqual(fake_db.alerts[0]["raw_message"], "BTO SPY 500C 6/21 @ 1.25")
+        self.assertTrue(pathlib.Path(result["capture_path"]).exists())
+        self.assertTrue(result["bus_event_id"])
+
+    def test_chrome_bridge_heartbeat_records_health(self):
+        from routes import discord as discord_route
+
+        request = types.SimpleNamespace(client=types.SimpleNamespace(host="127.0.0.1"))
+        payload = discord_route.ChromeBridgeHeartbeat(
+            status="ok",
+            bridge_enabled=True,
+            channel_id="chrome-alerts",
+            observed_at=datetime.now(timezone.utc).isoformat(),
+        )
+
+        result = asyncio.run(discord_route.ingest_chrome_bridge_heartbeat(payload, request))
+
+        self.assertEqual(result["status"], "healthy")
+        self.assertEqual(result["issues"], [])
 
     def test_chrome_bridge_dedupes_replayed_dom_events(self):
         from routes import discord as discord_route

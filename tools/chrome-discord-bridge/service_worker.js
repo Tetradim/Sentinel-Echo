@@ -1,6 +1,7 @@
 const DEFAULTS = {
   enabled: false,
   targetUrl: "http://127.0.0.1:8003/api/discord/chrome-bridge/message",
+  heartbeatUrl: "http://127.0.0.1:8003/api/discord/chrome-bridge/heartbeat",
   apiKey: "",
   forwardExistingOnEnable: false,
 };
@@ -12,15 +13,60 @@ chrome.runtime.onInstalled.addListener(() => {
 });
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  if (!message || message.type !== "consolidation:discord-message") {
+  if (!message) {
     return false;
   }
 
-  forwardObservedMessage(message.payload)
-    .then((result) => sendResponse({ ok: true, result }))
-    .catch((error) => sendResponse({ ok: false, error: String(error && error.message ? error.message : error) }));
-  return true;
+  if (message.type === "consolidation:discord-message") {
+    forwardObservedMessage(message.payload)
+      .then((result) => sendResponse({ ok: true, result }))
+      .catch((error) => sendResponse({ ok: false, error: String(error && error.message ? error.message : error) }));
+    return true;
+  }
+
+  if (message.type === "consolidation:bridge-heartbeat") {
+    forwardHeartbeat(message.payload)
+      .then((result) => sendResponse({ ok: true, result }))
+      .catch((error) => sendResponse({ ok: false, error: String(error && error.message ? error.message : error) }));
+    return true;
+  }
+
+  return false;
 });
+
+async function forwardHeartbeat(payload) {
+  const settings = await getSettings();
+  const headers = { "Content-Type": "application/json" };
+  if (settings.apiKey) {
+    headers["X-API-Key"] = settings.apiKey;
+  }
+
+  const response = await fetch(settings.heartbeatUrl || heartbeatUrlFor(settings.targetUrl), {
+    method: "POST",
+    headers,
+    body: JSON.stringify(payload),
+  });
+
+  const text = await response.text();
+  let body = {};
+  if (text) {
+    try {
+      body = JSON.parse(text);
+    } catch {
+      body = { text };
+    }
+  }
+
+  if (!response.ok) {
+    throw new Error(body.detail || body.text || `Heartbeat request failed with HTTP ${response.status}`);
+  }
+
+  await chrome.storage.local.set({
+    lastHeartbeatStatus: body.status || "healthy",
+    lastHeartbeatAt: new Date().toISOString(),
+  });
+  return body;
+}
 
 async function forwardObservedMessage(payload) {
   const settings = await getSettings();
@@ -65,4 +111,8 @@ function getSettings() {
   return new Promise((resolve) => {
     chrome.storage.local.get(DEFAULTS, (settings) => resolve({ ...DEFAULTS, ...settings }));
   });
+}
+
+function heartbeatUrlFor(targetUrl) {
+  return String(targetUrl || DEFAULTS.targetUrl).replace(/\/message$/, "/heartbeat");
 }

@@ -6,6 +6,9 @@ from pydantic import BaseModel, Field
 from models import Settings, DiscordAlertPatterns, DiscordAlertPatternsUpdate
 from discord_ingestion import DiscordIngestionDeps, handle_discord_message
 from discord_alert_text import build_discord_alert_text
+from alert_capture_recorder import record_alert_capture
+from bot_event_bus import publish_event
+from bridge_health import evaluate_bridge_health, record_bridge_heartbeat
 from risk import calculate_position_size
 from source_config import (
     apply_source_quantity_limits,
@@ -72,6 +75,17 @@ class ChromeBridgeMessage(BaseModel):
     url: str | None = Field(default=None, max_length=2048)
     observed_at: str | None = Field(default=None, max_length=80)
     source: str = Field(default="chrome-discord-bridge", max_length=80)
+
+
+class ChromeBridgeHeartbeat(BaseModel):
+    status: str = Field(default="ok", max_length=80)
+    bridge_enabled: bool = False
+    url: str | None = Field(default=None, max_length=2048)
+    channel_id: str | None = Field(default=None, max_length=120)
+    observed_at: str | None = Field(default=None, max_length=80)
+    last_forward_at: str | None = Field(default=None, max_length=80)
+    last_forward_status: str | None = Field(default=None, max_length=120)
+    details: dict[str, Any] = Field(default_factory=dict)
 
 
 def set_db(database):
@@ -285,6 +299,18 @@ async def ingest_chrome_bridge_message(
         raise HTTPException(status_code=503, detail="database not initialized")
 
     if _mark_chrome_bridge_seen(payload.event_id):
+        publish_event(
+            "signal.duplicate",
+            source_bot="chrome-discord-bridge",
+            payload={
+                "event_id": payload.event_id,
+                "source": payload.source,
+                "channel_id": payload.channel_id,
+                "channel_name": payload.channel_name,
+            },
+            dedupe_key=f"chrome-discord:{payload.event_id}",
+            target_bots=["consolidation", "sentinel-edge"],
+        )
         return {
             "status": "duplicate",
             "event_id": payload.event_id,
@@ -327,6 +353,39 @@ async def ingest_chrome_bridge_message(
         ),
         bot_user=None,
     )
+    ingestion_result = {
+        "status": "accepted" if result.alert_inserted else "skipped",
+        "alert_inserted": result.alert_inserted,
+        "trade_requested": result.trade_requested,
+        "skip_reason": result.skip_reason,
+    }
+    capture_path = record_alert_capture(
+        event_id=payload.event_id,
+        channel_id=payload.channel_id,
+        channel_name=payload.channel_name,
+        author_name=payload.author_name,
+        raw_text=alert_text,
+        observed_at=payload.observed_at,
+        parsed=result.parsed,
+        ingestion_result=ingestion_result,
+    )
+    bus_event = publish_event(
+        "signal.observed",
+        source_bot="chrome-discord-bridge",
+        payload={
+            "source": payload.source,
+            "channel_id": payload.channel_id,
+            "channel_name": payload.channel_name,
+            "author_name": payload.author_name,
+            "raw_text": alert_text,
+            "parsed": result.parsed,
+            "ingestion_result": ingestion_result,
+            "capture_path": str(capture_path),
+        },
+        correlation_id=payload.event_id,
+        dedupe_key=f"chrome-discord:{payload.event_id}",
+        target_bots=["consolidation", "sentinel-edge", "simulation-engine"],
+    )
 
     return {
         "status": "accepted" if result.alert_inserted else "skipped",
@@ -340,7 +399,25 @@ async def ingest_chrome_bridge_message(
         "alert_inserted": result.alert_inserted,
         "trade_requested": result.trade_requested,
         "skip_reason": result.skip_reason,
+        "capture_path": str(capture_path),
+        "bus_event_id": bus_event.event_id,
     }
+
+
+@router.post("/discord/chrome-bridge/heartbeat")
+async def ingest_chrome_bridge_heartbeat(
+    payload: ChromeBridgeHeartbeat,
+    request: Request,
+):
+    """Record Chrome bridge health and emit OpenClaw attention events on failure."""
+    _ensure_local_chrome_bridge_request(request)
+    return record_bridge_heartbeat(payload.model_dump(mode="json"))
+
+
+@router.get("/discord/chrome-bridge/health")
+async def get_chrome_bridge_health(request: Request):
+    _ensure_local_chrome_bridge_request(request)
+    return evaluate_bridge_health()
 
 
 def _ensure_local_chrome_bridge_request(request: Request) -> None:

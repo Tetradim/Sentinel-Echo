@@ -50,7 +50,7 @@ from routes import (
     health_router, brokers_router, settings_router, 
     discord_router, profiles_router, trading_router,
     operator_router, analytics_router, simulation_engine_router,
-    init_routes, update_bot_status, set_discord_bot
+    bot_bus_router, init_routes, update_bot_status, set_discord_bot
 )
 
 logging.basicConfig(level=logging.INFO)
@@ -719,6 +719,7 @@ api_router.include_router(trading_router)
 api_router.include_router(operator_router)
 api_router.include_router(simulation_engine_router)
 api_router.include_router(analytics_router)
+api_router.include_router(bot_bus_router)
 
 app.include_router(api_router)
 

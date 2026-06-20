@@ -4,6 +4,7 @@ This unpacked Chrome extension observes messages rendered in Discord Web and for
 
 ```text
 http://127.0.0.1:8003/api/discord/chrome-bridge/message
+http://127.0.0.1:8003/api/discord/chrome-bridge/heartbeat
 ```
 
 Use this only for Discord channels you can personally view in Chrome when the normal Discord bot cannot be invited to the private server.
@@ -26,7 +27,21 @@ Use this only for Discord channels you can personally view in Chrome when the no
 - Messages are deduped by Discord DOM message id before forwarding.
 - The backend endpoint only accepts local requests by default.
 - Consolidation parses the text through its existing Discord ingestion path.
+- Every accepted visible Discord message is also appended to the Cross Bot Event Bus as `signal.observed`.
+- Alert captures are permanently appended to market-day `.txt` files under `backend/data/alert-capture` by default.
+- The extension sends a heartbeat every 30 seconds through the same bundle. Consolidation records `bridge.health` events and emits `openclaw.attention.requested` when the bridge goes stale or reports forwarding errors.
 - Source policy still applies. Use `chrome_bridge_channel_ids` or source overrides keyed by the observed Discord channel id/name when needed.
+
+## Cross Bot Event Bus
+
+Consolidation exposes local-only event bus endpoints that other bots can adopt:
+
+```text
+POST /api/bus/events
+GET /api/bus/events?limit=100
+```
+
+The event stream is append-only JSONL under `backend/data/event-bus` by default. The shared event shape is versioned as `bot-event.v1` and is meant for Sentinel Edge to publish strategic action/state changes without blocking each bot's fast local execution loop.
 
 ## Safety
 
