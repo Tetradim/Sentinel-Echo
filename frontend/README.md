@@ -44,9 +44,27 @@ EXPO_PUBLIC_BACKEND_URL
 
 If the variable is not set, [constants/config.ts](constants/config.ts) falls back to `http://localhost:8003`.
 
+## Current Dashboard Coverage
+
+The latest frontend build is wired for the production Discord/options readiness flow:
+
+- Dashboard readiness summarizes broker, Discord, automation, shutdown, and exit-guard state.
+- Discord settings support parser previews, source-specific policy editing, custom ticker validation, paper-only, paper-shadow, manual-confirm, premium caps, contract caps, risk multipliers, and ticker/action allow or block lists.
+- Broker, profile, settings, positions, trades, alerts, risk, and trading settings screens include digest helpers that surface load failures and actionable next steps.
+- Live data failures stay visible instead of silently falling back to demo data.
+- Operator navigation and retry actions are available across the main screens.
+
+Useful backend checks while validating the UI:
+
+```powershell
+Invoke-RestMethod http://127.0.0.1:8003/api/health
+Invoke-RestMethod http://127.0.0.1:8003/api/diagnostics/setup
+```
+
 ## Development Notes
 
 - Main screens live in `app/`.
 - Shared API setup lives in `utils/api.ts`.
+- Screen readiness and digest helpers live in `utils/*Digest.ts` and `utils/dashboardReadiness.ts`.
 - The settings screens include Discord setup, alert parser configuration, broker settings, and risk controls.
 - Keep `SIMULATION_MODE=true` on the backend while validating Discord alert parsing and broker configuration.

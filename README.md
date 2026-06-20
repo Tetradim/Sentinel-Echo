@@ -39,6 +39,18 @@ A production-grade Discord-based options trading bot that listens to trade alert
 5. **Manages Positions** - Sets profit targets, stop losses, trailing stops
 6. **Tracks P&L** - Monitors performance and provides analytics
 
+### Current Production Readiness Updates
+
+The latest bot build adds the production Discord/options safety path:
+
+- **Local Windows launcher** - `Launch-Consolidation-Bot.bat` and `Launch-Consolidation-Bot.ps1` start the FastAPI backend and Expo dashboard together on local ports.
+- **Discord source policies** - per-channel and per-source overrides can disable a source, require manual confirmation, force paper-only or paper-shadow handling, cap premiums/contracts, apply risk multipliers, and allow/block tickers or alert actions.
+- **Parse preview and validation** - Discord settings can test analyst messages against the configured parser and reject invalid custom ticker patterns before they affect live intake.
+- **Live order guardrails** - auto live orders require enabled automation, a live source policy, broker configuration, and fill-status support; unsupported routes stay out of the live path.
+- **Fill reconciliation** - broker order updates now reconcile partial, filled, rejected, canceled, and timed-out orders back into trade and position state.
+- **Setup diagnostics** - `/api/diagnostics/setup` reports readiness without exposing tokens or broker secrets.
+- **Operator readiness UI** - dashboard, Discord, broker, profile, settings, positions, trades, alerts, risk, and trading screens now surface actionable readiness summaries instead of silent failures.
+
 ### Supported Trade Types
 
 | Alert Type | Description |
@@ -171,6 +183,8 @@ Before any trade executes:
 ### Trading Features
 
 - **Multiple Broker Support** - IBKR, Alpaca, TD Ameritrade, and more
+- **Source-Specific Automation Policies** - Configure live, manual-confirm, paper-only, or paper-shadow behavior per Discord source
+- **Fill Reconciliation** - Poll supported broker order status and update trades/positions from broker truth
 - **Options Chain Integration** - Automatic strike selection (ATM, OTM, ITM, Delta, Risk/Reward)
 - **Multi-leg Strategies** - Spreads, straddles, strangles, iron condors
 - **Grid Trading** - Automated buy-low/sell-high in price range
@@ -197,6 +211,9 @@ The bot parses **32 different formats** including:
 ### Risk Controls
 
 - **Duplicate Detection** - Block repeated alerts
+- **Source Allow/Block Lists** - Restrict tickers and alert actions by Discord channel or source
+- **Premium and Contract Caps** - Limit max premium and max contracts per source before sizing
+- **Manual Confirm / Paper Shadow** - Keep risky sources out of auto-live execution while still tracking behavior
 - **Correlation Limits** - Max positions per ticker
 - **Position Sizing** - Kelly Criterion-based sizing
 - **Sector Exposure** - Limit exposure by sector
@@ -472,6 +489,8 @@ position_size = min(
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | GET | `/health` | Health check |
+| GET | `/api/health` | API health check used by the local launcher |
+| GET | `/api/diagnostics/setup` | Setup readiness checks for Discord, sources, broker status polling, and trading safety |
 | GET | `/positions` | List open positions |
 | GET | `/trades` | Trade history |
 | GET | `/alerts` | Alert history |
