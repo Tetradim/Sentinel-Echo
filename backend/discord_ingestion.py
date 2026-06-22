@@ -7,6 +7,7 @@ from typing import Any, Callable, Optional
 
 from discord_alert_text import build_discord_alert_text
 from models import Alert
+from settings_flags import coerce_bool
 from source_config import resolve_source_config, source_skip_reason
 from utils import parse_alert
 
@@ -102,8 +103,9 @@ async def handle_discord_message(
 
 
 def _auto_trading_enabled(settings: dict) -> bool:
-    return bool(settings.get("auto_trading_enabled", False)) and not bool(
-        settings.get("shutdown_triggered", False)
+    return coerce_bool(settings.get("auto_trading_enabled"), default=False) and not coerce_bool(
+        settings.get("shutdown_triggered"),
+        default=False,
     )
 
 

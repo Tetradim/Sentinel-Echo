@@ -99,6 +99,24 @@ class DiscordIngestionTests(unittest.TestCase):
         self.assertFalse(result.trade_requested)
         self.assertEqual(deps.trades, [])
 
+    def test_string_false_auto_trading_does_not_request_trade(self):
+        from discord_ingestion import handle_discord_message
+
+        deps = FakeDeps({"auto_trading_enabled": "false", "source_overrides": {}})
+
+        result = asyncio.run(
+            handle_discord_message(
+                message("BTO SPY 500C 6/21 @ 1.25"),
+                channel_ids=["123"],
+                deps=deps,
+                bot_user=types.SimpleNamespace(id="bot"),
+            )
+        )
+
+        self.assertTrue(result.alert_inserted)
+        self.assertFalse(result.trade_requested)
+        self.assertEqual(deps.trades, [])
+
     def test_manual_confirmation_source_inserts_alert_without_trade_request(self):
         from discord_ingestion import handle_discord_message
 

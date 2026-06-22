@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field
 
 from models import Trade, Position
 from operator_audit import record_operator_event
+from settings_flags import coerce_bool
 from datetime import datetime, timezone
 
 router = APIRouter(tags=["Trading"])
@@ -111,7 +112,7 @@ async def _sell_position_at_price(
 
     settings = _dict_or_empty(await db.get_settings())
     active_broker = _enum_value(settings.get("active_broker", "ibkr"))
-    simulation_mode = bool(settings.get("simulation_mode", True))
+    simulation_mode = coerce_bool(settings.get("simulation_mode"), default=True)
 
     trade = Trade(
         ticker=position.ticker,

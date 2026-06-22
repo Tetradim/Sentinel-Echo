@@ -9,6 +9,7 @@ from live_readiness import evaluate_live_readiness
 from operator_audit import record_operator_event
 from reconciliation import build_reconciliation_rows
 from routes.trading import create_test_alert_records
+from settings_flags import coerce_bool
 
 router = APIRouter(tags=["Operator"])
 
@@ -191,9 +192,9 @@ async def panic_stop():
         },
     )
     return {
-        "auto_trading_enabled": bool(updated_settings.get("auto_trading_enabled", False)),
-        "live_trading_armed": bool(runtime.get("live_trading_armed", False)),
-        "shutdown_triggered": bool(runtime.get("shutdown_triggered", False)),
+        "auto_trading_enabled": coerce_bool(updated_settings.get("auto_trading_enabled"), default=False),
+        "live_trading_armed": coerce_bool(runtime.get("live_trading_armed"), default=False),
+        "shutdown_triggered": coerce_bool(runtime.get("shutdown_triggered"), default=False),
         "shutdown_reason": runtime.get("shutdown_reason", ""),
         "cancellation_attempts": cancellation_attempts,
         "warnings": warnings,

@@ -12,6 +12,7 @@ import logging
 import os
 from typing import Any, Dict, Optional
 from operator_audit import record_operator_event
+from settings_flags import coerce_bool
 from source_config import normalize_source_overrides
 # C4: credential encryption at rest
 from utils.credentials import (
@@ -169,9 +170,9 @@ async def toggle_trading():
             details={"blocking_issues": blocked_readiness["blocking_issues"]},
         )
         raise HTTPException(status_code=409, detail=blocked_readiness)
-    current = bool((settings or {}).get("auto_trading_enabled", False))
+    current = coerce_bool((settings or {}).get("auto_trading_enabled"), default=False)
     new_state = not current
-    if new_state and not bool((settings or {}).get("simulation_mode", True)):
+    if new_state and not coerce_bool((settings or {}).get("simulation_mode"), default=True):
         from live_readiness import evaluate_live_readiness
         from routes.health import get_bot_status
 
@@ -442,7 +443,7 @@ async def reset_loss_counters(x_admin_key: Optional[str] = Header(default=None))
             details={"blocking_issues": blocked_readiness["blocking_issues"]},
         )
         raise HTTPException(status_code=409, detail=blocked_readiness)
-    if not bool((settings or {}).get("simulation_mode", True)):
+    if not coerce_bool((settings or {}).get("simulation_mode"), default=True):
         from live_readiness import evaluate_live_readiness
 
         candidate_settings = dict(settings or {})

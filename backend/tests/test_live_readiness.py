@@ -129,6 +129,29 @@ class LiveReadinessTests(unittest.TestCase):
 
         self.assertNotIn("api_key_missing", codes)
 
+    def test_readiness_parses_string_trading_flags_without_truthy_fallback(self):
+        from live_readiness import evaluate_live_readiness
+
+        settings = dict(READY_SETTINGS)
+        settings.update(
+            {
+                "auto_trading_enabled": "false",
+                "simulation_mode": "false",
+            }
+        )
+
+        result = evaluate_live_readiness(
+            settings,
+            {"shutdown_triggered": False},
+            status={"broker_connected": True, "discord_connected": True},
+            env=READY_ENV,
+        )
+
+        self.assertIn("auto_trading_disabled", result["blocking_codes"])
+        self.assertNotIn("simulation_mode_enabled", result["blocking_codes"])
+        self.assertFalse(result["checks"]["trading"]["auto_trading_enabled"])
+        self.assertFalse(result["checks"]["trading"]["simulation_mode"])
+
     def test_order_status_requirement_is_reported_even_without_broker_config(self):
         from live_readiness import evaluate_live_readiness
 

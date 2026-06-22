@@ -13,6 +13,7 @@ from broker_capabilities import (
     normalize_broker_id,
 )
 from live_readiness import evaluate_live_readiness
+from settings_flags import coerce_bool
 from source_config import summarize_source_policy
 
 router = APIRouter(tags=["Health"])
@@ -105,12 +106,12 @@ async def get_status():
             {
                 "discord_connected": bool(signal_ingestion.get("discord_connected", False)),
                 "active_broker": active_broker,
-                "auto_trading_enabled": bool(settings.get("auto_trading_enabled", False)),
-                "simulation_mode": bool(settings.get("simulation_mode", True)),
+                "auto_trading_enabled": coerce_bool(settings.get("auto_trading_enabled"), default=False),
+                "simulation_mode": coerce_bool(settings.get("simulation_mode"), default=True),
             }
         )
         if has_runtime_state:
-            status["shutdown_triggered"] = bool(runtime.get("shutdown_triggered", False))
+            status["shutdown_triggered"] = coerce_bool(runtime.get("shutdown_triggered"), default=False)
             status["shutdown_reason"] = runtime.get("shutdown_reason", "")
     return status
 
@@ -142,11 +143,11 @@ async def setup_diagnostics():
     source_config_valid = bool(source_policy.get("valid", False))
     source_error = str(source_policy.get("error") or "")
 
-    auto_trading_enabled = bool(settings.get("auto_trading_enabled", False))
-    simulation_mode = bool(settings.get("simulation_mode", True))
-    shutdown_triggered = bool(
-        runtime.get("shutdown_triggered", False)
-        or settings.get("shutdown_triggered", False)
+    auto_trading_enabled = coerce_bool(settings.get("auto_trading_enabled"), default=False)
+    simulation_mode = coerce_bool(settings.get("simulation_mode"), default=True)
+    shutdown_triggered = (
+        coerce_bool(runtime.get("shutdown_triggered"), default=False)
+        or coerce_bool(settings.get("shutdown_triggered"), default=False)
     )
     auto_live_sources = int(source_policy.get("auto_live_sources", 0))
     readiness = evaluate_live_readiness(settings, runtime, status=status)
@@ -190,7 +191,7 @@ async def setup_diagnostics():
             "auto_trading_enabled": auto_trading_enabled,
             "simulation_mode": simulation_mode,
             "shutdown_triggered": shutdown_triggered,
-            "live_trading_armed": bool(runtime.get("live_trading_armed", False)),
+            "live_trading_armed": coerce_bool(runtime.get("live_trading_armed"), default=False),
             "live_trading_armed_until": runtime.get("live_trading_armed_until", ""),
         },
         "readiness": readiness,

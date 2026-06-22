@@ -127,6 +127,44 @@ class SimulationReplayTests(unittest.TestCase):
         self.assertEqual(result["execution_preview"]["reason"], "auto trading disabled")
         self.assertTrue(result["execution_preview"]["simulation_mode"])
 
+    def test_preview_parses_string_trading_flags_without_truthy_fallback(self):
+        from simulation_replay import build_replay_preview
+
+        replay = {
+            "contract_version": "simulation.consolidation.replay.v1",
+            "events": [
+                {
+                    "event_id": "discord_alert:m-string-flags",
+                    "type": "discord_alert",
+                    "timestamp": "2026-06-19T14:30:00+00:00",
+                    "channel_id": "123",
+                    "payload": {
+                        "message": {
+                            "channel_id": "123",
+                            "channel_name": "alerts",
+                            "content": "BTO SPY 500C 6/21 @ 1.25",
+                        }
+                    },
+                }
+            ],
+        }
+
+        preview = build_replay_preview(
+            replay,
+            {
+                "auto_trading_enabled": "false",
+                "simulation_mode": "false",
+                "default_quantity": 1,
+                "max_position_size": 1000.0,
+            },
+        )
+
+        result = preview["results"][0]
+        self.assertFalse(result["execution_preview"]["would_request_trade"])
+        self.assertEqual(result["execution_preview"]["reason"], "auto trading disabled")
+        self.assertFalse(result["execution_preview"]["auto_trading_enabled"])
+        self.assertFalse(result["execution_preview"]["simulation_mode"])
+
     def test_normalize_replay_url_accepts_engine_root_or_full_endpoint(self):
         from simulation_replay import normalize_replay_url
 

@@ -107,6 +107,24 @@ class SetupDiagnosticsTests(unittest.TestCase):
         self.assertTrue(result["auto_trading_enabled"])
         self.assertTrue(result["simulation_mode"])
 
+    def test_status_parses_string_trading_flags_without_truthy_fallback(self):
+        from routes import health as health_route
+
+        health_route.set_db(
+            FakeDiagnosticsDb(
+                {
+                    "active_broker": "tradier",
+                    "auto_trading_enabled": "false",
+                    "simulation_mode": "false",
+                }
+            )
+        )
+
+        result = asyncio.run(health_route.get_status())
+
+        self.assertFalse(result["auto_trading_enabled"])
+        self.assertFalse(result["simulation_mode"])
+
     def test_status_treats_malformed_db_state_as_empty(self):
         from routes import health as health_route
 

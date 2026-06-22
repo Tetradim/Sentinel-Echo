@@ -12,6 +12,7 @@ from broker_capabilities import (
     missing_broker_config_fields,
     normalize_broker_id,
 )
+from settings_flags import coerce_bool
 from source_config import summarize_source_policy
 
 
@@ -128,14 +129,18 @@ def evaluate_live_readiness(
     auto_live_sources = int(source_policy.get("auto_live_sources", 0))
     source_config_valid = bool(source_policy.get("valid", False))
     source_error = str(source_policy.get("error") or "")
+    auto_trading_enabled = coerce_bool(settings.get("auto_trading_enabled"), default=False)
+    simulation_mode = coerce_bool(settings.get("simulation_mode"), default=True)
+    shutdown_triggered = coerce_bool(runtime_state.get("shutdown_triggered"), default=False)
+    live_trading_armed = coerce_bool(runtime_state.get("live_trading_armed"), default=False)
 
     if not _env_value(env, "API_KEY") and not _authless_desktop_mode(env):
         blocking.append(_issue("api_key_missing", "API_KEY is required before exposing live trading controls."))
     if not _env_value(env, "CREDENTIAL_KEY"):
         blocking.append(_issue("credential_key_missing", "CREDENTIAL_KEY is required so broker secrets are encrypted."))
-    if bool(settings.get("simulation_mode", True)):
+    if simulation_mode:
         blocking.append(_issue("simulation_mode_enabled", "Simulation mode must be disabled before live trading."))
-    if not bool(settings.get("auto_trading_enabled", False)):
+    if not auto_trading_enabled:
         blocking.append(_issue("auto_trading_disabled", "Auto trading must be enabled before live arming."))
     max_position_size_valid = _positive_float(settings.get("max_position_size"))
     if not max_position_size_valid:
@@ -173,7 +178,7 @@ def evaluate_live_readiness(
         blocking.append(_issue("source_policy_invalid", f"Source policy is invalid: {source_error}"))
     elif auto_live_sources <= 0:
         blocking.append(_issue("no_live_source", "No enabled source can submit live orders automatically."))
-    if bool(runtime_state.get("shutdown_triggered", False)):
+    if shutdown_triggered:
         blocking.append(_issue("runtime_shutdown_active", "Runtime shutdown is active."))
 
     checks = {
@@ -194,14 +199,14 @@ def evaluate_live_readiness(
             "chrome_bridge_healthy": chrome_bridge_healthy,
         },
         "trading": {
-            "auto_trading_enabled": bool(settings.get("auto_trading_enabled", False)),
-            "simulation_mode": bool(settings.get("simulation_mode", True)),
+            "auto_trading_enabled": auto_trading_enabled,
+            "simulation_mode": simulation_mode,
             "max_position_size": settings.get("max_position_size"),
             "max_position_size_valid": max_position_size_valid,
         },
         "runtime": {
-            "shutdown_triggered": bool(runtime_state.get("shutdown_triggered", False)),
-            "live_trading_armed": bool(runtime_state.get("live_trading_armed", False)),
+            "shutdown_triggered": shutdown_triggered,
+            "live_trading_armed": live_trading_armed,
             "live_trading_armed_until": runtime_state.get("live_trading_armed_until", ""),
         },
     }

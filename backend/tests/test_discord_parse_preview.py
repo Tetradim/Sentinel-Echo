@@ -485,6 +485,34 @@ class DiscordParsePreviewTests(unittest.TestCase):
             result["warnings"],
         )
 
+    def test_parse_preview_parses_string_trading_flags_without_truthy_fallback(self):
+        from routes import discord as discord_route
+
+        fake_db = FakePreviewDb(
+            {
+                "auto_trading_enabled": "false",
+                "simulation_mode": "false",
+                "default_quantity": 1,
+                "max_position_size": 1000.0,
+                "source_overrides": {},
+            }
+        )
+        discord_route.set_db(fake_db)
+
+        result = asyncio.run(
+            discord_route.preview_discord_alert(
+                {
+                    "raw_text": "BTO SPY 500C 6/21 @ 1.25",
+                    "source_key": "alerts",
+                }
+            )
+        )
+
+        self.assertFalse(result["execution_preview"]["would_request_trade"])
+        self.assertEqual(result["execution_preview"]["reason"], "auto trading disabled")
+        self.assertFalse(result["execution_preview"]["auto_trading_enabled"])
+        self.assertFalse(result["execution_preview"]["simulation_mode"])
+
     def test_parse_preview_reports_manual_confirmation_requirement(self):
         from routes import discord as discord_route
 

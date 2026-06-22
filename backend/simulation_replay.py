@@ -4,6 +4,7 @@ import os
 from typing import Any
 
 from risk import calculate_position_size
+from settings_flags import coerce_bool
 from source_config import resolve_source_config, source_skip_reason
 from source_config import apply_source_quantity_limits
 from utils import parse_alert
@@ -143,9 +144,9 @@ def _build_execution_preview(
     source_config: dict[str, Any],
     skip_reason: str | None,
 ) -> dict[str, Any]:
-    auto_trading_enabled = bool(settings.get("auto_trading_enabled", False))
-    shutdown_triggered = bool(settings.get("shutdown_triggered", False))
-    simulation_mode = bool(settings.get("simulation_mode", True)) or bool(
+    auto_trading_enabled = coerce_bool(settings.get("auto_trading_enabled"), default=False)
+    shutdown_triggered = coerce_bool(settings.get("shutdown_triggered"), default=False)
+    simulation_mode = coerce_bool(settings.get("simulation_mode"), default=True) or bool(
         source_config.get("paper_only", False)
     )
 
