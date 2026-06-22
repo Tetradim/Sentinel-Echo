@@ -24,6 +24,30 @@ def _attention_reason(alert: dict, trade: dict | None, position: dict | None) ->
     return ""
 
 
+def summarize_reconciliation_rows(rows: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """Summarize unresolved alert/trade/position chains for readiness checks."""
+    unresolved_reasons: list[str] = []
+    unresolved_count = 0
+    simulated_unresolved_count = 0
+    for row in rows:
+        reason = str(row.get("attention_reason") or "").strip()
+        if not reason:
+            continue
+        if bool(row.get("simulated", False)):
+            simulated_unresolved_count += 1
+            continue
+        unresolved_count += 1
+        if reason not in unresolved_reasons:
+            unresolved_reasons.append(reason)
+
+    return {
+        "row_count": len(rows),
+        "unresolved_count": unresolved_count,
+        "simulated_unresolved_count": simulated_unresolved_count,
+        "unresolved_reasons": unresolved_reasons,
+    }
+
+
 async def build_reconciliation_rows(db, *, limit: int = 100) -> List[Dict[str, Any]]:
     """Return alert/trade/position chain summaries for operator review."""
     alerts = await db.get_alerts(limit)

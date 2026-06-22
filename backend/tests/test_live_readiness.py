@@ -527,6 +527,30 @@ class LiveReadinessTests(unittest.TestCase):
         self.assertNotIn("no_live_ingestion", codes)
         self.assertTrue(result["ready_for_live"])
 
+    def test_live_readiness_blocks_unresolved_real_reconciliation(self):
+        from live_readiness import evaluate_live_readiness
+
+        result = evaluate_live_readiness(
+            READY_SETTINGS,
+            {"shutdown_triggered": False},
+            status={
+                "broker_connected": True,
+                "discord_connected": False,
+                "chrome_bridge_healthy": True,
+                "reconciliation_unresolved_count": 1,
+                "reconciliation_unresolved_reasons": ["order pending fill"],
+            },
+            env=READY_ENV,
+        )
+
+        self.assertIn("reconciliation_unresolved", result["blocking_codes"])
+        self.assertFalse(result["ready_for_live"])
+        self.assertEqual(result["checks"]["reconciliation"]["unresolved_count"], 1)
+        self.assertEqual(
+            result["checks"]["reconciliation"]["unresolved_reasons"],
+            ["order pending fill"],
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

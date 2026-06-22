@@ -63,6 +63,22 @@ class ReconciliationTests(unittest.TestCase):
         self.assertEqual(by_alert["alert-1"]["attention_reason"], "order pending fill")
         self.assertEqual(by_alert["alert-2"]["attention_reason"], "processed alert has no trade")
 
+    def test_reconciliation_summary_counts_only_unresolved_real_rows(self):
+        from reconciliation import summarize_reconciliation_rows
+
+        summary = summarize_reconciliation_rows(
+            [
+                {"attention_reason": "order pending fill", "simulated": False},
+                {"attention_reason": "entry trade has no position", "simulated": True},
+                {"attention_reason": "", "simulated": False},
+            ]
+        )
+
+        self.assertEqual(summary["row_count"], 3)
+        self.assertEqual(summary["unresolved_count"], 1)
+        self.assertEqual(summary["simulated_unresolved_count"], 1)
+        self.assertEqual(summary["unresolved_reasons"], ["order pending fill"])
+
 
 if __name__ == "__main__":
     unittest.main()

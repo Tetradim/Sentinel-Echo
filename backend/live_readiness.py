@@ -134,6 +134,8 @@ def evaluate_live_readiness(
     simulation_mode = coerce_bool(settings.get("simulation_mode"), default=True)
     shutdown_triggered = coerce_bool(runtime_state.get("shutdown_triggered"), default=False)
     live_trading_armed = coerce_bool(runtime_state.get("live_trading_armed"), default=False)
+    reconciliation_unresolved_count = _nonnegative_int(status.get("reconciliation_unresolved_count"))
+    reconciliation_unresolved_reasons = _list_of_strings(status.get("reconciliation_unresolved_reasons"))
 
     if not _env_value(env, "API_KEY") and not _authless_desktop_mode(env):
         blocking.append(_issue("api_key_missing", "API_KEY is required before exposing live trading controls."))
@@ -182,6 +184,13 @@ def evaluate_live_readiness(
         blocking.append(_issue("no_live_source", "No enabled source can submit live orders automatically."))
     if shutdown_triggered:
         blocking.append(_issue("runtime_shutdown_active", "Runtime shutdown is active."))
+    if reconciliation_unresolved_count > 0:
+        blocking.append(
+            _issue(
+                "reconciliation_unresolved",
+                "Broker/order reconciliation has unresolved real-money attention items.",
+            )
+        )
 
     checks = {
         "api_auth": {"configured": bool(_env_value(env, "API_KEY")), "authless_desktop_mode": _authless_desktop_mode(env)},
@@ -211,6 +220,10 @@ def evaluate_live_readiness(
             "live_trading_armed": live_trading_armed,
             "live_trading_armed_until": runtime_state.get("live_trading_armed_until", ""),
         },
+        "reconciliation": {
+            "unresolved_count": reconciliation_unresolved_count,
+            "unresolved_reasons": reconciliation_unresolved_reasons,
+        },
     }
 
     return {
@@ -220,3 +233,14 @@ def evaluate_live_readiness(
         "warnings": warnings,
         "checks": checks,
     }
+
+
+def _list_of_strings(value: Any) -> list[str]:
+    if not isinstance(value, (list, tuple, set)):
+        return []
+    result = []
+    for item in value:
+        text = str(item or "").strip()
+        if text and text not in result:
+            result.append(text)
+    return result

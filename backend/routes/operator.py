@@ -8,7 +8,7 @@ from live_arming import arm_live_trading, disarm_live_trading
 from live_readiness import evaluate_live_readiness
 from operator_audit import record_operator_event
 from readiness_status import readiness_ready_for_live, status_flag
-from reconciliation import build_reconciliation_rows
+from reconciliation import build_reconciliation_rows, summarize_reconciliation_rows
 from routes.trading import create_test_alert_records
 from settings_flags import coerce_bool
 
@@ -51,6 +51,9 @@ async def _live_readiness_payload():
     runtime = await db.get_runtime_state() if hasattr(db, "get_runtime_state") else {}
     status = dict(get_bot_status())
     status["chrome_bridge_healthy"] = status_flag(evaluate_bridge_health(), "healthy")
+    reconciliation = summarize_reconciliation_rows(await build_reconciliation_rows(db, limit=500))
+    status["reconciliation_unresolved_count"] = reconciliation["unresolved_count"]
+    status["reconciliation_unresolved_reasons"] = reconciliation["unresolved_reasons"]
     return evaluate_live_readiness(settings, runtime, status=status)
 
 
