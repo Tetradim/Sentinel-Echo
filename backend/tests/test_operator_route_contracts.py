@@ -329,6 +329,20 @@ class OperatorRouteContractTests(unittest.TestCase):
         self.assertEqual(fake_db.updated, [])
         self.assertEqual(fake_db.events, [])
 
+    def test_broker_check_reports_no_config_when_settings_are_malformed(self):
+        from unittest.mock import patch
+        from routes import brokers as brokers_route
+
+        brokers_route.set_db(FakeRawBrokerDb("settings"))
+
+        with patch("order_execution.get_configured_broker_client") as get_client:
+            response = asyncio.run(brokers_route.check_broker_alias("alpaca"))
+
+        self.assertFalse(response["connected"])
+        self.assertEqual(response["broker"], "alpaca")
+        self.assertIn("has no saved configuration", response["message"])
+        get_client.assert_not_called()
+
     def test_trade_close_endpoint_updates_status_and_realized_pnl(self):
         from routes import settings as settings_route
         from routes import trading as trading_route

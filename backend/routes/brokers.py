@@ -125,8 +125,8 @@ async def check_broker_alias(broker_id: str):
     except ValueError:
         raise HTTPException(status_code=400, detail=f"Invalid broker: {broker_id}")
 
-    settings = await db.get_settings()
-    broker_configs = settings.get("broker_configs", {}) if settings else {}
+    settings = _dict_or_empty(await db.get_settings())
+    broker_configs = settings.get("broker_configs", {})
     if broker_id not in broker_configs:
         return {
             "connected": False,
