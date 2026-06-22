@@ -72,6 +72,9 @@ class FakeTradingDb:
     async def get_trades(self, limit=50):
         return [dict(self.trade)]
 
+    async def get_alerts(self, limit=50):
+        return list(reversed(self.inserted_alerts))[:limit]
+
     async def update_trade(self, trade_id, updates):
         self.trade_updates.append((trade_id, updates))
         self.trade.update(updates)
@@ -182,6 +185,7 @@ class OperatorRouteContractTests(unittest.TestCase):
         self.assertIn(("POST", "/api/operator/live-disarm"), routes)
         self.assertIn(("POST", "/api/operator/panic-stop"), routes)
         self.assertIn(("GET", "/api/operator/reconciliation"), routes)
+        self.assertIn(("GET", "/api/operator/alert-chains"), routes)
 
     def test_operator_test_alert_creates_records_and_event(self):
         from routes import operator as operator_route
@@ -210,6 +214,50 @@ class OperatorRouteContractTests(unittest.TestCase):
         response = asyncio.run(operator_route.get_operator_events(limit=1))
 
         self.assertEqual([event["id"] for event in response], ["event-2"])
+
+    def test_operator_alert_chains_returns_deterministic_report(self):
+        from routes import operator as operator_route
+
+        fake_db = FakeTradingDb()
+        fake_db.inserted_alerts.append(
+            {
+                "id": "alert-1",
+                "ticker": "SPY",
+                "alert_type": "buy",
+                "trade_executed": True,
+                "processed": True,
+                "simulated": False,
+            }
+        )
+        fake_db.trade.update({"id": "trade-1", "alert_id": "alert-1", "status": "executed", "simulated": False})
+        fake_db.position.update({"id": "pos-1", "trade_ids": ["trade-1"], "simulated": False})
+        fake_db.inserted_events.append(
+            {
+                "id": "event-1",
+                "timestamp": "2026-06-22T14:30:00Z",
+                "action": "bridge_alert_decision",
+                "details": {
+                    "event_id": "bridge-1",
+                    "parsed": {"ticker": "SPY"},
+                    "decision": {
+                        "status": "accepted",
+                        "alert_inserted": True,
+                        "alert_id": "alert-1",
+                        "trade_requested": True,
+                        "trade_request_reason": "auto trading enabled",
+                    },
+                },
+            }
+        )
+        operator_route.set_db(fake_db)
+
+        response = asyncio.run(operator_route.get_alert_chains(limit=50))
+
+        self.assertTrue(response["summary"]["deterministic"])
+        self.assertEqual(response["summary"]["total"], 1)
+        self.assertEqual(response["rows"][0]["alert_id"], "alert-1")
+        self.assertEqual(response["rows"][0]["trade_id"], "trade-1")
+        self.assertEqual(response["rows"][0]["position_id"], "pos-1")
 
     def test_operator_live_arm_block_audit_normalizes_malformed_blocking_issues(self):
         from fastapi import HTTPException

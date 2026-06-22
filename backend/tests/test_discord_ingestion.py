@@ -55,6 +55,8 @@ class DiscordIngestionTests(unittest.TestCase):
 
         self.assertTrue(result.alert_inserted)
         self.assertTrue(result.trade_requested)
+        self.assertEqual(result.trade_request_reason, "auto trading enabled")
+        self.assertEqual(result.alert_id, deps.alerts[0].id)
         self.assertEqual(deps.alerts[0].ticker, "SPY")
         self.assertEqual(deps.trades[0][1]["ticker"], "SPY")
 
@@ -97,6 +99,7 @@ class DiscordIngestionTests(unittest.TestCase):
 
         self.assertTrue(result.alert_inserted)
         self.assertFalse(result.trade_requested)
+        self.assertEqual(result.trade_request_reason, "auto trading disabled")
         self.assertEqual(deps.trades, [])
 
     def test_string_false_auto_trading_does_not_request_trade(self):
@@ -115,6 +118,7 @@ class DiscordIngestionTests(unittest.TestCase):
 
         self.assertTrue(result.alert_inserted)
         self.assertFalse(result.trade_requested)
+        self.assertEqual(result.trade_request_reason, "auto trading disabled")
         self.assertEqual(deps.trades, [])
 
     def test_manual_confirmation_source_inserts_alert_without_trade_request(self):
@@ -139,6 +143,7 @@ class DiscordIngestionTests(unittest.TestCase):
         self.assertTrue(result.alert_inserted)
         self.assertFalse(result.trade_requested)
         self.assertEqual(result.skip_reason, "manual confirmation required")
+        self.assertEqual(result.trade_request_reason, "manual confirmation required")
         self.assertEqual(deps.alerts[0].ticker, "SPY")
         self.assertEqual(deps.trades, [])
 

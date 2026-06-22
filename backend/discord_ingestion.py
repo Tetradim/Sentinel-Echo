@@ -18,6 +18,8 @@ class DiscordIngestionResult:
     alert_inserted: bool = False
     trade_requested: bool = False
     skip_reason: str = ""
+    alert_id: str = ""
+    trade_request_reason: str = ""
 
 
 @dataclass
@@ -88,17 +90,24 @@ async def handle_discord_message(
 
     trade_requested = False
     skip_reason = ""
+    trade_request_reason = ""
     if source_config.get("require_manual_confirm"):
         skip_reason = "manual confirmation required"
+        trade_request_reason = "manual confirmation required"
     elif _auto_trading_enabled(settings):
         await deps.process_trade(alert, parsed)
         trade_requested = True
+        trade_request_reason = "auto trading enabled"
+    else:
+        trade_request_reason = _trade_request_disabled_reason(settings)
 
     return DiscordIngestionResult(
         parsed=parsed,
         alert_inserted=True,
         trade_requested=trade_requested,
         skip_reason=skip_reason,
+        alert_id=alert.id,
+        trade_request_reason=trade_request_reason,
     )
 
 
@@ -107,6 +116,12 @@ def _auto_trading_enabled(settings: dict) -> bool:
         settings.get("shutdown_triggered"),
         default=False,
     )
+
+
+def _trade_request_disabled_reason(settings: dict) -> str:
+    if coerce_bool(settings.get("shutdown_triggered"), default=False):
+        return "shutdown triggered"
+    return "auto trading disabled"
 
 
 def _same_user(left, right) -> bool:

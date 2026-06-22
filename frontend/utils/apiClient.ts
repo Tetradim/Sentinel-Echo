@@ -12,6 +12,7 @@ export const API_ROUTES = {
   liveDisarm: '/api/operator/live-disarm',
   panicStop: '/api/operator/panic-stop',
   reconciliation: '/api/operator/reconciliation',
+  alertChains: '/api/operator/alert-chains',
   brokerSwitch: '/api/broker/switch',
   brokerCheck: '/api/broker/check',
 } as const;
@@ -82,4 +83,8 @@ export function panicStop() {
 
 export function getReconciliation(limit = 100) {
   return api.get(`${API_ROUTES.reconciliation}?limit=${limit}`);
+}
+
+export function getAlertChains(limit = 100) {
+  return api.get(`${API_ROUTES.alertChains}?limit=${limit}`);
 }

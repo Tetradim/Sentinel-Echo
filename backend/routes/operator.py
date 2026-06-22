@@ -8,7 +8,7 @@ from live_arming import arm_live_trading, disarm_live_trading
 from live_readiness import evaluate_live_readiness
 from operator_audit import record_operator_event
 from readiness_status import readiness_ready_for_live, status_flag
-from reconciliation import build_reconciliation_rows, summarize_reconciliation_rows
+from reconciliation import build_alert_chain_report, build_reconciliation_rows, summarize_reconciliation_rows
 from routes.trading import create_test_alert_records
 from settings_flags import coerce_bool
 
@@ -210,3 +210,9 @@ async def panic_stop():
 async def get_reconciliation(limit: int = Query(default=100, ge=1, le=500)):
     """Return alert/trade/position reconciliation rows."""
     return await build_reconciliation_rows(db, limit=limit)
+
+
+@router.get("/operator/alert-chains")
+async def get_alert_chains(limit: int = Query(default=100, ge=1, le=500)):
+    """Return deterministic alert chain rows from bridge observation through reconciliation."""
+    return await build_alert_chain_report(db, limit=limit)

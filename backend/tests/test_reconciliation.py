@@ -9,6 +9,48 @@ sys.path.insert(0, str(BACKEND_DIR))
 
 
 class FakeReconciliationDb:
+    async def get_operator_events(self, limit=100):
+        return [
+            {
+                "id": "event-accepted",
+                "timestamp": "2026-06-22T14:26:00Z",
+                "action": "bridge_alert_decision",
+                "details": {
+                    "event_id": "bridge-accepted",
+                    "parsed": {"ticker": "SPY"},
+                    "decision": {
+                        "status": "accepted",
+                        "alert_inserted": True,
+                        "alert_id": "alert-1",
+                        "trade_requested": True,
+                        "trade_request_reason": "auto trading enabled",
+                    },
+                },
+            },
+            {
+                "id": "event-skipped",
+                "timestamp": "2026-06-22T14:23:00Z",
+                "action": "bridge_alert_decision",
+                "details": {
+                    "event_id": "bridge-skipped",
+                    "parsed": {"ticker": "QQQ"},
+                    "decision": {
+                        "status": "skipped",
+                        "alert_inserted": False,
+                        "alert_id": "",
+                        "trade_requested": False,
+                        "skip_reason": "parser confidence low below required medium",
+                    },
+                },
+            },
+            {
+                "id": "event-other",
+                "timestamp": "2026-06-22T14:20:00Z",
+                "action": "test_alert_created",
+                "details": {},
+            },
+        ]
+
     async def get_alerts(self, limit=100):
         return [
             {
@@ -51,6 +93,36 @@ class FakeReconciliationDb:
         ]
 
 
+class FakeSerializedDecisionDb:
+    async def get_alerts(self, limit=100):
+        return []
+
+    async def get_trades(self, limit=100):
+        return []
+
+    async def get_positions(self, status=None):
+        return []
+
+    async def get_operator_events(self, limit=100):
+        return [
+            {
+                "id": "event-string-bools",
+                "timestamp": "2026-06-22T14:23:00Z",
+                "action": "bridge_alert_decision",
+                "details": {
+                    "event_id": "bridge-string-bools",
+                    "parsed": {"ticker": "SPY"},
+                    "decision": {
+                        "status": "skipped",
+                        "alert_inserted": "false",
+                        "trade_requested": "false",
+                        "skip_reason": "source override required for chrome bridge",
+                    },
+                },
+            }
+        ]
+
+
 class ReconciliationTests(unittest.TestCase):
     def test_reconciliation_links_alert_trade_and_position(self):
         from reconciliation import build_reconciliation_rows
@@ -78,6 +150,46 @@ class ReconciliationTests(unittest.TestCase):
         self.assertEqual(summary["unresolved_count"], 1)
         self.assertEqual(summary["simulated_unresolved_count"], 1)
         self.assertEqual(summary["unresolved_reasons"], ["order pending fill"])
+
+    def test_alert_chain_report_includes_bridge_decisions_and_stored_alerts(self):
+        from reconciliation import build_alert_chain_report
+
+        report = asyncio.run(build_alert_chain_report(FakeReconciliationDb()))
+        by_key = {row["chain_key"]: row for row in report["rows"]}
+
+        self.assertEqual(report["summary"]["total"], 3)
+        self.assertEqual(report["summary"]["accepted_count"], 2)
+        self.assertEqual(report["summary"]["skipped_count"], 1)
+        self.assertEqual(report["summary"]["attention_count"], 2)
+        self.assertFalse(report["summary"]["deterministic"])
+
+        accepted = by_key["bridge:bridge-accepted"]
+        self.assertEqual(accepted["alert_id"], "alert-1")
+        self.assertEqual(accepted["trade_id"], "trade-1")
+        self.assertEqual(accepted["position_id"], "position-1")
+        self.assertEqual(accepted["status"], "attention")
+        self.assertEqual(accepted["attention_reason"], "order pending fill")
+
+        skipped = by_key["bridge:bridge-skipped"]
+        self.assertEqual(skipped["status"], "blocked")
+        self.assertTrue(skipped["deterministic"])
+        self.assertEqual(skipped["decision_reason"], "parser confidence low below required medium")
+
+        stored = by_key["alert:alert-2"]
+        self.assertEqual(stored["source"], "stored_alert")
+        self.assertEqual(stored["status"], "attention")
+        self.assertEqual(stored["attention_reason"], "processed alert has no trade")
+
+    def test_alert_chain_report_parses_serialized_bridge_decision_booleans(self):
+        from reconciliation import build_alert_chain_report
+
+        report = asyncio.run(build_alert_chain_report(FakeSerializedDecisionDb()))
+        row = report["rows"][0]
+
+        self.assertFalse(row["alert_inserted"])
+        self.assertFalse(row["trade_requested"])
+        self.assertEqual(report["summary"]["alert_inserted_count"], 0)
+        self.assertEqual(report["summary"]["trade_requested_count"], 0)
 
 
 if __name__ == "__main__":

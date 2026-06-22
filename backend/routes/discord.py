@@ -331,7 +331,9 @@ async def ingest_chrome_bridge_message(
             "status": "duplicate",
             "event_id": payload.event_id,
             "alert_inserted": False,
+            "alert_id": "",
             "trade_requested": False,
+            "trade_request_reason": "",
             "skip_reason": "duplicate bridge event",
         }
 
@@ -366,7 +368,9 @@ async def ingest_chrome_bridge_message(
         ingestion_result = {
             "status": "skipped",
             "alert_inserted": False,
+            "alert_id": "",
             "trade_requested": False,
+            "trade_request_reason": "",
             "skip_reason": preflight_skip_reason,
         }
         capture_path = record_alert_capture(
@@ -412,7 +416,9 @@ async def ingest_chrome_bridge_message(
             "parser_metadata": parser_metadata,
             "source_config": source_config,
             "alert_inserted": False,
+            "alert_id": "",
             "trade_requested": False,
+            "trade_request_reason": "",
             "skip_reason": preflight_skip_reason,
             "capture_path": str(capture_path),
             "bus_event_id": bus_event.event_id,
@@ -450,7 +456,9 @@ async def ingest_chrome_bridge_message(
     ingestion_result = {
         "status": "accepted" if result.alert_inserted else "skipped",
         "alert_inserted": result.alert_inserted,
+        "alert_id": result.alert_id,
         "trade_requested": result.trade_requested,
+        "trade_request_reason": result.trade_request_reason,
         "skip_reason": result.skip_reason,
     }
     capture_path = record_alert_capture(
@@ -497,7 +505,9 @@ async def ingest_chrome_bridge_message(
         "parser_metadata": parser_metadata,
         "source_config": source_config,
         "alert_inserted": result.alert_inserted,
+        "alert_id": result.alert_id,
         "trade_requested": result.trade_requested,
+        "trade_request_reason": result.trade_request_reason,
         "skip_reason": result.skip_reason,
         "capture_path": str(capture_path),
         "bus_event_id": bus_event.event_id,
