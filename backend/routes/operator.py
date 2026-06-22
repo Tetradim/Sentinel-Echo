@@ -7,6 +7,7 @@ from pydantic import BaseModel, Field
 from live_arming import arm_live_trading, disarm_live_trading
 from live_readiness import evaluate_live_readiness
 from operator_audit import record_operator_event
+from readiness_status import readiness_ready_for_live, status_flag
 from reconciliation import build_reconciliation_rows
 from routes.trading import create_test_alert_records
 from settings_flags import coerce_bool
@@ -49,7 +50,7 @@ async def _live_readiness_payload():
     settings = await db.get_settings()
     runtime = await db.get_runtime_state() if hasattr(db, "get_runtime_state") else {}
     status = dict(get_bot_status())
-    status["chrome_bridge_healthy"] = bool(evaluate_bridge_health().get("healthy", False))
+    status["chrome_bridge_healthy"] = status_flag(evaluate_bridge_health(), "healthy")
     return evaluate_live_readiness(settings, runtime, status=status)
 
 
@@ -117,7 +118,7 @@ async def get_live_readiness():
 async def live_arm(request: LiveArmRequest):
     """Arm live trading for a bounded runtime window after readiness passes."""
     readiness = _dict_or_empty(await _live_readiness_payload())
-    if not readiness.get("ready_for_live", False):
+    if not readiness_ready_for_live(readiness):
         await record_operator_event(
             db,
             "live_safety",

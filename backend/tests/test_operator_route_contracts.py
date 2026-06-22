@@ -262,6 +262,32 @@ class OperatorRouteContractTests(unittest.TestCase):
         self.assertEqual(fake_db.inserted_events[-1]["action"], "live_trading_arm_blocked")
         self.assertEqual(fake_db.inserted_events[-1]["details"]["blocking_issues"], [])
 
+    def test_operator_live_arm_blocks_serialized_false_readiness(self):
+        from fastapi import HTTPException
+        from routes import operator as operator_route
+
+        fake_db = FakeTradingDb()
+        operator_route.set_db(fake_db)
+
+        async def serialized_false_readiness():
+            return {"ready_for_live": "false", "blocking_issues": []}
+
+        original_readiness = operator_route._live_readiness_payload
+        operator_route._live_readiness_payload = serialized_false_readiness
+        try:
+            with self.assertRaises(HTTPException) as raised:
+                asyncio.run(
+                    operator_route.live_arm(
+                        operator_route.LiveArmRequest(confirmation="ARM LIVE TRADING")
+                    )
+                )
+        finally:
+            operator_route._live_readiness_payload = original_readiness
+
+        self.assertEqual(raised.exception.status_code, 409)
+        self.assertEqual(fake_db.runtime_updates, [])
+        self.assertEqual(fake_db.inserted_events[-1]["action"], "live_trading_arm_blocked")
+
     def test_operator_simulate_exit_sells_first_open_position_and_logs_event(self):
         from routes import operator as operator_route
         from routes import settings as settings_route

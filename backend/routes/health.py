@@ -13,6 +13,7 @@ from broker_capabilities import (
     normalize_broker_id,
 )
 from live_readiness import evaluate_live_readiness
+from readiness_status import readiness_ready_for_live, status_flag
 from settings_flags import coerce_bool
 from source_config import summarize_source_policy
 
@@ -60,7 +61,7 @@ def _readiness_status_snapshot() -> dict:
     from bridge_health import evaluate_bridge_health
 
     status = get_bot_status()
-    status["chrome_bridge_healthy"] = bool(evaluate_bridge_health().get("healthy", False))
+    status["chrome_bridge_healthy"] = status_flag(evaluate_bridge_health(), "healthy")
     return status
 
 
@@ -68,17 +69,17 @@ def _readiness_status_snapshot() -> dict:
 async def health():
     """FIXED M28: real health check"""
     status = _readiness_status_snapshot()
-    discord_ok = coerce_bool(status.get("discord_connected"), default=False)
+    discord_ok = status_flag(status, "discord_connected")
     if db:
         settings = await db.get_settings() or {}
         runtime = await db.get_runtime_state() if hasattr(db, "get_runtime_state") else {}
         readiness = evaluate_live_readiness(settings, runtime, status=status)
         signal_ingestion = readiness.get("checks", {}).get("signal_ingestion", {})
         broker = readiness.get("checks", {}).get("broker", {})
-        discord_ok = bool(signal_ingestion.get("discord_connected", False))
-        broker_ok = bool(broker.get("connected", False)) and bool(broker.get("configured", False))
+        discord_ok = status_flag(signal_ingestion, "discord_connected")
+        broker_ok = status_flag(broker, "connected") and status_flag(broker, "configured")
     else:
-        broker_ok = coerce_bool(status.get("broker_connected"), default=False)
+        broker_ok = status_flag(status, "broker_connected")
     return {
         "status": "healthy" if (discord_ok and broker_ok) else "degraded",
         "discord_connected": discord_ok,
@@ -104,7 +105,7 @@ async def get_status():
         signal_ingestion = readiness.get("checks", {}).get("signal_ingestion", {})
         status.update(
             {
-                "discord_connected": bool(signal_ingestion.get("discord_connected", False)),
+                "discord_connected": status_flag(signal_ingestion, "discord_connected"),
                 "active_broker": active_broker,
                 "auto_trading_enabled": coerce_bool(settings.get("auto_trading_enabled"), default=False),
                 "simulation_mode": coerce_bool(settings.get("simulation_mode"), default=True),
@@ -133,7 +134,7 @@ async def setup_diagnostics():
     missing_broker_fields = []
     if not broker_configured and broker_config_has_saved_value(active_broker_config):
         missing_broker_fields = list(missing_broker_config_fields(active_broker_config, active_broker))
-    broker_connected = broker_configured and coerce_bool(status.get("broker_connected"), default=False)
+    broker_connected = broker_configured and status_flag(status, "broker_connected")
     broker_capabilities = get_broker_capabilities(active_broker)
     order_status_supported = broker_configured and bool(
         broker_capabilities.get("supports_order_status", False)
@@ -166,14 +167,14 @@ async def setup_diagnostics():
         shutdown_triggered=shutdown_triggered,
     )
     warnings = _merge_readiness_warnings(warnings, readiness)
-    ready_for_live = bool(readiness.get("ready_for_live", False))
+    ready_for_live = readiness_ready_for_live(readiness)
     signal_ingestion = readiness.get("checks", {}).get("signal_ingestion", {})
 
     return {
         "ready_for_live": ready_for_live,
         "discord": {
             "token_configured": discord_token_configured,
-            "connected": bool(signal_ingestion.get("discord_connected", False)),
+            "connected": status_flag(signal_ingestion, "discord_connected"),
             "channel_count": int(signal_ingestion.get("discord_channel_count", len(channel_ids))),
             "message_content_intent_requested": True,
             "message_content_portal_check_required": True,
@@ -203,7 +204,7 @@ def _discord_token_configured(settings: dict, status: dict) -> bool:
     return (
         bool(str(settings.get("discord_token") or "").strip())
         or bool(os.environ.get("DISCORD_BOT_TOKEN", "").strip())
-        or coerce_bool(status.get("discord_token_configured"), default=False)
+        or status_flag(status, "discord_token_configured")
     )
 
 

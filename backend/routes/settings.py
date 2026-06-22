@@ -12,6 +12,7 @@ import logging
 import os
 from typing import Any, Dict, Optional
 from operator_audit import record_operator_event
+from readiness_status import readiness_ready_for_live
 from settings_flags import coerce_bool
 from source_config import normalize_source_overrides
 # C4: credential encryption at rest
@@ -56,10 +57,6 @@ def _list_or_empty(value: Any) -> list[Any]:
 
 def _dict_or_empty(value: Any) -> dict[str, Any]:
     return value if isinstance(value, dict) else {}
-
-
-def _readiness_ready_for_live(readiness: dict[str, Any]) -> bool:
-    return coerce_bool(readiness.get("ready_for_live"), default=False)
 
 
 def _settings_response(settings: Dict[str, Any] | None) -> Dict[str, Any]:
@@ -201,7 +198,7 @@ async def toggle_trading():
         candidate_settings["auto_trading_enabled"] = True
         runtime = await db.get_runtime_state() if hasattr(db, "get_runtime_state") else {}
         readiness = _dict_or_empty(evaluate_live_readiness(candidate_settings, runtime, status=get_bot_status()))
-        if not _readiness_ready_for_live(readiness):
+        if not readiness_ready_for_live(readiness):
             await record_operator_event(
                 db,
                 "live_safety",
@@ -471,7 +468,7 @@ async def reset_loss_counters(x_admin_key: Optional[str] = Header(default=None))
         candidate_settings["auto_trading_enabled"] = True
         runtime = await db.get_runtime_state() if hasattr(db, "get_runtime_state") else {}
         readiness = _dict_or_empty(evaluate_live_readiness(candidate_settings, runtime, status=get_bot_status()))
-        if not _readiness_ready_for_live(readiness):
+        if not readiness_ready_for_live(readiness):
             await record_operator_event(
                 db,
                 "live_safety",
