@@ -83,6 +83,17 @@ class SourceConfigTests(unittest.TestCase):
             "source disabled",
         )
 
+    def test_serialized_disabled_source_skips_every_alert(self):
+        from source_config import source_skip_reason
+
+        self.assertEqual(
+            source_skip_reason(
+                {"alert_type": "buy", "ticker": "SPY", "entry_price": 1.0},
+                {"enabled": "false"},
+            ),
+            "source disabled",
+        )
+
     def test_manual_confirmation_source_allows_insert_but_blocks_auto_request(self):
         from source_config import resolve_source_config, source_skip_reason
 

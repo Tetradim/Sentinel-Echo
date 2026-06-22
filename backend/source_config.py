@@ -193,7 +193,7 @@ def source_skip_reason(parsed_alert: Dict[str, Any], source_config: Dict[str, An
     if invalid_reason:
         return f"invalid source config: {invalid_reason}"
 
-    if not source_config.get("enabled", True):
+    if not _source_enabled(source_config.get("enabled", True)):
         return "source disabled"
 
     alert_type = str(parsed_alert.get("alert_type", "")).strip().lower()
@@ -297,6 +297,13 @@ def _optional_positive_float(value: Any) -> Optional[float]:
         return parsed if parsed > 0 else None
     except (TypeError, ValueError):
         return None
+
+
+def _source_enabled(value: Any) -> bool:
+    try:
+        return _bool_field(value, "enabled", default=True)
+    except ValueError:
+        return False
 
 
 def _positive_float(value: Any, *, default: float) -> float:
