@@ -26,6 +26,26 @@ Use this only for Discord channels you can personally view in Chrome when the no
 
 The popup includes a **Bot targets JSON** field. Each target can listen to all Discord channels or only specific channel URLs/IDs.
 
+All updated bots use the same endpoint suffixes:
+
+```text
+POST /api/discord/chrome-bridge/message
+POST /api/discord/chrome-bridge/heartbeat
+GET  /api/discord/chrome-bridge/health
+```
+
+Known local target roots:
+
+| Bot | Target root |
+| --- | --- |
+| Consolidation | `http://127.0.0.1:8003/api/discord/chrome-bridge` |
+| Simulation Engine | `http://127.0.0.1:9200/api/discord/chrome-bridge` |
+| Tandem Suite | `http://127.0.0.1:8005/api/discord/chrome-bridge` |
+| Sentinel Edge | `http://127.0.0.1:<edge-port>/api/discord/chrome-bridge` |
+| Sentinel Pulse | `http://127.0.0.1:<pulse-port>/api/discord/chrome-bridge` |
+| Auto-Crypto | `http://127.0.0.1:<auto-crypto-port>/api/discord/chrome-bridge` |
+| Darkpool Monitor | `http://127.0.0.1:<darkpool-port>/api/discord/chrome-bridge` |
+
 ```json
 [
   {

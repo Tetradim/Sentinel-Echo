@@ -92,6 +92,37 @@ class ChromeBridgeRouteTests(unittest.TestCase):
         self.assertTrue(pathlib.Path(result["capture_path"]).exists())
         self.assertTrue(result["bus_event_id"])
 
+    def test_chrome_bridge_message_preserves_target_and_channel_metadata(self):
+        from routes import discord as discord_route
+        import bot_event_bus
+
+        fake_db = FakeChromeBridgeDb({"auto_trading_enabled": False, "source_overrides": {}})
+        discord_route.set_db(fake_db)
+
+        request = types.SimpleNamespace(client=types.SimpleNamespace(host="127.0.0.1"))
+        payload = discord_route.ChromeBridgeMessage(
+            event_id="chrome-message-target-metadata",
+            channel_id="chrome-alerts",
+            channel_name="chrome-alerts",
+            channel_url="https://discord.com/channels/1/chrome-alerts",
+            bridge_target_id="consolidation",
+            bridge_target_name="Consolidation",
+            author_name="Analyst",
+            content="BTO SPY 500C 6/21 @ 1.25",
+            url="https://discord.com/channels/1/chrome-alerts/999",
+        )
+
+        result = asyncio.run(discord_route.ingest_chrome_bridge_message(payload, request))
+        events = bot_event_bus.event_bus.recent(event_type="signal.observed")
+
+        self.assertEqual(result["status"], "accepted")
+        self.assertEqual(result["channel_url"], "https://discord.com/channels/1/chrome-alerts")
+        self.assertEqual(result["bridge_target_id"], "consolidation")
+        self.assertEqual(events[0]["payload"]["channel_url"], "https://discord.com/channels/1/chrome-alerts")
+        self.assertEqual(events[0]["payload"]["bridge_target_id"], "consolidation")
+        self.assertEqual(events[0]["payload"]["bridge_target_name"], "Consolidation")
+        self.assertEqual(events[0]["payload"]["url"], "https://discord.com/channels/1/chrome-alerts/999")
+
     def test_chrome_bridge_message_treats_malformed_settings_as_safe_defaults(self):
         from routes import discord as discord_route
 

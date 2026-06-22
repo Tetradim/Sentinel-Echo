@@ -69,6 +69,7 @@ class ChromeBridgeMessage(BaseModel):
     event_id: str = Field(..., min_length=1, max_length=240)
     channel_id: str = Field(default="chrome-visible-discord", max_length=120)
     channel_name: str = Field(default="chrome-visible-discord", max_length=120)
+    channel_url: str | None = Field(default=None, max_length=2048)
     author_id: str | None = Field(default=None, max_length=120)
     author_name: str = Field(default="Discord Chrome", max_length=120)
     content: str = Field(default="", max_length=12000)
@@ -76,6 +77,8 @@ class ChromeBridgeMessage(BaseModel):
     url: str | None = Field(default=None, max_length=2048)
     observed_at: str | None = Field(default=None, max_length=80)
     source: str = Field(default="chrome-discord-bridge", max_length=80)
+    bridge_target_id: str | None = Field(default=None, max_length=120)
+    bridge_target_name: str | None = Field(default=None, max_length=120)
 
 
 class ChromeBridgeHeartbeat(BaseModel):
@@ -83,9 +86,13 @@ class ChromeBridgeHeartbeat(BaseModel):
     bridge_enabled: bool = False
     url: str | None = Field(default=None, max_length=2048)
     channel_id: str | None = Field(default=None, max_length=120)
+    channel_name: str | None = Field(default=None, max_length=120)
+    channel_url: str | None = Field(default=None, max_length=2048)
     observed_at: str | None = Field(default=None, max_length=80)
     last_forward_at: str | None = Field(default=None, max_length=80)
     last_forward_status: str | None = Field(default=None, max_length=120)
+    bridge_target_id: str | None = Field(default=None, max_length=120)
+    bridge_target_name: str | None = Field(default=None, max_length=120)
     details: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -311,6 +318,9 @@ async def ingest_chrome_bridge_message(
                 "source": payload.source,
                 "channel_id": payload.channel_id,
                 "channel_name": payload.channel_name,
+                "channel_url": payload.channel_url,
+                "bridge_target_id": payload.bridge_target_id,
+                "bridge_target_name": payload.bridge_target_name,
             },
             dedupe_key=f"chrome-discord:{payload.event_id}",
             target_bots=["consolidation", "sentinel-edge"],
@@ -377,9 +387,17 @@ async def ingest_chrome_bridge_message(
         "signal.observed",
         source_bot="chrome-discord-bridge",
         payload={
+            "contract_version": "chrome.discord.message.v1",
+            "event_id": payload.event_id,
             "source": payload.source,
             "channel_id": payload.channel_id,
             "channel_name": payload.channel_name,
+            "channel_url": payload.channel_url,
+            "url": payload.url,
+            "observed_at": payload.observed_at,
+            "bridge_target_id": payload.bridge_target_id,
+            "bridge_target_name": payload.bridge_target_name,
+            "author_id": payload.author_id,
             "author_name": payload.author_name,
             "raw_text": alert_text,
             "parsed": result.parsed,
@@ -397,6 +415,10 @@ async def ingest_chrome_bridge_message(
         "source": payload.source,
         "channel_id": payload.channel_id,
         "channel_name": payload.channel_name,
+        "channel_url": payload.channel_url,
+        "bridge_target_id": payload.bridge_target_id,
+        "bridge_target_name": payload.bridge_target_name,
+        "url": payload.url,
         "author_name": payload.author_name,
         "raw_text": alert_text,
         "parsed": result.parsed,
