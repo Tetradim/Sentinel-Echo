@@ -58,16 +58,6 @@ async def _live_readiness_payload():
     status["reconciliation_unresolved_reasons"] = reconciliation["unresolved_reasons"]
     status["alert_chain_attention_count"] = alert_chain_summary.get("attention_count", 0)
     status["alert_chain_attention_reasons"] = alert_chain_summary.get("attention_reasons", [])
-    for key in (
-        "simulation_replay_acceptance_status",
-        "simulation_replay_acceptance_expected_count",
-        "simulation_replay_acceptance_passed_count",
-        "simulation_replay_acceptance_failed_count",
-        "simulation_replay_acceptance_updated_at",
-        "simulation_replay_acceptance_replay_url",
-    ):
-        if key in runtime:
-            status[key] = runtime.get(key)
     return evaluate_live_readiness(settings, runtime, status=status)
 
 

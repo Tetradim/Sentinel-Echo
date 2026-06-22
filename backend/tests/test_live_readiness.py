@@ -34,6 +34,16 @@ READY_ENV = {
 }
 
 
+READY_REPLAY_STATUS = {
+    "simulation_replay_acceptance_status": "passed",
+    "simulation_replay_acceptance_expected_count": 4,
+    "simulation_replay_acceptance_passed_count": 4,
+    "simulation_replay_acceptance_failed_count": 0,
+    "simulation_replay_acceptance_updated_at": "2026-06-22T23:04:00Z",
+    "simulation_replay_acceptance_replay_url": "http://127.0.0.1:9200/api/consolidation/replay/events",
+}
+
+
 class LiveReadinessTests(unittest.TestCase):
     def test_ready_settings_pass_live_readiness(self):
         from live_readiness import evaluate_live_readiness
@@ -41,7 +51,7 @@ class LiveReadinessTests(unittest.TestCase):
         result = evaluate_live_readiness(
             READY_SETTINGS,
             {"shutdown_triggered": False},
-            status={"broker_connected": True, "discord_connected": True},
+            status={**READY_REPLAY_STATUS, "broker_connected": True, "discord_connected": True},
             env=READY_ENV,
         )
 
@@ -58,7 +68,7 @@ class LiveReadinessTests(unittest.TestCase):
         result = evaluate_live_readiness(
             settings,
             {"shutdown_triggered": False},
-            status={"broker_connected": True, "discord_connected": True},
+            status={**READY_REPLAY_STATUS, "broker_connected": True, "discord_connected": True},
             env=READY_ENV,
         )
 
@@ -516,6 +526,7 @@ class LiveReadinessTests(unittest.TestCase):
             READY_SETTINGS,
             {"shutdown_triggered": False},
             status={
+                **READY_REPLAY_STATUS,
                 "broker_connected": True,
                 "discord_connected": False,
                 "chrome_bridge_healthy": True,
@@ -599,6 +610,24 @@ class LiveReadinessTests(unittest.TestCase):
         self.assertEqual(result["checks"]["simulation_replay"]["acceptance_status"], "failed")
         self.assertEqual(result["checks"]["simulation_replay"]["failed_count"], 2)
         self.assertEqual(result["checks"]["simulation_replay"]["expected_count"], 4)
+
+    def test_live_readiness_blocks_missing_replay_acceptance_proof(self):
+        from live_readiness import evaluate_live_readiness
+
+        result = evaluate_live_readiness(
+            READY_SETTINGS,
+            {"shutdown_triggered": False},
+            status={
+                "broker_connected": True,
+                "discord_connected": False,
+                "chrome_bridge_healthy": True,
+            },
+            env=READY_ENV,
+        )
+
+        self.assertIn("simulation_replay_acceptance_missing", result["blocking_codes"])
+        self.assertFalse(result["ready_for_live"])
+        self.assertEqual(result["checks"]["simulation_replay"]["acceptance_status"], "not_provided")
 
 
 if __name__ == "__main__":

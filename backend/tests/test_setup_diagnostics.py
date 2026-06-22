@@ -10,15 +10,28 @@ BACKEND_DIR = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(BACKEND_DIR))
 
 
+REPLAY_READY_RUNTIME = {
+    "shutdown_triggered": False,
+    "shutdown_reason": "",
+    "simulation_replay_acceptance_status": "passed",
+    "simulation_replay_acceptance_expected_count": 4,
+    "simulation_replay_acceptance_passed_count": 4,
+    "simulation_replay_acceptance_failed_count": 0,
+    "simulation_replay_acceptance_updated_at": "2026-06-22T23:04:00Z",
+    "simulation_replay_acceptance_replay_url": "http://127.0.0.1:9200/api/consolidation/replay/events",
+}
+
+
 class FakeDiagnosticsDb:
-    def __init__(self, settings):
+    def __init__(self, settings, runtime_state=None):
         self.settings = settings
+        self.runtime_state = runtime_state or {"shutdown_triggered": False, "shutdown_reason": ""}
 
     async def get_settings(self):
         return dict(self.settings)
 
     async def get_runtime_state(self):
-        return {"shutdown_triggered": False, "shutdown_reason": ""}
+        return dict(self.runtime_state)
 
 
 class FakeRawDiagnosticsDb:
@@ -259,7 +272,8 @@ class SetupDiagnosticsTests(unittest.TestCase):
                     "simulation_mode": False,
                     "max_position_size": 1000.0,
                     "shutdown_triggered": False,
-                }
+                },
+                runtime_state=REPLAY_READY_RUNTIME,
             )
         )
 
@@ -305,7 +319,8 @@ class SetupDiagnosticsTests(unittest.TestCase):
                     "simulation_mode": False,
                     "max_position_size": 1000.0,
                     "shutdown_triggered": False,
-                }
+                },
+                runtime_state=REPLAY_READY_RUNTIME,
             )
         )
         health_route.update_bot_status("broker_connected", True)
@@ -356,7 +371,8 @@ class SetupDiagnosticsTests(unittest.TestCase):
                     "simulation_mode": False,
                     "max_position_size": 1000.0,
                     "shutdown_triggered": False,
-                }
+                },
+                runtime_state=REPLAY_READY_RUNTIME,
             )
         )
         health_route.update_bot_status("discord_connected", True)
@@ -806,7 +822,8 @@ class SetupDiagnosticsTests(unittest.TestCase):
                     "simulation_mode": False,
                     "max_position_size": 1000.0,
                     "shutdown_triggered": False,
-                }
+                },
+                runtime_state=REPLAY_READY_RUNTIME,
             )
         )
         health_route.update_bot_status("discord_connected", True)
