@@ -95,14 +95,14 @@ async def disarm_live_trading(
     reason: str = "manual disarm",
 ) -> Dict[str, Any]:
     """Clear runtime live arming."""
-    runtime = await db.update_runtime_state(
-        {
-            "live_trading_armed": False,
-            "live_trading_armed_until": "",
-            "live_trading_armed_by": operator,
-            "live_trading_arm_reason": reason,
-        }
-    )
+    runtime_updates = {
+        "live_trading_armed": False,
+        "live_trading_armed_until": "",
+        "live_trading_armed_by": operator,
+        "live_trading_arm_reason": reason,
+    }
+    runtime = await db.update_runtime_state(runtime_updates)
+    runtime = runtime if isinstance(runtime, dict) else runtime_updates
     await record_operator_event(
         db,
         "live_safety",

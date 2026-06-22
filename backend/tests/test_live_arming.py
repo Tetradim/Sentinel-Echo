@@ -31,6 +31,12 @@ class FakeArmDb:
         return event["id"]
 
 
+class FakeMalformedRuntimeUpdateDb(FakeArmDb):
+    async def update_runtime_state(self, updates):
+        self.runtime.update(updates)
+        return "runtime"
+
+
 class LiveArmingTests(unittest.TestCase):
     def test_default_runtime_state_is_unarmed(self):
         from database.abstraction import _default_runtime_state
@@ -79,6 +85,19 @@ class LiveArmingTests(unittest.TestCase):
         disarmed = asyncio.run(disarm_live_trading(db, operator="tester"))
 
         self.assertFalse(disarmed["live_trading_armed"])
+        self.assertEqual(db.events[-1]["action"], "live_trading_disarmed")
+
+    def test_disarm_live_trading_returns_requested_unarmed_state_when_update_response_is_malformed(self):
+        from live_arming import disarm_live_trading
+
+        db = FakeMalformedRuntimeUpdateDb()
+        db.runtime["live_trading_armed"] = True
+
+        disarmed = asyncio.run(disarm_live_trading(db, operator="tester"))
+
+        self.assertFalse(disarmed["live_trading_armed"])
+        self.assertEqual(disarmed["live_trading_armed_until"], "")
+        self.assertEqual(disarmed["live_trading_armed_by"], "tester")
         self.assertEqual(db.events[-1]["action"], "live_trading_disarmed")
 
 
