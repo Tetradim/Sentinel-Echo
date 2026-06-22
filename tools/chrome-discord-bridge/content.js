@@ -1,39 +1,42 @@
-const BRIDGE_LOG_PREFIX = "[Consolidation Bridge]";
+const BRIDGE_LOG_PREFIX = "[Discord Alert Bridge]";
+const STORAGE_DEFAULTS = {
+  enabled: false,
+  targetUrl: DEFAULT_MESSAGE_URL,
+  heartbeatUrl: DEFAULT_HEARTBEAT_URL,
+  apiKey: "",
+  targets: [],
+  forwardExistingOnEnable: false,
+};
 const observedIds = new Set();
 const observedOrder = [];
 const MAX_OBSERVED = 2000;
 
 let enabled = false;
 let forwardExistingOnEnable = false;
+let bridgeSettings = { ...STORAGE_DEFAULTS };
+let lastChannelUrl = "";
 let observer = null;
 let heartbeatTimer = null;
 
-chrome.storage.local.get({ enabled: false, forwardExistingOnEnable: false }, (settings) => {
-  enabled = Boolean(settings.enabled);
-  forwardExistingOnEnable = Boolean(settings.forwardExistingOnEnable);
+chrome.storage.local.get(STORAGE_DEFAULTS, (settings) => {
+  applySettings(settings);
   startObserver();
 });
 
 chrome.storage.onChanged.addListener((changes, areaName) => {
   if (areaName !== "local") return;
-  if (changes.forwardExistingOnEnable) {
-    forwardExistingOnEnable = Boolean(changes.forwardExistingOnEnable.newValue);
-  }
-  if (changes.enabled) {
-    enabled = Boolean(changes.enabled.newValue);
+  chrome.storage.local.get(STORAGE_DEFAULTS, (settings) => {
+    const wasEnabled = enabled;
+    applySettings(settings);
     publishHeartbeat();
-    if (enabled) {
-      if (forwardExistingOnEnable) {
-        scanVisibleMessages();
-      } else {
-        primeVisibleMessages();
-      }
+    if (enabled && (!wasEnabled || changes.targets || changes.targetUrl || changes.heartbeatUrl || changes.apiKey || changes.forwardExistingOnEnable)) {
+      prepareCurrentChannel(true);
     }
-  }
+  });
 });
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
-  if (!message || message.type !== "consolidation:bridge-ping") {
+  if (!message || (message.type !== "discord-bridge:bridge-ping" && message.type !== "consolidation:bridge-ping")) {
     return false;
   }
   if (message.restart) {
@@ -46,10 +49,18 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     enabled,
     observer_ready: Boolean(observer),
     heartbeat_running: Boolean(heartbeatTimer),
+    matching_target: isCurrentChannelEnabled(),
     channel_id: channelIdFromLocation(),
+    channel_url: channelUrlFromLocation(),
   });
   return false;
 });
+
+function applySettings(settings) {
+  bridgeSettings = { ...STORAGE_DEFAULTS, ...settings };
+  enabled = Boolean(bridgeSettings.enabled);
+  forwardExistingOnEnable = Boolean(bridgeSettings.forwardExistingOnEnable);
+}
 
 function startObserver() {
   if (observer) return;
@@ -59,6 +70,11 @@ function startObserver() {
   }
   observer = new MutationObserver((records) => {
     if (!enabled) return;
+    if (refreshChannelState()) {
+      prepareCurrentChannel(true);
+      return;
+    }
+    if (!isCurrentChannelEnabled()) return;
     for (const record of records) {
       for (const node of record.addedNodes) {
         if (node.nodeType === Node.ELEMENT_NODE) {
@@ -68,11 +84,7 @@ function startObserver() {
     }
   });
   observer.observe(document.body, { childList: true, subtree: true });
-  if (enabled && forwardExistingOnEnable) {
-    scanVisibleMessages();
-  } else {
-    primeVisibleMessages();
-  }
+  prepareCurrentChannel(true);
   console.info(BRIDGE_LOG_PREFIX, "observer ready");
   startHeartbeat();
 }
@@ -90,6 +102,32 @@ function restartObserver() {
   publishHeartbeat("ok", { reason: "content_script_restart" });
 }
 
+function isCurrentChannelEnabled() {
+  return enabled && targetsForDiscordChannel(bridgeSettings, location.href, channelIdFromLocation()).length > 0;
+}
+
+function prepareCurrentChannel(force = false) {
+  if (!enabled) return;
+  const changed = refreshChannelState(force);
+  if (!changed && !force) return;
+  if (!isCurrentChannelEnabled()) {
+    publishHeartbeat("no_matching_target", { channel_url: channelUrlFromLocation() });
+    return;
+  }
+  if (forwardExistingOnEnable) {
+    scanVisibleMessages();
+  } else {
+    primeVisibleMessages();
+  }
+}
+
+function refreshChannelState(force = false) {
+  const current = channelUrlFromLocation();
+  if (!force && current === lastChannelUrl) return false;
+  lastChannelUrl = current;
+  return true;
+}
+
 function startHeartbeat() {
   if (heartbeatTimer) return;
   publishHeartbeat();
@@ -101,12 +139,14 @@ function publishHeartbeat(status = "ok", details = {}) {
     { lastForwardAt: "", lastForwardStatus: "" },
     (settings) => {
       chrome.runtime.sendMessage({
-        type: "consolidation:bridge-heartbeat",
+        type: "discord-bridge:bridge-heartbeat",
         payload: {
           status,
           bridge_enabled: enabled,
           url: location.href,
           channel_id: channelIdFromLocation(),
+          channel_url: channelUrlFromLocation(),
+          channel_name: channelNameFromPage(),
           observed_at: new Date().toISOString(),
           last_forward_at: settings.lastForwardAt || "",
           last_forward_status: settings.lastForwardStatus || "",
@@ -118,6 +158,7 @@ function publishHeartbeat(status = "ok", details = {}) {
 }
 
 function primeVisibleMessages() {
+  if (!isCurrentChannelEnabled()) return;
   for (const node of document.querySelectorAll(messageSelector())) {
     const eventId = stableEventId(node);
     if (eventId) rememberSeen(eventId);
@@ -125,13 +166,14 @@ function primeVisibleMessages() {
 }
 
 function scanVisibleMessages() {
-  if (!enabled) return;
+  if (!isCurrentChannelEnabled()) return;
   for (const node of document.querySelectorAll(messageSelector())) {
     captureMessage(node);
   }
 }
 
 function scanNode(node) {
+  if (!isCurrentChannelEnabled()) return;
   if (node.matches && node.matches(messageSelector())) {
     captureMessage(node);
   }
@@ -147,6 +189,7 @@ function messageSelector() {
 }
 
 function captureMessage(node) {
+  if (!isCurrentChannelEnabled()) return;
   const eventId = stableEventId(node);
   if (!eventId || rememberSeen(eventId)) return;
 
@@ -159,13 +202,14 @@ function captureMessage(node) {
     content: contentFromNode(node),
     embeds: embedsFromNode(node),
     url: location.href,
+    channel_url: channelUrlFromLocation(),
     observed_at: new Date().toISOString(),
     source: "chrome-discord-bridge",
   };
 
   if (!payload.content && payload.embeds.length === 0) return;
 
-  chrome.runtime.sendMessage({ type: "consolidation:discord-message", payload }, (response) => {
+  chrome.runtime.sendMessage({ type: "discord-bridge:discord-message", payload }, (response) => {
     if (chrome.runtime.lastError) {
       console.warn(BRIDGE_LOG_PREFIX, chrome.runtime.lastError.message);
       publishHeartbeat("forward_error", { error: chrome.runtime.lastError.message });
@@ -202,8 +246,11 @@ function rememberSeen(eventId) {
 }
 
 function channelIdFromLocation() {
-  const match = location.pathname.match(/\/channels\/(?:@me|\d+)\/(\d+)/);
-  return match ? match[1] : "chrome-visible-discord";
+  return channelIdFromDiscordUrl(location.href) || "chrome-visible-discord";
+}
+
+function channelUrlFromLocation() {
+  return canonicalDiscordChannelUrl(location.href) || location.href;
 }
 
 function channelNameFromPage() {

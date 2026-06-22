@@ -1,8 +1,11 @@
+importScripts("bridge_config.js");
+
 const DEFAULTS = {
   enabled: false,
-  targetUrl: "http://127.0.0.1:8003/api/discord/chrome-bridge/message",
-  heartbeatUrl: "http://127.0.0.1:8003/api/discord/chrome-bridge/heartbeat",
+  targetUrl: DEFAULT_MESSAGE_URL,
+  heartbeatUrl: DEFAULT_HEARTBEAT_URL,
   apiKey: "",
+  targets: [],
   forwardExistingOnEnable: false,
   autoRestartEnabled: true,
   bridgeRestartAttempt: 0,
@@ -46,14 +49,14 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return false;
   }
 
-  if (message.type === "consolidation:discord-message") {
+  if (message.type === "discord-bridge:discord-message" || message.type === "consolidation:discord-message") {
     forwardObservedMessage(message.payload)
       .then((result) => sendResponse({ ok: true, result }))
       .catch((error) => sendResponse({ ok: false, error: String(error && error.message ? error.message : error) }));
     return true;
   }
 
-  if (message.type === "consolidation:bridge-heartbeat") {
+  if (message.type === "discord-bridge:bridge-heartbeat" || message.type === "consolidation:bridge-heartbeat") {
     forwardHeartbeat(message.payload)
       .then((result) => sendResponse({ ok: true, result }))
       .catch((error) => sendResponse({ ok: false, error: String(error && error.message ? error.message : error) }));
@@ -65,7 +68,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
 chrome.storage.onChanged.addListener((changes, areaName) => {
   if (areaName !== "local") return;
-  if (changes.enabled || changes.autoRestartEnabled) {
+  if (changes.enabled || changes.autoRestartEnabled || changes.targets || changes.targetUrl || changes.heartbeatUrl || changes.apiKey) {
     ensureBridgeAlarms();
     superviseDiscordTabs("settings_changed");
   }
@@ -99,14 +102,20 @@ async function superviseDiscordTabs(reason = "supervisor") {
 
   try {
     const tabs = await queryDiscordTabs();
-    if (tabs.length === 0) {
-      await publishServiceWorkerHeartbeat("no_discord_tabs", { reason });
-      await scheduleRestartRetry("no Discord tabs are open");
+    const matchingTabs = tabs.filter((tab) => targetsForDiscordChannel(settings, tab.url || "").length > 0);
+    if (matchingTabs.length === 0) {
+      const status = tabs.length === 0 ? "no_discord_tabs" : "no_matching_discord_tabs";
+      await publishServiceWorkerHeartbeat(status, {
+        reason,
+        discord_tabs: tabs.length,
+        configured_targets: enabledBridgeTargets(settings).length,
+      });
+      await scheduleRestartRetry(tabs.length === 0 ? "no Discord tabs are open" : "no matching Discord channel tabs are open");
       return;
     }
 
     const results = [];
-    for (const tab of tabs) {
+    for (const tab of matchingTabs) {
       results.push(await ensureBridgeContentScript(tab.id));
     }
 
@@ -121,7 +130,7 @@ async function superviseDiscordTabs(reason = "supervisor") {
     }
 
     await resetRestartBackoff("content script healthy");
-    await publishServiceWorkerHeartbeat("ok", {
+      await publishServiceWorkerHeartbeat("ok", {
       reason,
       supervised_tabs: results.length,
       restarted_tabs: results.filter((result) => result.restarted).length,
@@ -155,7 +164,7 @@ function pingContentScript(tabId, restart = false) {
   return new Promise((resolve) => {
     chrome.tabs.sendMessage(
       tabId,
-      { type: "consolidation:bridge-ping", restart },
+      { type: "discord-bridge:bridge-ping", restart },
       (response) => {
         if (chrome.runtime.lastError) {
           resolve({ ok: false, error: chrome.runtime.lastError.message });
@@ -172,7 +181,7 @@ function executeContentScript(tabId) {
     chrome.scripting.executeScript(
       {
         target: { tabId },
-        files: ["content.js"],
+        files: ["bridge_config.js", "content.js"],
       },
       () => {
         if (chrome.runtime.lastError) {
@@ -236,42 +245,36 @@ async function buildServiceWorkerHeartbeat(status, details) {
     observed_at: new Date().toISOString(),
     last_forward_at: settings.lastForwardAt || "",
     last_forward_status: settings.lastForwardStatus || "",
-    details: { source: "service_worker", ...details },
+    details: {
+      source: "service_worker",
+      targets: enabledBridgeTargets(settings).map((target) => ({
+        id: target.id,
+        name: target.name,
+        messageUrl: target.messageUrl,
+      })),
+      ...details,
+    },
   };
 }
 
 async function forwardHeartbeat(payload) {
   const settings = await getSettings();
-  const headers = { "Content-Type": "application/json" };
-  if (settings.apiKey) {
-    headers["X-API-Key"] = settings.apiKey;
+  const targets = targetsForPayload(settings, payload);
+  if (targets.length === 0) {
+    await chrome.storage.local.set({
+      lastHeartbeatStatus: "no_matching_target",
+      lastHeartbeatAt: new Date().toISOString(),
+    });
+    return { status: "skipped", skip_reason: "no matching bridge target" };
   }
 
-  const response = await fetch(settings.heartbeatUrl || heartbeatUrlFor(settings.targetUrl), {
-    method: "POST",
-    headers,
-    body: JSON.stringify(payload),
-  });
-
-  const text = await response.text();
-  let body = {};
-  if (text) {
-    try {
-      body = JSON.parse(text);
-    } catch {
-      body = { text };
-    }
-  }
-
-  if (!response.ok) {
-    throw new Error(body.detail || body.text || `Heartbeat request failed with HTTP ${response.status}`);
-  }
-
+  const results = await forwardPayloadToTargets(targets, payload, "heartbeat");
   await chrome.storage.local.set({
-    lastHeartbeatStatus: body.status || "healthy",
+    lastHeartbeatStatus: results.status,
     lastHeartbeatAt: new Date().toISOString(),
+    lastHeartbeatTargets: results.targets,
   });
-  return body;
+  return results;
 }
 
 async function forwardObservedMessage(payload) {
@@ -280,22 +283,82 @@ async function forwardObservedMessage(payload) {
     return { status: "disabled" };
   }
 
-  const headers = { "Content-Type": "application/json" };
-  if (settings.apiKey) {
-    headers["X-API-Key"] = settings.apiKey;
+  const targets = targetsForPayload(settings, payload);
+  if (targets.length === 0) {
+    await chrome.storage.local.set({
+      lastForwardStatus: "no_matching_target",
+      lastForwardAt: new Date().toISOString(),
+      lastForwardEventId: payload.event_id,
+    });
+    return { status: "skipped", skip_reason: "no matching bridge target" };
   }
 
-  let response;
   try {
-    response = await fetch(settings.targetUrl, {
-      method: "POST",
-      headers,
-      body: JSON.stringify(payload),
+    const result = await forwardPayloadToTargets(targets, payload, "message");
+    await chrome.storage.local.set({
+      lastForwardStatus: result.status,
+      lastForwardAt: new Date().toISOString(),
+      lastForwardEventId: payload.event_id,
+      lastForwardTargets: result.targets,
     });
+    if (result.failures.length > 0) {
+      await scheduleRestartRetry(`message forward partially failed: ${result.failures[0].error}`);
+    }
+    return result;
   } catch (error) {
     await scheduleRestartRetry(`message forward failed: ${errorMessage(error)}`);
     throw error;
   }
+}
+
+async function forwardPayloadToTargets(targets, payload, kind) {
+  const successes = [];
+  const failures = [];
+  for (const target of targets) {
+    try {
+      const body = await forwardPayloadToTarget(target, payload, kind);
+      successes.push({
+        id: target.id,
+        name: target.name,
+        status: body.status || (kind === "heartbeat" ? "healthy" : "accepted"),
+        body,
+      });
+    } catch (error) {
+      failures.push({
+        id: target.id,
+        name: target.name,
+        error: errorMessage(error),
+      });
+    }
+  }
+
+  if (successes.length === 0 && failures.length > 0) {
+    throw new Error(failures.map((failure) => `${failure.name}: ${failure.error}`).join("; "));
+  }
+
+  return {
+    status: failures.length > 0 ? "partial" : (kind === "heartbeat" ? "healthy" : "accepted"),
+    targets: successes,
+    failures,
+  };
+}
+
+async function forwardPayloadToTarget(target, payload, kind) {
+  const headers = { "Content-Type": "application/json" };
+  if (target.apiKey) {
+    headers["X-API-Key"] = target.apiKey;
+  }
+
+  const url = kind === "heartbeat" ? target.heartbeatUrl || heartbeatUrlFor(target.messageUrl) : target.messageUrl;
+  const response = await fetch(url, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({
+      ...payload,
+      bridge_target_id: target.id,
+      bridge_target_name: target.name,
+    }),
+  });
 
   const text = await response.text();
   let body = {};
@@ -308,16 +371,17 @@ async function forwardObservedMessage(payload) {
   }
 
   if (!response.ok) {
-    await scheduleRestartRetry(body.detail || body.text || `Bridge request failed with HTTP ${response.status}`);
-    throw new Error(body.detail || body.text || `Bridge request failed with HTTP ${response.status}`);
+    throw new Error(body.detail || body.text || `${kind} request failed with HTTP ${response.status}`);
   }
 
-  await chrome.storage.local.set({
-    lastForwardStatus: body.status || "accepted",
-    lastForwardAt: new Date().toISOString(),
-    lastForwardEventId: payload.event_id,
-  });
   return body;
+}
+
+function targetsForPayload(settings, payload) {
+  if (payload && canonicalDiscordChannelUrl(payload.url || "")) {
+    return targetsForDiscordChannel(settings, payload.url, payload.channel_id);
+  }
+  return enabledBridgeTargets(settings);
 }
 
 function getSettings() {

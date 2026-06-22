@@ -29,13 +29,21 @@ label {
 }
 
 input[type="url"],
-input[type="password"] {
+input[type="password"],
+textarea {
   width: 100%;
   box-sizing: border-box;
   border: 1px solid #cbd5e1;
   border-radius: 6px;
   padding: 8px;
   font: inherit;
+}
+
+textarea {
+  min-height: 190px;
+  resize: vertical;
+  font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
+  font-size: 12px;
 }
 
 button {

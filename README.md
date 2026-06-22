@@ -272,7 +272,7 @@ The fallback is used by automatic backend startup and by the `/api/discord/start
 
 Use this only when the normal Discord bot cannot be invited to a private server but you can personally view the alert channel in Discord Web.
 
-The bridge lives here:
+The reusable local bridge lives here:
 
 ```text
 tools\chrome-discord-bridge
@@ -288,7 +288,7 @@ Install it as an unpacked Chrome extension:
 6. Open Discord Web in Chrome.
 7. Click the extension icon and enable forwarding.
 
-Default target:
+Default Consolidation target:
 
 ```text
 POST http://127.0.0.1:8003/api/discord/chrome-bridge/message
@@ -303,6 +303,33 @@ The backend endpoint:
 - applies the same parser, source policy, auto-trading, simulation, and manual-confirm controls as normal Discord intake
 
 The extension defaults to future messages only when enabled. It can forward already-visible messages only when you explicitly enable that popup option. The bridge does not use a Discord user token and does not post into the private server. It can only see messages currently rendered in Chrome, so keep it for local testing and operator-supervised workflows.
+
+The extension can forward the same observed alert to multiple local bots. Use the popup's **Bot targets JSON** field:
+
+```json
+[
+  {
+    "id": "consolidation",
+    "name": "Consolidation",
+    "enabled": true,
+    "messageUrl": "http://127.0.0.1:8003/api/discord/chrome-bridge/message",
+    "heartbeatUrl": "http://127.0.0.1:8003/api/discord/chrome-bridge/heartbeat",
+    "allowedChannelUrls": [
+      "https://discord.com/channels/111111111111111111/222222222222222222"
+    ]
+  },
+  {
+    "id": "sentinel-edge",
+    "name": "Sentinel Edge",
+    "enabled": true,
+    "messageUrl": "http://127.0.0.1:8010/api/discord/chrome-bridge/message",
+    "heartbeatUrl": "http://127.0.0.1:8010/api/discord/chrome-bridge/heartbeat",
+    "allowedChannelIds": ["333333333333333333"]
+  }
+]
+```
+
+Use Discord channel URLs from the browser address bar. The bridge normalizes message URLs down to the channel URL and only captures a channel when at least one enabled target matches it. If a target has no channel filters, it receives every observed Discord channel.
 
 Optional settings:
 

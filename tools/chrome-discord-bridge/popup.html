@@ -2,7 +2,7 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <title>Consolidation Bridge</title>
+    <title>Discord Alert Bridge</title>
     <link rel="stylesheet" href="popup.css" />
   </head>
   <body>
@@ -19,12 +19,12 @@
       </label>
 
       <label>
-        Target URL
+        First target message URL
         <input id="targetUrl" type="url" />
       </label>
 
       <label>
-        Health URL
+        First target health URL
         <input id="heartbeatUrl" type="url" />
       </label>
 
@@ -33,9 +33,15 @@
         <input id="apiKey" type="password" autocomplete="off" />
       </label>
 
+      <label>
+        Bot targets JSON
+        <textarea id="targetsJson" rows="12" spellcheck="false"></textarea>
+      </label>
+
       <button id="save" type="button">Save</button>
       <p id="status"></p>
     </main>
+    <script src="bridge_config.js"></script>
     <script src="popup.js"></script>
   </body>
 </html>

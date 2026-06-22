@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "Consolidation Discord Chrome Bridge",
-  "description": "Observes visible Discord messages in Chrome and forwards them to a local Consolidation backend.",
-  "version": "0.1.1",
+  "name": "Local Discord Alert Bridge",
+  "description": "Observes selected Discord Web channels in Chrome and forwards visible alert messages to local trading bots.",
+  "version": "0.2.0",
   "permissions": ["storage", "alarms", "scripting", "tabs"],
   "host_permissions": [
     "https://discord.com/*",
@@ -16,12 +16,12 @@
   "content_scripts": [
     {
       "matches": ["https://discord.com/*", "https://*.discord.com/*"],
-      "js": ["content.js"],
+      "js": ["bridge_config.js", "content.js"],
       "run_at": "document_idle"
     }
   ],
   "action": {
-    "default_title": "Consolidation Bridge",
+    "default_title": "Discord Alert Bridge",
     "default_popup": "popup.html"
   }
 }
