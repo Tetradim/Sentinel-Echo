@@ -45,7 +45,7 @@ def _dict_or_empty(value: Any) -> dict[str, Any]:
 
 def _settings_response(settings: Dict[str, Any] | None) -> Dict[str, Any]:
     """Return settings safe for API clients: no plaintext broker credentials."""
-    if not settings:
+    if not isinstance(settings, dict) or not settings:
         settings = Settings().model_dump()
     response = dict(settings)
     if response.get("broker_configs"):

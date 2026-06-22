@@ -51,6 +51,18 @@ class FakeRawSettingsDb(FakeSettingsDb):
 
 
 class SourceOverrideRouteTests(unittest.TestCase):
+    def test_get_settings_treats_malformed_settings_as_defaults(self):
+        from routes import settings as settings_route
+
+        fake_db = FakeRawSettingsDb("settings")
+        settings_route.set_db(fake_db)
+
+        response = asyncio.run(settings_route.get_settings())
+
+        self.assertIsInstance(response, dict)
+        self.assertFalse(response["auto_trading_enabled"])
+        self.assertTrue(response["simulation_mode"])
+
     def test_update_premium_buffer_settings_persists_enabled_flag_and_amount(self):
         from routes import settings as settings_route
 
