@@ -575,6 +575,31 @@ class LiveReadinessTests(unittest.TestCase):
             ["accepted bridge alert missing alert id"],
         )
 
+    def test_live_readiness_blocks_failed_replay_acceptance(self):
+        from live_readiness import evaluate_live_readiness
+
+        result = evaluate_live_readiness(
+            READY_SETTINGS,
+            {"shutdown_triggered": False},
+            status={
+                "broker_connected": True,
+                "discord_connected": False,
+                "chrome_bridge_healthy": True,
+                "simulation_replay_acceptance_status": "failed",
+                "simulation_replay_acceptance_failed_count": "2",
+                "simulation_replay_acceptance_expected_count": "4",
+                "simulation_replay_acceptance_updated_at": "2026-06-22T22:52:00Z",
+                "simulation_replay_acceptance_replay_url": "http://127.0.0.1:9200/api/consolidation/replay/events",
+            },
+            env=READY_ENV,
+        )
+
+        self.assertIn("simulation_replay_acceptance_failed", result["blocking_codes"])
+        self.assertFalse(result["ready_for_live"])
+        self.assertEqual(result["checks"]["simulation_replay"]["acceptance_status"], "failed")
+        self.assertEqual(result["checks"]["simulation_replay"]["failed_count"], 2)
+        self.assertEqual(result["checks"]["simulation_replay"]["expected_count"], 4)
+
 
 if __name__ == "__main__":
     unittest.main()

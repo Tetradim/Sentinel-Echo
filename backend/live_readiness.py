@@ -138,6 +138,12 @@ def evaluate_live_readiness(
     reconciliation_unresolved_reasons = _list_of_strings(status.get("reconciliation_unresolved_reasons"))
     alert_chain_attention_count = _nonnegative_int(status.get("alert_chain_attention_count"))
     alert_chain_attention_reasons = _list_of_strings(status.get("alert_chain_attention_reasons"))
+    replay_acceptance_status = str(status.get("simulation_replay_acceptance_status") or "not_provided").strip().lower()
+    replay_acceptance_expected_count = _nonnegative_int(status.get("simulation_replay_acceptance_expected_count"))
+    replay_acceptance_passed_count = _nonnegative_int(status.get("simulation_replay_acceptance_passed_count"))
+    replay_acceptance_failed_count = _nonnegative_int(status.get("simulation_replay_acceptance_failed_count"))
+    replay_acceptance_updated_at = str(status.get("simulation_replay_acceptance_updated_at") or "").strip()
+    replay_acceptance_replay_url = str(status.get("simulation_replay_acceptance_replay_url") or "").strip()
 
     if not _env_value(env, "API_KEY") and not _authless_desktop_mode(env):
         blocking.append(_issue("api_key_missing", "API_KEY is required before exposing live trading controls."))
@@ -200,6 +206,13 @@ def evaluate_live_readiness(
                 "Alert chain report has nondeterministic attention items.",
             )
         )
+    if replay_acceptance_status == "failed" or replay_acceptance_failed_count > 0:
+        blocking.append(
+            _issue(
+                "simulation_replay_acceptance_failed",
+                "Simulation replay acceptance has failed expected alert outcomes.",
+            )
+        )
 
     checks = {
         "api_auth": {"configured": bool(_env_value(env, "API_KEY")), "authless_desktop_mode": _authless_desktop_mode(env)},
@@ -236,6 +249,14 @@ def evaluate_live_readiness(
         "alert_chains": {
             "attention_count": alert_chain_attention_count,
             "attention_reasons": alert_chain_attention_reasons,
+        },
+        "simulation_replay": {
+            "acceptance_status": replay_acceptance_status,
+            "expected_count": replay_acceptance_expected_count,
+            "passed_count": replay_acceptance_passed_count,
+            "failed_count": replay_acceptance_failed_count,
+            "updated_at": replay_acceptance_updated_at,
+            "replay_url": replay_acceptance_replay_url,
         },
     }
 

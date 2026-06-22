@@ -68,6 +68,7 @@ class FakeTradingDb:
         self.position_updates = []
         self.settings_updates = []
         self.runtime_updates = []
+        self.runtime_state = {}
 
     async def get_trades(self, limit=50):
         return [dict(self.trade)]
@@ -120,7 +121,11 @@ class FakeTradingDb:
 
     async def update_runtime_state(self, update):
         self.runtime_updates.append(update)
+        self.runtime_state.update(update)
         return dict(update)
+
+    async def get_runtime_state(self):
+        return dict(self.runtime_state)
 
     async def get_settings(self):
         return {
@@ -287,6 +292,25 @@ class OperatorRouteContractTests(unittest.TestCase):
 
         self.assertIn("alert_chain_attention", response["blocking_codes"])
         self.assertEqual(response["checks"]["alert_chains"]["attention_count"], 1)
+
+    def test_operator_live_readiness_payload_injects_cached_replay_acceptance(self):
+        from routes import operator as operator_route
+
+        fake_db = FakeTradingDb()
+        fake_db.runtime_state.update(
+            {
+                "simulation_replay_acceptance_status": "failed",
+                "simulation_replay_acceptance_failed_count": 1,
+                "simulation_replay_acceptance_expected_count": 3,
+            }
+        )
+        operator_route.set_db(fake_db)
+
+        response = asyncio.run(operator_route._live_readiness_payload())
+
+        self.assertIn("simulation_replay_acceptance_failed", response["blocking_codes"])
+        self.assertEqual(response["checks"]["simulation_replay"]["acceptance_status"], "failed")
+        self.assertEqual(response["checks"]["simulation_replay"]["failed_count"], 1)
 
     def test_operator_live_arm_block_audit_normalizes_malformed_blocking_issues(self):
         from fastapi import HTTPException

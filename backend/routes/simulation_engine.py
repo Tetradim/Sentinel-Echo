@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from typing import Any
 
 from fastapi import APIRouter, Body, HTTPException
@@ -49,4 +50,16 @@ async def preview_simulation_engine_replay(body: dict[str, Any] = Body(default_f
 
     preview = build_replay_preview(replay, settings or {})
     preview["replay_url"] = normalize_replay_url(body.get("replay_url"))
+    if db and hasattr(db, "update_runtime_state"):
+        acceptance = preview.get("acceptance") if isinstance(preview.get("acceptance"), dict) else {}
+        await db.update_runtime_state(
+            {
+                "simulation_replay_acceptance_status": str(acceptance.get("status") or "not_provided"),
+                "simulation_replay_acceptance_expected_count": int(acceptance.get("expected_count") or 0),
+                "simulation_replay_acceptance_passed_count": int(acceptance.get("passed_count") or 0),
+                "simulation_replay_acceptance_failed_count": int(acceptance.get("failed_count") or 0),
+                "simulation_replay_acceptance_updated_at": datetime.now(timezone.utc).isoformat(),
+                "simulation_replay_acceptance_replay_url": preview["replay_url"],
+            }
+        )
     return preview
