@@ -155,6 +155,47 @@ class SourceOverrideRouteTests(unittest.TestCase):
             },
         )
 
+    def test_update_settings_handles_malformed_existing_broker_configs(self):
+        from models import SettingsUpdate
+        from routes import settings as settings_route
+
+        fake_db = FakeRawSettingsDb("settings")
+        settings_route.set_db(fake_db)
+
+        response = asyncio.run(
+            settings_route.update_settings(
+                SettingsUpdate(
+                    broker_configs={
+                        "alpaca": {
+                            "api_key": "new-key",
+                            "api_secret": "new-secret",
+                            "account_id": "paper-1",
+                        }
+                    }
+                )
+            )
+        )
+
+        self.assertEqual(
+            fake_db.updated[0]["broker_configs"],
+            {
+                "alpaca": {
+                    "api_key": "new-key",
+                    "api_secret": "new-secret",
+                    "account_id": "paper-1",
+                }
+            },
+        )
+        self.assertEqual(
+            response["broker_configs"]["alpaca"],
+            {
+                "api_key": "********",
+                "api_secret": "********",
+                "account_id": "paper-1",
+                "configured_fields": {"api_key": True, "api_secret": True},
+            },
+        )
+
     def test_correlation_settings_round_trip_on_active_settings_route(self):
         from routes import settings as settings_route
 

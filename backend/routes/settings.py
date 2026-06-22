@@ -88,7 +88,7 @@ async def update_settings(update: SettingsUpdate):
     update_dict = {k: v for k, v in update.model_dump().items() if v is not None}
     # C4: broker screens save one config at a time, so merge before encryption.
     if 'broker_configs' in update_dict:
-        existing_settings = await db.get_settings() or {}
+        existing_settings = _dict_or_empty(await db.get_settings())
         existing_configs = decrypt_broker_configs(existing_settings.get('broker_configs', {}))
         merged_configs = _merge_broker_configs(existing_configs, update_dict['broker_configs'])
         update_dict['broker_configs'] = encrypt_broker_configs(merged_configs)
