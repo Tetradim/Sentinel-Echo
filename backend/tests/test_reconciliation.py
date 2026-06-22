@@ -16,6 +16,7 @@ class FakeReconciliationDb:
                 "timestamp": "2026-06-22T14:26:00Z",
                 "action": "bridge_alert_decision",
                 "details": {
+                    "contract_version": "chrome.discord.message.v1",
                     "event_id": "bridge-accepted",
                     "parsed": {"ticker": "SPY"},
                     "decision": {
@@ -305,6 +306,70 @@ class FakeAcceptedBridgeMissingParserProofDb:
         ]
 
 
+class FakeAcceptedBridgeMissingContractProofDb:
+    async def get_alerts(self, limit=100):
+        return [
+            {
+                "id": "alert-accepted-without-contract-proof",
+                "ticker": "SPY",
+                "alert_type": "buy",
+                "trade_executed": True,
+                "processed": True,
+            }
+        ]
+
+    async def get_trades(self, limit=100):
+        return [
+            {
+                "id": "trade-accepted-without-contract-proof",
+                "alert_id": "alert-accepted-without-contract-proof",
+                "ticker": "SPY",
+                "status": "filled",
+                "order_id": "order-accepted-without-contract-proof",
+                "simulated": False,
+            }
+        ]
+
+    async def get_positions(self, status=None):
+        return [
+            {
+                "id": "position-accepted-without-contract-proof",
+                "ticker": "SPY",
+                "status": "open",
+                "trade_ids": ["trade-accepted-without-contract-proof"],
+                "simulated": False,
+            }
+        ]
+
+    async def get_operator_events(self, limit=100):
+        return [
+            {
+                "id": "event-accepted-without-contract-proof",
+                "timestamp": "2026-06-22T14:45:00Z",
+                "action": "bridge_alert_decision",
+                "details": {
+                    "event_id": "bridge-accepted-without-contract-proof",
+                    "parsed": {"ticker": "SPY"},
+                    "decision": {
+                        "status": "accepted",
+                        "alert_inserted": True,
+                        "alert_id": "alert-accepted-without-contract-proof",
+                        "trade_requested": True,
+                        "trade_request_reason": "auto trading enabled",
+                    },
+                    "source": {
+                        "key": "chrome-alerts",
+                        "override_matched": True,
+                        "min_parser_confidence": "medium",
+                    },
+                    "parser": {
+                        "confidence": "medium",
+                    },
+                },
+            }
+        ]
+
+
 class ReconciliationTests(unittest.TestCase):
     def test_reconciliation_links_alert_trade_and_position(self):
         from reconciliation import build_reconciliation_rows
@@ -414,6 +479,21 @@ class ReconciliationTests(unittest.TestCase):
         self.assertEqual(
             report["summary"]["attention_reasons"],
             ["accepted bridge alert missing parser confidence proof"],
+        )
+
+    def test_alert_chain_report_flags_accepted_bridge_alert_without_contract_proof(self):
+        from reconciliation import build_alert_chain_report
+
+        report = asyncio.run(build_alert_chain_report(FakeAcceptedBridgeMissingContractProofDb()))
+        row = report["rows"][0]
+
+        self.assertEqual(row["status"], "attention")
+        self.assertEqual(row["attention_reason"], "accepted bridge alert missing chrome bridge contract proof")
+        self.assertEqual(row["contract_version"], "")
+        self.assertFalse(row["deterministic"])
+        self.assertEqual(
+            report["summary"]["attention_reasons"],
+            ["accepted bridge alert missing chrome bridge contract proof"],
         )
 
 

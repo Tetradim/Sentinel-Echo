@@ -242,6 +242,7 @@ class OperatorRouteContractTests(unittest.TestCase):
                 "timestamp": "2026-06-22T14:30:00Z",
                 "action": "bridge_alert_decision",
                 "details": {
+                    "contract_version": "chrome.discord.message.v1",
                     "event_id": "bridge-1",
                     "parsed": {"ticker": "SPY"},
                     "decision": {

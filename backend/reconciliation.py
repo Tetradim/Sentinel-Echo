@@ -6,6 +6,9 @@ from typing import Any, Dict, List
 from settings_flags import coerce_bool
 
 
+CHROME_BRIDGE_CONTRACT_VERSION = "chrome.discord.message.v1"
+
+
 def _first_trade_for_alert(trades: list[dict], alert_id: str) -> dict | None:
     return next((trade for trade in trades if trade.get("alert_id") == alert_id), None)
 
@@ -44,6 +47,10 @@ def _chain_status(*, skipped: bool, attention_reason: str, deterministic_reason:
 
 def _has_parser_confidence_proof(parser: dict[str, Any]) -> bool:
     return _clean_text(parser.get("confidence")).lower() in {"low", "medium", "high"}
+
+
+def _has_chrome_bridge_contract_proof(details: dict[str, Any]) -> bool:
+    return _clean_text(details.get("contract_version")) == CHROME_BRIDGE_CONTRACT_VERSION
 
 
 def summarize_reconciliation_rows(rows: List[Dict[str, Any]]) -> Dict[str, Any]:
@@ -139,6 +146,8 @@ async def build_alert_chain_report(db, *, limit: int = 100) -> Dict[str, Any]:
                 attention_reason = "accepted bridge alert missing alert id"
             elif not reconciliation:
                 attention_reason = "accepted bridge alert missing reconciliation row"
+            elif not _has_chrome_bridge_contract_proof(details):
+                attention_reason = "accepted bridge alert missing chrome bridge contract proof"
             elif not source_override_matched:
                 attention_reason = "accepted bridge alert missing source policy proof"
             elif not _has_parser_confidence_proof(parser):
