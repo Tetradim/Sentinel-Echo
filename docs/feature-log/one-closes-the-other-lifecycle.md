@@ -1,6 +1,6 @@
 # One Closes The Other Lifecycle
 
-Status: reusable launcher feature pattern, inspected from Sentinel Pulse on 2026-06-22.
+Status: reusable launcher feature pattern, inspected from Sentinel Pulse on 2026-06-22 and implemented in Consolidation on 2026-06-22.
 
 Source implementation:
 
@@ -78,27 +78,28 @@ When inserting this feature into another bot launcher:
 
 ## Consolidation Insertion Notes
 
-`Launch-Consolidation-Bot.ps1` already has a partial lifecycle base:
+`Launch-Consolidation-Bot.ps1` now implements this pattern for the Consolidation operator UI:
 
 - `$OwnedProcesses`
 - `Start-OwnedProcess`
 - `Stop-ProcessTree`
 - `Stop-OwnedProcesses`
+- dedicated Edge/Chrome app-window launch with a temporary profile
+- browser process/window PID tracking
+- browser-close detection that shuts down launcher-owned services
+- `Stop-BrowserWindow`
+- hidden parent-process watchdog for unexpected launcher host exit
 - `Invoke-LauncherCleanup`
 - `Register-LauncherShutdownHandlers`
 - foreground loop checking owned-process exits
+- foreground loop checking dedicated browser-window closure
 - `finally { Invoke-LauncherCleanup }`
 
-Missing Sentinel Pulse pieces:
+Regression coverage:
 
-- Dedicated browser app-window launch with a temporary profile.
-- Browser process/window PID tracking.
-- Browser-close detection that shuts down the launcher and owned services.
-- `Stop-BrowserWindow`.
-- Hidden parent-process watchdog for unexpected launcher host exit.
-- Static launcher tests for browser tracking, visible-window close detection, and watchdog cleanup.
+- `backend/tests/test_launcher_lifecycle_static.py`
 
-Because Consolidation currently opens the frontend with `Start-Process $frontendUrl`, browser close is not monitorable and launcher close does not reliably close the browser. The safest insertion path is to port Sentinel Pulse's browser helpers and watchdog into `Launch-Consolidation-Bot.ps1`, then add static tests before changing runtime behavior.
+The launcher preserves `-NoBrowser` for headless runs. When a supported browser executable is available, it opens `http://127.0.0.1:$FrontendPort` in a dedicated app window. Closing that app window logs `Browser window closed; shutting down Consolidation bot` and enters normal cleanup. Closing the launcher host or pressing Ctrl+C closes the dedicated browser profile and stops the owned backend/frontend process trees.
 
 ## Acceptance Tests To Copy
 
@@ -114,4 +115,3 @@ Minimum static checks for a Windows launcher:
 - Cleanup stops watchdog, browser profile processes, owned process trees, and temporary files.
 - `-NoBrowser` disables browser launch and browser-close monitoring.
 - Process arguments with paths containing spaces are quoted correctly.
-

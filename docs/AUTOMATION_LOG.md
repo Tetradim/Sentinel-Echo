@@ -5,6 +5,8 @@
 - Inspected Sentinel Pulse's launcher lifecycle feature from `Launch-Sentinel-Pulse.ps1`, `Launch-Sentinel-Pulse-Local.ps1`, README lifecycle notes, and launcher static tests.
 - Logged the reusable "one closes the other" process lifecycle pattern in `docs/feature-log/one-closes-the-other-lifecycle.md` so it can be ported into other bot launchers.
 - Confirmed this is browser/launcher/process cleanup behavior, not an options OCO trading feature.
+- Ported the pattern into `Launch-Consolidation-Bot.ps1`: dedicated browser profile/window tracking, browser-close shutdown, launcher-close browser cleanup, and a hidden parent-process watchdog.
+- Added `backend/tests/test_launcher_lifecycle_static.py` to guard the lifecycle wiring.
 
 ## 2026-06-17 20:08 UTC
 

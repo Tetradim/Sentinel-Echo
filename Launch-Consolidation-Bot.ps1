@@ -19,8 +19,18 @@ $DesktopPath = [Environment]::GetFolderPath("Desktop")
 if (-not $DesktopPath) { $DesktopPath = Join-Path $HOME "Desktop" }
 $LogFile = Join-Path $DesktopPath "Consolidation-Discord-Bot.log"
 $OwnedProcesses = New-Object System.Collections.Generic.List[System.Diagnostics.Process]
+$BrowserProcess = $null
+$BrowserProfileDir = $null
+$BrowserProcessIds = @()
+$BrowserWindowProcessIds = @()
+$BrowserStartedAt = $null
+$BrowserMonitorDisabled = $false
 $ShutdownStarted = $false
+$CleanupEventSubscription = $null
 $CancelKeyPressHandler = $null
+$LauncherWatchdogProcess = $null
+$LauncherWatchdogStopFile = $null
+$LauncherWatchdogScriptFile = $null
 
 function Write-Status {
     param([string]$Message, [string]$Level = "INFO")
@@ -151,6 +161,138 @@ function Find-Npm {
     return Find-CommandPath -Names @("npm.cmd", "npm.exe", "npm")
 }
 
+function Find-BrowserExecutable {
+    $candidates = @(
+        "$env:ProgramFiles\Microsoft\Edge\Application\msedge.exe",
+        "${env:ProgramFiles(x86)}\Microsoft\Edge\Application\msedge.exe",
+        "$env:LOCALAPPDATA\Microsoft\Edge\Application\msedge.exe",
+        "$env:ProgramFiles\Google\Chrome\Application\chrome.exe",
+        "${env:ProgramFiles(x86)}\Google\Chrome\Application\chrome.exe",
+        "$env:LOCALAPPDATA\Google\Chrome\Application\chrome.exe"
+    )
+    foreach ($candidate in $candidates) {
+        if ($candidate -and (Test-Path -LiteralPath $candidate)) { return $candidate }
+    }
+
+    foreach ($name in @("msedge.exe", "chrome.exe")) {
+        $cmd = Get-Command $name -ErrorAction SilentlyContinue
+        if ($cmd) { return $cmd.Source }
+    }
+    return $null
+}
+
+function Get-BrowserProfileProcesses {
+    if (-not $BrowserProfileDir) { return @() }
+    try {
+        return @(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
+            Where-Object { $_.CommandLine -and $_.CommandLine.IndexOf($BrowserProfileDir, [System.StringComparison]::OrdinalIgnoreCase) -ge 0 } |
+            ForEach-Object { Get-Process -Id $_.ProcessId -ErrorAction SilentlyContinue })
+    } catch {
+        return @()
+    }
+}
+
+function Get-BrowserWindowProcesses {
+    return @(Get-BrowserProfileProcesses | Where-Object { $_.MainWindowHandle -and $_.MainWindowHandle -ne 0 })
+}
+
+function Update-BrowserProcessIds {
+    $profileProcesses = @(Get-BrowserProfileProcesses)
+    if ($profileProcesses.Count -gt 0) {
+        $script:BrowserProcessIds = @($profileProcesses | Select-Object -ExpandProperty Id)
+    }
+    $windowProcesses = @($profileProcesses | Where-Object { $_.MainWindowHandle -and $_.MainWindowHandle -ne 0 })
+    if ($windowProcesses.Count -gt 0) {
+        $script:BrowserWindowProcessIds = @($windowProcesses | Select-Object -ExpandProperty Id)
+    }
+    return $profileProcesses
+}
+
+function Wait-BrowserProfileProcesses {
+    param([int]$Seconds = 10)
+
+    $deadline = (Get-Date).AddSeconds($Seconds)
+    while ((Get-Date) -lt $deadline) {
+        $profileProcesses = @(Update-BrowserProcessIds)
+        if ($profileProcesses.Count -gt 0) { return $profileProcesses }
+        Start-Sleep -Milliseconds 250
+    }
+    return @(Update-BrowserProcessIds)
+}
+
+function Wait-BrowserWindowProcesses {
+    param([int]$Seconds = 10)
+
+    $deadline = (Get-Date).AddSeconds($Seconds)
+    while ((Get-Date) -lt $deadline) {
+        Update-BrowserProcessIds | Out-Null
+        $windowProcesses = @(Get-BrowserWindowProcesses)
+        if ($windowProcesses.Count -gt 0) {
+            $script:BrowserWindowProcessIds = @($windowProcesses | Select-Object -ExpandProperty Id)
+            return $windowProcesses
+        }
+        Start-Sleep -Milliseconds 250
+    }
+    Update-BrowserProcessIds | Out-Null
+    return @(Get-BrowserWindowProcesses)
+}
+
+function Test-BrowserWindowClosed {
+    if ($BrowserMonitorDisabled) { return $false }
+    if (-not $BrowserProcess -and -not $BrowserProfileDir -and $BrowserProcessIds.Count -eq 0 -and $BrowserWindowProcessIds.Count -eq 0) { return $false }
+
+    $profileProcesses = @(Update-BrowserProcessIds)
+    $windowProcesses = @(Get-BrowserWindowProcesses)
+    if ($windowProcesses.Count -gt 0) {
+        $script:BrowserWindowProcessIds = @($windowProcesses | Select-Object -ExpandProperty Id)
+        return $false
+    }
+
+    $knownWindowProcesses = @($BrowserWindowProcessIds | ForEach-Object {
+        $process = Get-Process -Id $_ -ErrorAction SilentlyContinue
+        if ($process -and $process.MainWindowHandle -and $process.MainWindowHandle -ne 0) { $process }
+    })
+    if ($knownWindowProcesses.Count -gt 0) { return $false }
+    if ($BrowserWindowProcessIds.Count -gt 0) { return $true }
+
+    $knownProcesses = @($BrowserProcessIds | ForEach-Object { Get-Process -Id $_ -ErrorAction SilentlyContinue })
+    if ($knownProcesses.Count -gt 0) { return $false }
+    if ($BrowserProcessIds.Count -gt 0) { return $true }
+
+    if ($BrowserProfileDir -and $BrowserStartedAt) {
+        $elapsed = ((Get-Date) - $BrowserStartedAt).TotalSeconds
+        if ($elapsed -lt 15 -and $profileProcesses.Count -gt 0) { return $false }
+        if ($profileProcesses.Count -gt 0) { return $true }
+    }
+
+    if ($BrowserProcess -and $BrowserProcess.HasExited) {
+        return $true
+    }
+    return $false
+}
+
+function Start-BrowserWindow {
+    param([string]$Url)
+
+    $browserExe = Find-BrowserExecutable
+    if ($browserExe) {
+        Write-Status "Opening dedicated browser window"
+        $script:BrowserProfileDir = Join-Path ([System.IO.Path]::GetTempPath()) "Consolidation-Browser-$PID"
+        $script:BrowserStartedAt = Get-Date
+        New-Item -ItemType Directory -Path $script:BrowserProfileDir -Force | Out-Null
+        $browserArgs = Join-ProcessArguments -Arguments @("--new-window", "--app=$Url", "--user-data-dir=$script:BrowserProfileDir", "--no-first-run", "--disable-background-mode")
+        $process = Start-Process -FilePath $browserExe -ArgumentList $browserArgs -PassThru
+        Wait-BrowserProfileProcesses -Seconds 10 | Out-Null
+        Wait-BrowserWindowProcesses -Seconds 10 | Out-Null
+        return $process
+    }
+
+    Write-Status "Opening default browser without close monitoring" "WARN"
+    $script:BrowserMonitorDisabled = $true
+    Start-Process $Url | Out-Null
+    return $null
+}
+
 function Start-OwnedProcess {
     param(
         [string]$FilePath,
@@ -251,13 +393,182 @@ function Stop-OwnedProcesses {
     }
 }
 
+function Start-LauncherShutdownWatchdog {
+    if ($script:LauncherWatchdogProcess -and -not $script:LauncherWatchdogProcess.HasExited) { return }
+
+    $watchdogName = "Consolidation-Watchdog-$PID"
+    $script:LauncherWatchdogStopFile = Join-Path ([System.IO.Path]::GetTempPath()) "$watchdogName.stop"
+    $script:LauncherWatchdogScriptFile = Join-Path ([System.IO.Path]::GetTempPath()) "$watchdogName.ps1"
+    if (Test-Path -LiteralPath $script:LauncherWatchdogStopFile) {
+        Remove-Item -LiteralPath $script:LauncherWatchdogStopFile -Force -ErrorAction SilentlyContinue
+    }
+
+    $watchdogScript = @'
+param(
+    [int]$ParentProcessId,
+    [string]$BrowserProfileDir,
+    [string]$OwnedProcessIds,
+    [string]$StopFile,
+    [string]$LogFile
+)
+
+function Write-WatchdogLog {
+    param([string]$Message)
+    if (-not $LogFile) { return }
+    try {
+        $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss.fff"
+        Add-Content -Path $LogFile -Value "$timestamp [WATCHDOG] $Message" -Encoding UTF8
+    } catch {
+    }
+}
+
+function Get-ProfileProcesses {
+    if (-not $BrowserProfileDir) { return @() }
+    try {
+        return @(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
+            Where-Object { $_.CommandLine -and $_.CommandLine.IndexOf($BrowserProfileDir, [System.StringComparison]::OrdinalIgnoreCase) -ge 0 } |
+            ForEach-Object { Get-Process -Id $_.ProcessId -ErrorAction SilentlyContinue })
+    } catch {
+        return @()
+    }
+}
+
+function Stop-ProcessTreeById {
+    param([int]$ProcessId)
+    try {
+        $children = @(Get-CimInstance Win32_Process -Filter "ParentProcessId = $ProcessId" -ErrorAction SilentlyContinue)
+        foreach ($child in $children) {
+            Stop-ProcessTreeById -ProcessId $child.ProcessId
+        }
+        Stop-Process -Id $ProcessId -Force -ErrorAction SilentlyContinue
+    } catch {
+    }
+}
+
+try {
+    while ($true) {
+        if ($StopFile -and (Test-Path -LiteralPath $StopFile)) { exit 0 }
+        $parent = Get-Process -Id $ParentProcessId -ErrorAction SilentlyContinue
+        if (-not $parent) { break }
+        Start-Sleep -Seconds 1
+    }
+
+    Write-WatchdogLog "Launcher process $ParentProcessId ended; closing browser and owned processes"
+    $profileProcesses = @(Get-ProfileProcesses)
+    foreach ($process in $profileProcesses) {
+        try { $process.CloseMainWindow() | Out-Null } catch {}
+    }
+    Start-Sleep -Milliseconds 750
+    foreach ($process in $profileProcesses) {
+        Stop-ProcessTreeById -ProcessId $process.Id
+    }
+
+    foreach ($idText in @($OwnedProcessIds -split ",")) {
+        if (-not $idText) { continue }
+        $id = 0
+        if ([int]::TryParse($idText, [ref]$id)) {
+            Stop-ProcessTreeById -ProcessId $id
+        }
+    }
+
+    if ($BrowserProfileDir -and (Test-Path -LiteralPath $BrowserProfileDir)) {
+        Remove-Item -LiteralPath $BrowserProfileDir -Recurse -Force -ErrorAction SilentlyContinue
+    }
+} catch {
+    Write-WatchdogLog $_.Exception.Message
+}
+'@
+
+    Set-Content -Path $script:LauncherWatchdogScriptFile -Value $watchdogScript -Encoding UTF8
+    $ownedIds = @($OwnedProcesses | ForEach-Object { $_.Id }) -join ","
+    $watchdogArgs = @(
+        "-NoProfile",
+        "-ExecutionPolicy", "Bypass",
+        "-File", $script:LauncherWatchdogScriptFile,
+        "-ParentProcessId", "$PID",
+        "-BrowserProfileDir", "$BrowserProfileDir",
+        "-OwnedProcessIds", $ownedIds,
+        "-StopFile", $script:LauncherWatchdogStopFile,
+        "-LogFile", $LogFile
+    )
+    $script:LauncherWatchdogProcess = Start-Process -FilePath "powershell.exe" -ArgumentList (Join-ProcessArguments -Arguments $watchdogArgs) -WindowStyle Hidden -PassThru
+}
+
+function Stop-LauncherShutdownWatchdog {
+    if ($script:LauncherWatchdogStopFile) {
+        New-Item -ItemType File -Path $script:LauncherWatchdogStopFile -Force -ErrorAction SilentlyContinue | Out-Null
+    }
+    if ($script:LauncherWatchdogProcess -and -not $script:LauncherWatchdogProcess.HasExited) {
+        try {
+            $script:LauncherWatchdogProcess.WaitForExit(2000) | Out-Null
+            if (-not $script:LauncherWatchdogProcess.HasExited) {
+                Stop-Process -Id $script:LauncherWatchdogProcess.Id -Force -ErrorAction SilentlyContinue
+            }
+        } catch {
+        }
+    }
+    if ($script:LauncherWatchdogScriptFile -and (Test-Path -LiteralPath $script:LauncherWatchdogScriptFile)) {
+        Remove-Item -LiteralPath $script:LauncherWatchdogScriptFile -Force -ErrorAction SilentlyContinue
+    }
+    if ($script:LauncherWatchdogStopFile -and (Test-Path -LiteralPath $script:LauncherWatchdogStopFile)) {
+        Remove-Item -LiteralPath $script:LauncherWatchdogStopFile -Force -ErrorAction SilentlyContinue
+    }
+}
+
+function Stop-BrowserWindow {
+    $profileProcesses = @(Get-BrowserProfileProcesses)
+    try {
+        foreach ($current in $profileProcesses) {
+            Write-Status "Closing browser window ($($current.Id))" "INFO"
+            $current.CloseMainWindow() | Out-Null
+        }
+        Start-Sleep -Milliseconds 500
+        foreach ($current in $profileProcesses) {
+            $remaining = Get-Process -Id $current.Id -ErrorAction SilentlyContinue
+            if ($remaining) {
+                Stop-Process -Id $remaining.Id -Force -ErrorAction SilentlyContinue
+            }
+        }
+    } catch {
+    }
+
+    if ($profileProcesses.Count -eq 0 -and $BrowserProcess) {
+        try {
+            $current = Get-Process -Id $BrowserProcess.Id -ErrorAction SilentlyContinue
+            if ($current) {
+                Write-Status "Closing browser window ($($current.Id))" "INFO"
+                $current.CloseMainWindow() | Out-Null
+                Start-Sleep -Milliseconds 500
+                $current = Get-Process -Id $BrowserProcess.Id -ErrorAction SilentlyContinue
+                if ($current) {
+                    Stop-Process -Id $current.Id -Force -ErrorAction SilentlyContinue
+                }
+            }
+        } catch {
+        }
+    }
+
+    if ($BrowserProfileDir -and (Test-Path -LiteralPath $BrowserProfileDir)) {
+        try { Remove-Item -LiteralPath $BrowserProfileDir -Recurse -Force -ErrorAction SilentlyContinue } catch {}
+    }
+}
+
 function Invoke-LauncherCleanup {
     if ($script:ShutdownStarted) { return }
     $script:ShutdownStarted = $true
+    Stop-LauncherShutdownWatchdog
+    Stop-BrowserWindow
     Stop-OwnedProcesses
 }
 
 function Register-LauncherShutdownHandlers {
+    try {
+        $script:CleanupEventSubscription = Register-EngineEvent -SourceIdentifier PowerShell.Exiting -Action {
+            Invoke-LauncherCleanup
+        }
+    } catch {
+    }
+
     try {
         $script:CancelKeyPressHandler = [ConsoleCancelEventHandler]{
             param($sender, $eventArgs)
@@ -280,6 +591,10 @@ if ($SmokeTest) {
     $frontendArgs = Join-ProcessArguments -Arguments @("run", "web", "--", "--port", "3003")
     if (-not $frontendArgs.Contains("--port") -or -not $frontendArgs.Contains("3003")) {
         throw "Frontend argument smoke test failed."
+    }
+    $browserArgs = Join-ProcessArguments -Arguments @("--user-data-dir=C:\Users\Lite OS\AppData\Local\Temp\Consolidation-Browser-1234")
+    if (-not $browserArgs.Contains('"--user-data-dir=C:\Users\Lite OS\AppData\Local\Temp\Consolidation-Browser-1234"')) {
+        throw "Browser argument smoke test failed."
     }
     Write-Status "Launcher smoke test passed" "OK"
     exit 0
@@ -386,8 +701,9 @@ try {
     }
 
     if (-not $NoBrowser) {
-        Start-Process $frontendUrl | Out-Null
+        $BrowserProcess = Start-BrowserWindow -Url $frontendUrl
     }
+    Start-LauncherShutdownWatchdog
 
     Write-Host ""
     Write-Host "Ready: $frontendUrl" -ForegroundColor Green
@@ -401,6 +717,10 @@ try {
             if ($process.HasExited) {
                 throw "Process $($process.Id) exited unexpectedly."
             }
+        }
+        if (Test-BrowserWindowClosed) {
+            Write-Status "Browser window closed; shutting down Consolidation bot" "OK"
+            break
         }
         Start-Sleep -Seconds 1
     }
