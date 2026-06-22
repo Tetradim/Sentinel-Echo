@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import os
+import math
 from typing import Any, Dict, Iterable, List
 
 from broker_capabilities import get_broker_capabilities, normalize_broker_id
@@ -90,9 +91,10 @@ def _positive_float(value: Any) -> bool:
     if isinstance(value, bool):
         return False
     try:
-        return float(value or 0) > 0
+        parsed = float(value or 0)
     except (TypeError, ValueError):
         return False
+    return math.isfinite(parsed) and parsed > 0
 
 
 def _nonnegative_int(value: Any) -> int:
