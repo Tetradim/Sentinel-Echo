@@ -90,3 +90,33 @@ test('flags live auto trading with loose parser requirements', () => {
     ['Live auto trading', 'Expiration optional', 'Price optional', 'Ignore list empty']
   );
 });
+
+test('parses string booleans for Discord community enablement and automation', () => {
+  const digest = summarizeDiscordSettings([
+    { ...community, id: 'disabled', channelId: '', enabled: 'false', autoTrade: 'true', simulation: 'false' },
+    { ...community, id: 'paper-auto', channelId: 'paper', enabled: 'true', autoTrade: 'true', simulation: 'true' },
+    { ...community, id: 'manual-live', channelId: 'manual', enabled: 'true', autoTrade: 'false', simulation: 'false' },
+  ], patterns, filters);
+
+  assert.equal(digest.primaryStatus.title, 'Parser Guarded');
+  assert.equal(digest.enabledCommunities, 2);
+  assert.equal(digest.missingChannels, 0);
+  assert.equal(digest.autoTradeCommunities, 1);
+  assert.deepEqual(digest.warningItems, []);
+});
+
+test('parses string booleans for Discord parser required fields', () => {
+  const digest = summarizeDiscordSettings([community], {
+    ...patterns,
+    requireTicker: 'false',
+    requireExpiration: 'true',
+    requirePrice: '0',
+  }, filters);
+
+  assert.equal(digest.primaryStatus.title, 'Parser Review');
+  assert.equal(digest.requiredFields, 1);
+  assert.deepEqual(
+    digest.warningItems.map((item) => item.title),
+    ['Ticker optional', 'Price optional']
+  );
+});

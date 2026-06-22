@@ -1,21 +1,23 @@
+import { parseBooleanFlag, type BooleanLike } from './booleanFlags';
+
 export type DiscordDigestTone = 'live' | 'attention' | 'idle';
 
 export interface DigestCommunity {
   id: string;
   name?: string | null;
   channelId?: string | null;
-  enabled?: boolean | null;
-  autoTrade?: boolean | null;
-  simulation?: boolean | null;
+  enabled?: BooleanLike;
+  autoTrade?: BooleanLike;
+  simulation?: BooleanLike;
 }
 
 export interface DigestPatterns {
   buyKeywords?: string | null;
   sellKeywords?: string | null;
   ignoreKeywords?: string | null;
-  requireTicker?: boolean | null;
-  requireExpiration?: boolean | null;
-  requirePrice?: boolean | null;
+  requireTicker?: BooleanLike;
+  requireExpiration?: BooleanLike;
+  requirePrice?: BooleanLike;
 }
 
 export interface DigestFilters {
@@ -64,17 +66,17 @@ export function summarizeDiscordSettings(
   patterns: DigestPatterns,
   filters: DigestFilters
 ): DiscordDigest {
-  const enabledCommunities = communities.filter((community) => Boolean(community.enabled));
-  const autoTradeCommunities = enabledCommunities.filter((community) => Boolean(community.autoTrade)).length;
+  const requireTicker = parseBooleanFlag(patterns.requireTicker);
+  const requireExpiration = parseBooleanFlag(patterns.requireExpiration);
+  const requirePrice = parseBooleanFlag(patterns.requirePrice);
+
+  const enabledCommunities = communities.filter((community) => parseBooleanFlag(community.enabled));
+  const autoTradeCommunities = enabledCommunities.filter((community) => parseBooleanFlag(community.autoTrade)).length;
   const missingChannels = enabledCommunities.filter((community) => !hasText(community.channelId)).length;
   const liveAutoCommunities = enabledCommunities.filter(
-    (community) => Boolean(community.autoTrade) && !community.simulation
+    (community) => parseBooleanFlag(community.autoTrade) && !parseBooleanFlag(community.simulation)
   ).length;
-  const requiredFields = [
-    Boolean(patterns.requireTicker),
-    Boolean(patterns.requireExpiration),
-    Boolean(patterns.requirePrice),
-  ].filter(Boolean).length;
+  const requiredFields = [requireTicker, requireExpiration, requirePrice].filter(Boolean).length;
 
   const channelWarnings: DiscordDigestWarning[] = [];
   if (missingChannels > 0) {
@@ -93,13 +95,13 @@ export function summarizeDiscordSettings(
   }
 
   const parserWarnings: DiscordDigestWarning[] = [];
-  if (!patterns.requireTicker) {
+  if (!requireTicker) {
     parserWarnings.push({ title: 'Ticker optional', detail: 'Messages without tickers can enter parsing.' });
   }
-  if (!patterns.requireExpiration) {
+  if (!requireExpiration) {
     parserWarnings.push({ title: 'Expiration optional', detail: 'Option alerts can pass without an expiration.' });
   }
-  if (!patterns.requirePrice) {
+  if (!requirePrice) {
     parserWarnings.push({ title: 'Price optional', detail: 'Alerts can pass without a quoted entry price.' });
   }
   if (!hasText(patterns.ignoreKeywords)) {
