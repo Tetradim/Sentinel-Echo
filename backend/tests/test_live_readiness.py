@@ -116,6 +116,26 @@ class LiveReadinessTests(unittest.TestCase):
 
         self.assertIn("broker_order_status_unsupported", codes)
 
+    def test_invalid_max_position_size_reports_blocker_without_crashing(self):
+        from live_readiness import evaluate_live_readiness
+
+        settings = dict(READY_SETTINGS)
+        settings["max_position_size"] = "not-a-number"
+
+        try:
+            result = evaluate_live_readiness(
+                settings,
+                {"shutdown_triggered": False},
+                status={"broker_connected": True, "discord_connected": True},
+                env=READY_ENV,
+            )
+        except (TypeError, ValueError) as exc:
+            self.fail(f"readiness should report invalid max_position_size instead of raising: {exc}")
+        codes = {issue["code"] for issue in result["blocking_issues"]}
+
+        self.assertIn("max_position_size_invalid", codes)
+        self.assertFalse(result["ready_for_live"])
+
     def test_live_readiness_blocks_when_no_alert_ingestion_path_is_healthy(self):
         from live_readiness import evaluate_live_readiness
 

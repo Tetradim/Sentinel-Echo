@@ -71,6 +71,15 @@ def _discord_configured(settings: Dict[str, Any], status: Dict[str, Any], env: D
     return token_configured and _configured_discord_channel_count(settings, status, env) > 0
 
 
+def _positive_float(value: Any) -> bool:
+    if isinstance(value, bool):
+        return False
+    try:
+        return float(value or 0) > 0
+    except (TypeError, ValueError):
+        return False
+
+
 def _codes(issues: Iterable[Dict[str, str]]) -> set[str]:
     return {issue["code"] for issue in issues}
 
@@ -104,7 +113,8 @@ def evaluate_live_readiness(
         blocking.append(_issue("simulation_mode_enabled", "Simulation mode must be disabled before live trading."))
     if not bool(settings.get("auto_trading_enabled", False)):
         blocking.append(_issue("auto_trading_disabled", "Auto trading must be enabled before live arming."))
-    if float(settings.get("max_position_size") or 0) <= 0:
+    max_position_size_valid = _positive_float(settings.get("max_position_size"))
+    if not max_position_size_valid:
         blocking.append(_issue("max_position_size_invalid", "Max position size must be greater than zero."))
     if active_broker not in broker_configs:
         blocking.append(_issue("active_broker_not_configured", "Active broker has no saved configuration."))
@@ -157,6 +167,7 @@ def evaluate_live_readiness(
             "auto_trading_enabled": bool(settings.get("auto_trading_enabled", False)),
             "simulation_mode": bool(settings.get("simulation_mode", True)),
             "max_position_size": settings.get("max_position_size"),
+            "max_position_size_valid": max_position_size_valid,
         },
         "runtime": {
             "shutdown_triggered": bool(runtime_state.get("shutdown_triggered", False)),
