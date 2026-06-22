@@ -43,6 +43,11 @@ class FakeSettingsDb:
         return event["id"]
 
 
+class FakeRawSettingsDb(FakeSettingsDb):
+    async def get_settings(self):
+        return self.settings
+
+
 class SourceOverrideRouteTests(unittest.TestCase):
     def test_update_premium_buffer_settings_persists_enabled_flag_and_amount(self):
         from routes import settings as settings_route
@@ -174,6 +179,21 @@ class SourceOverrideRouteTests(unittest.TestCase):
         self.assertEqual(response, {"auto_trading_enabled": False})
         self.assertEqual(fake_db.updated, [{"auto_trading_enabled": False}])
         self.assertEqual(fake_db.runtime_updates, [{"auto_trading_enabled": False}])
+
+    def test_toggle_trading_blocks_malformed_settings(self):
+        from fastapi import HTTPException
+        from routes import settings as settings_route
+
+        fake_db = FakeRawSettingsDb("settings")
+        settings_route.set_db(fake_db)
+
+        with self.assertRaises(HTTPException) as raised:
+            asyncio.run(settings_route.toggle_trading())
+
+        self.assertEqual(raised.exception.status_code, 409)
+        self.assertEqual(fake_db.updated, [])
+        self.assertEqual(fake_db.runtime_updates, [])
+        self.assertEqual(fake_db.operator_events[-1]["action"], "auto_trading_enable_blocked")
 
     def test_toggle_trading_blocks_live_enable_when_readiness_fails(self):
         from fastapi import HTTPException

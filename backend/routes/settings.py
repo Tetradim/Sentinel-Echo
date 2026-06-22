@@ -149,6 +149,26 @@ async def toggle_trading():
     # Persisted settings are the source of truth for Discord ingestion.
     from routes.health import update_bot_status
     settings = await db.get_settings()
+    if not isinstance(settings, dict):
+        blocked_readiness = {
+            "ready_for_live": False,
+            "blocking_issues": [
+                {
+                    "code": "settings_malformed",
+                    "summary": "Persisted settings are malformed.",
+                }
+            ],
+            "blocking_codes": ["settings_malformed"],
+        }
+        await record_operator_event(
+            db,
+            "live_safety",
+            "auto_trading_enable_blocked",
+            "Auto trading enable was blocked because settings are malformed.",
+            severity="warning",
+            details={"blocking_issues": blocked_readiness["blocking_issues"]},
+        )
+        raise HTTPException(status_code=409, detail=blocked_readiness)
     current = bool((settings or {}).get("auto_trading_enabled", False))
     new_state = not current
     if new_state and not bool((settings or {}).get("simulation_mode", True)):
