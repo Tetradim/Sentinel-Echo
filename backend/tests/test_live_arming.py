@@ -87,6 +87,11 @@ class LiveArmingTests(unittest.TestCase):
         self.assertFalse(disarmed["live_trading_armed"])
         self.assertEqual(db.events[-1]["action"], "live_trading_disarmed")
 
+    def test_malformed_runtime_state_is_not_armed(self):
+        from live_arming import is_live_trading_armed
+
+        self.assertFalse(is_live_trading_armed("runtime"))
+
     def test_arm_live_trading_returns_requested_armed_state_when_update_response_is_malformed(self):
         from live_arming import arm_live_trading, is_live_trading_armed
 

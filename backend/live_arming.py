@@ -29,7 +29,7 @@ def _parse_timestamp(value: Any) -> datetime | None:
 
 def is_live_trading_armed(runtime_state: Dict[str, Any] | None, *, now: datetime | None = None) -> bool:
     """Return True only when runtime live arming is active and not expired."""
-    runtime_state = runtime_state or {}
+    runtime_state = _dict_or_empty(runtime_state)
     if not bool(runtime_state.get("live_trading_armed", False)):
         return False
     expires_at = _parse_timestamp(runtime_state.get("live_trading_armed_until"))
