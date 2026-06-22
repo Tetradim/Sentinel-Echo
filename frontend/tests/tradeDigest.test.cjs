@@ -87,6 +87,22 @@ test('filters trades by open, closed, attention, and simulated views', () => {
   assert.deepEqual(filterTrades(trades, 'simulated').map((trade) => trade.id), ['paper']);
 });
 
+test('parses string booleans for simulated trade state', () => {
+  const stringBackedTrades = [
+    { ...trades[0], id: 'live-string', simulated: 'false' },
+    { ...trades[1], id: 'paper-string', simulated: 'true' },
+    { ...trades[2], id: 'numeric-paper', simulated: '1' },
+  ];
+
+  const digest = summarizeTrades(stringBackedTrades);
+
+  assert.equal(digest.simulated, 2);
+  assert.deepEqual(filterTrades(stringBackedTrades, 'simulated').map((trade) => trade.id), [
+    'paper-string',
+    'numeric-paper',
+  ]);
+});
+
 test('returns an idle digest for no trades', () => {
   const digest = summarizeTrades([]);
 

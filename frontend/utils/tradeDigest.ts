@@ -1,3 +1,5 @@
+import { parseBooleanFlag, type BooleanLike } from './booleanFlags';
+
 export type TradeFilter = 'all' | 'open' | 'closed' | 'attention' | 'simulated';
 
 export type TradeDigestTone = 'live' | 'attention' | 'empty';
@@ -7,7 +9,7 @@ export interface DigestTrade {
   ticker?: string | null;
   quantity?: number | null;
   status?: string | null;
-  simulated?: boolean | null;
+  simulated?: BooleanLike;
   realized_pnl?: number | null;
   unrealized_pnl?: number | null;
 }
@@ -104,7 +106,7 @@ export function summarizeTrades(trades: DigestTrade[]): TradeDigest {
     open: openTrades.length,
     closed: trades.filter((trade) => trade.status === 'closed').length,
     failed: failedTrades.length,
-    simulated: trades.filter((trade) => Boolean(trade.simulated)).length,
+    simulated: trades.filter((trade) => parseBooleanFlag(trade.simulated)).length,
     attention: attentionTrades.length,
     netPnl,
     openQuantity: openTrades.reduce((total, trade) => total + Number(trade.quantity ?? 0), 0),
@@ -121,6 +123,6 @@ export function filterTrades<TTrade extends DigestTrade>(
   if (filter === 'open') return trades.filter(isOpenTrade);
   if (filter === 'closed') return trades.filter(isClosedTrade);
   if (filter === 'attention') return trades.filter(needsAttention);
-  if (filter === 'simulated') return trades.filter((trade) => Boolean(trade.simulated));
+  if (filter === 'simulated') return trades.filter((trade) => parseBooleanFlag(trade.simulated));
   return trades;
 }
