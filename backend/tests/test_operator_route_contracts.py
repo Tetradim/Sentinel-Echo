@@ -147,9 +147,19 @@ class FakeBrokerDb:
 class FakeRawBrokerDb:
     def __init__(self, settings):
         self.settings = settings
+        self.updated = []
+        self.events = []
 
     async def get_settings(self):
         return self.settings
+
+    async def update_settings(self, update):
+        self.updated.append(update)
+        return dict(update)
+
+    async def insert_operator_event(self, event):
+        self.events.append(event)
+        return event["id"]
 
 
 class OperatorRouteContractTests(unittest.TestCase):
@@ -303,6 +313,21 @@ class OperatorRouteContractTests(unittest.TestCase):
         response = asyncio.run(brokers_route.get_active_broker())
 
         self.assertEqual(response, {"active_broker": "ibkr"})
+
+    def test_switch_broker_blocks_malformed_settings(self):
+        from fastapi import HTTPException
+        from routes import brokers as brokers_route
+
+        fake_db = FakeRawBrokerDb("settings")
+        brokers_route.set_db(fake_db)
+
+        with self.assertRaises(HTTPException) as raised:
+            asyncio.run(brokers_route.set_active_broker("alpaca"))
+
+        self.assertEqual(raised.exception.status_code, 400)
+        self.assertIn("has no saved configuration", raised.exception.detail)
+        self.assertEqual(fake_db.updated, [])
+        self.assertEqual(fake_db.events, [])
 
     def test_trade_close_endpoint_updates_status_and_realized_pnl(self):
         from routes import settings as settings_route

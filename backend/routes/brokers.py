@@ -88,7 +88,7 @@ async def set_active_broker(broker_id: str):
         broker_type = BrokerType(broker_id)
     except ValueError:
         raise HTTPException(status_code=400, detail=f"Invalid broker: {broker_id}")
-    settings = await db.get_settings()
+    settings = _dict_or_empty(await db.get_settings())
     broker_configs = settings.get("broker_configs", {})
     if broker_id not in broker_configs:
         raise HTTPException(
