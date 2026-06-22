@@ -165,6 +165,124 @@ class SimulationReplayTests(unittest.TestCase):
         self.assertFalse(result["execution_preview"]["auto_trading_enabled"])
         self.assertFalse(result["execution_preview"]["simulation_mode"])
 
+    def test_replay_preview_reports_acceptance_passes_for_expected_outcomes(self):
+        from simulation_replay import build_replay_preview
+
+        replay = {
+            "contract_version": "simulation.consolidation.replay.v1",
+            "events": [
+                {
+                    "event_id": "discord_alert:m-expected-pass",
+                    "type": "discord_alert",
+                    "timestamp": "2026-06-19T14:30:00+00:00",
+                    "channel_id": "alerts",
+                    "payload": {
+                        "message": {
+                            "channel_id": "alerts",
+                            "channel_name": "alerts",
+                            "content": "BTO SPY 500C 6/21 @ 1.25",
+                        },
+                        "expected": {
+                            "parsed": {
+                                "ticker": "SPY",
+                                "strike": 500.0,
+                                "option_type": "CALL",
+                                "alert_type": "buy",
+                            },
+                            "would_insert_alert": True,
+                            "would_request_trade": True,
+                            "skip_reason": None,
+                            "execution_reason": None,
+                        },
+                    },
+                }
+            ],
+        }
+
+        preview = build_replay_preview(
+            replay,
+            {
+                "auto_trading_enabled": True,
+                "simulation_mode": True,
+                "source_overrides": {"alerts": {"paper_only": True}},
+            },
+        )
+
+        self.assertEqual(preview["acceptance"]["status"], "passed")
+        self.assertEqual(preview["acceptance"]["expected_count"], 1)
+        self.assertEqual(preview["acceptance"]["failed_count"], 0)
+        self.assertTrue(preview["results"][0]["acceptance"]["passed"])
+        self.assertEqual(preview["results"][0]["acceptance"]["mismatches"], [])
+
+    def test_replay_preview_reports_acceptance_failures_with_field_mismatches(self):
+        from simulation_replay import build_replay_preview
+
+        replay = {
+            "contract_version": "simulation.consolidation.replay.v1",
+            "expected_results": {
+                "discord_alert:m-expected-fail": {
+                    "parsed": {
+                        "ticker": "QQQ",
+                    },
+                    "would_request_trade": True,
+                    "execution_reason": None,
+                }
+            },
+            "events": [
+                {
+                    "event_id": "discord_alert:m-expected-fail",
+                    "type": "discord_alert",
+                    "timestamp": "2026-06-19T14:30:00+00:00",
+                    "channel_id": "alerts",
+                    "payload": {
+                        "message": {
+                            "channel_id": "alerts",
+                            "channel_name": "alerts",
+                            "content": "BTO SPY 500C 6/21 @ 1.25",
+                        },
+                    },
+                }
+            ],
+        }
+
+        preview = build_replay_preview(
+            replay,
+            {
+                "auto_trading_enabled": False,
+                "simulation_mode": True,
+                "source_overrides": {"alerts": {"paper_only": True}},
+            },
+        )
+
+        self.assertEqual(preview["acceptance"]["status"], "failed")
+        self.assertEqual(preview["acceptance"]["expected_count"], 1)
+        self.assertEqual(preview["acceptance"]["failed_count"], 1)
+        mismatches = preview["results"][0]["acceptance"]["mismatches"]
+        self.assertIn(
+            {
+                "field": "parsed.ticker",
+                "expected": "QQQ",
+                "actual": "SPY",
+            },
+            mismatches,
+        )
+        self.assertIn(
+            {
+                "field": "would_request_trade",
+                "expected": True,
+                "actual": False,
+            },
+            mismatches,
+        )
+        self.assertIn(
+            {
+                "field": "execution_reason",
+                "expected": None,
+                "actual": "auto trading disabled",
+            },
+            mismatches,
+        )
+
     def test_normalize_replay_url_accepts_engine_root_or_full_endpoint(self):
         from simulation_replay import normalize_replay_url
 

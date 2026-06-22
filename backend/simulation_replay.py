@@ -66,10 +66,14 @@ async def fetch_engine_replay(
 def build_replay_preview(replay: dict[str, Any], settings: dict[str, Any] | None = None) -> dict[str, Any]:
     settings = _dict_or_empty(settings)
     events = replay.get("events") or []
+    expected_results = _dict_or_empty(replay.get("expected_results") or replay.get("expectations"))
     results = []
     parsed_count = 0
     would_request_trade_count = 0
     drift_alert_count = 0
+    acceptance_expected_count = 0
+    acceptance_passed_count = 0
+    acceptance_failed_count = 0
 
     for event in events:
         payload = event.get("payload") or {}
@@ -107,24 +111,35 @@ def build_replay_preview(replay: dict[str, Any], settings: dict[str, Any] | None
         if would_request_trade:
             would_request_trade_count += 1
 
-        results.append(
-            {
-                "engine_event_id": event.get("event_id"),
-                "timestamp": event.get("timestamp"),
-                "channel_id": event.get("channel_id"),
-                "raw_text": raw_text,
-                "parsed": parsed,
-                "source_config": source_config,
-                "skip_reason": skip_reason,
-                "would_insert_alert": would_insert_alert,
-                "would_request_trade": would_request_trade,
-                "execution_preview": execution_preview,
-                "market_context": {
-                    "snapshot": market_snapshot,
-                    "price_drift": price_drift or None,
-                },
-            }
-        )
+        result = {
+            "engine_event_id": event.get("event_id"),
+            "timestamp": event.get("timestamp"),
+            "channel_id": event.get("channel_id"),
+            "raw_text": raw_text,
+            "parsed": parsed,
+            "source_config": source_config,
+            "skip_reason": skip_reason,
+            "would_insert_alert": would_insert_alert,
+            "would_request_trade": would_request_trade,
+            "execution_preview": execution_preview,
+            "market_context": {
+                "snapshot": market_snapshot,
+                "price_drift": price_drift or None,
+            },
+        }
+        expected = _expected_for_event(event, payload, expected_results)
+        result["acceptance"] = _evaluate_expected_result(result, expected)
+        if expected:
+            acceptance_expected_count += 1
+            if result["acceptance"]["passed"]:
+                acceptance_passed_count += 1
+            else:
+                acceptance_failed_count += 1
+        results.append(result)
+
+    acceptance_status = "not_provided"
+    if acceptance_expected_count:
+        acceptance_status = "failed" if acceptance_failed_count else "passed"
 
     return {
         "contract_version": "consolidation.simulation_replay_preview.v1",
@@ -134,6 +149,12 @@ def build_replay_preview(replay: dict[str, Any], settings: dict[str, Any] | None
         "parsed_count": parsed_count,
         "would_request_trade_count": would_request_trade_count,
         "drift_alert_count": drift_alert_count,
+        "acceptance": {
+            "status": acceptance_status,
+            "expected_count": acceptance_expected_count,
+            "passed_count": acceptance_passed_count,
+            "failed_count": acceptance_failed_count,
+        },
         "results": results,
     }
 
@@ -200,3 +221,68 @@ def _build_execution_preview(
         "max_contracts": source_config.get("max_contracts"),
         "parser_format": source_config.get("parser_format", "default"),
     }
+
+
+def _expected_for_event(
+    event: dict[str, Any],
+    payload: dict[str, Any],
+    expected_results: dict[str, Any],
+) -> dict[str, Any]:
+    event_id = str(event.get("event_id") or "")
+    expected = event.get("expected") or payload.get("expected") or expected_results.get(event_id)
+    return expected if isinstance(expected, dict) else {}
+
+
+def _evaluate_expected_result(
+    result: dict[str, Any],
+    expected: dict[str, Any],
+) -> dict[str, Any]:
+    if not expected:
+        return {"expected": False, "passed": None, "mismatches": []}
+
+    mismatches: list[dict[str, Any]] = []
+    for key in ("would_insert_alert", "would_request_trade", "skip_reason"):
+        if key in expected:
+            _compare_field(mismatches, key, expected.get(key), result.get(key))
+
+    if "execution_reason" in expected:
+        _compare_field(
+            mismatches,
+            "execution_reason",
+            expected.get("execution_reason"),
+            _dict_or_empty(result.get("execution_preview")).get("reason"),
+        )
+
+    expected_parsed = expected.get("parsed")
+    if isinstance(expected_parsed, dict):
+        actual_parsed = _dict_or_empty(result.get("parsed"))
+        for key, value in expected_parsed.items():
+            _compare_field(mismatches, f"parsed.{key}", value, actual_parsed.get(key))
+
+    expected_execution = expected.get("execution_preview")
+    if isinstance(expected_execution, dict):
+        actual_execution = _dict_or_empty(result.get("execution_preview"))
+        for key, value in expected_execution.items():
+            _compare_field(mismatches, f"execution_preview.{key}", value, actual_execution.get(key))
+
+    return {
+        "expected": True,
+        "passed": not mismatches,
+        "mismatches": mismatches,
+    }
+
+
+def _compare_field(
+    mismatches: list[dict[str, Any]],
+    field: str,
+    expected: Any,
+    actual: Any,
+) -> None:
+    if actual != expected:
+        mismatches.append(
+            {
+                "field": field,
+                "expected": expected,
+                "actual": actual,
+            }
+        )
