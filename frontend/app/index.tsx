@@ -33,7 +33,7 @@ import { summarizeAlerts } from '../utils/alertDigest';
 import { summarizePositions } from '../utils/positionDigest';
 import { summarizeSettings } from '../utils/settingsDigest';
 import { summarizeTrades } from '../utils/tradeDigest';
-import { normalizeDashboardRuntimeState } from '../utils/dashboardRuntimeState';
+import { normalizeDashboardRuntimeState, normalizeDashboardStatusFlags } from '../utils/dashboardRuntimeState';
 
 type AccentKey = 'indigo' | 'mint' | 'amber' | 'rose' | 'sky' | 'violet' | 'gold' | 'coral';
 type PatternKey = 'triangle' | 'hex' | 'circuit';
@@ -793,6 +793,7 @@ function ShellHeader({
   onOpenCustomizer: () => void;
 }) {
   const accent = ACCENTS[prefs.accentKey].color;
+  const statusFlags = normalizeDashboardStatusFlags(status);
 
   return (
     <View style={[styles.pipelineShellHeader, { borderBottomColor: hexToRgba(theme.border, 0.84), backgroundColor: hexToRgba(theme.bg, 0.86) }]}>
@@ -804,13 +805,13 @@ function ShellHeader({
 
       {prefs.pipelineTrack ? (
         <View style={styles.pipelineTrackBar}>
-          <PipelineStage label="Discord" detail={status?.discord_connected ? 'Live' : 'Offline'} icon="logo-discord" active={Boolean(status?.discord_connected)} accent={accent} theme={theme} animated={prefs.animatedDots} compact />
+          <PipelineStage label="Discord" detail={statusFlags.discordConnected ? 'Live' : 'Offline'} icon="logo-discord" active={statusFlags.discordConnected} accent={accent} theme={theme} animated={prefs.animatedDots} compact />
           <Ionicons name="chevron-forward" size={13} color={theme.faint} />
-          <PipelineStage label="Parse" detail="Rules" icon="filter-outline" active={Boolean(status?.discord_connected)} accent={accent} theme={theme} animated={prefs.animatedDots} compact />
+          <PipelineStage label="Parse" detail="Rules" icon="filter-outline" active={statusFlags.discordConnected} accent={accent} theme={theme} animated={prefs.animatedDots} compact />
           <Ionicons name="chevron-forward" size={13} color={theme.faint} />
           <PipelineStage label="Risk" detail={trailingStop || stopLoss ? 'Guarded' : 'Review'} icon="shield-checkmark-outline" active={trailingStop || stopLoss} accent={accent} theme={theme} animated={prefs.animatedDots} compact />
           <Ionicons name="chevron-forward" size={13} color={theme.faint} />
-          <PipelineStage label="Execute" detail={autoTrading ? 'Armed' : 'Manual'} icon="flash-outline" active={Boolean(status?.broker_connected && autoTrading)} accent={accent} theme={theme} animated={prefs.animatedDots} compact />
+          <PipelineStage label="Execute" detail={autoTrading ? 'Armed' : 'Manual'} icon="flash-outline" active={statusFlags.brokerConnected && autoTrading} accent={accent} theme={theme} animated={prefs.animatedDots} compact />
         </View>
       ) : (
         <View style={styles.pipelineTrackBar} />
@@ -818,7 +819,7 @@ function ShellHeader({
 
       <View style={styles.pipelineHeaderActions}>
         <View style={[styles.discordPill, { borderColor: hexToRgba(accent, 0.36), backgroundColor: hexToRgba(accent, 0.15) }]}>
-          <StatusDot active={Boolean(status?.discord_connected)} color={accent} animated={prefs.animatedDots} />
+          <StatusDot active={statusFlags.discordConnected} color={accent} animated={prefs.animatedDots} />
           <Text style={[styles.discordPillText, { color: accent }]}>Discord</Text>
         </View>
 
@@ -1555,6 +1556,7 @@ export default function Dashboard() {
   const brokerColor = BROKER_COLORS[brokerId] || accent;
   const brokerName = BROKER_NAMES[brokerId] || safeUpper(status?.active_broker || settings?.active_broker);
   const channelCount = settings?.discord_channel_ids?.filter(Boolean).length || 0;
+  const statusFlags = normalizeDashboardStatusFlags(status);
   const readiness = buildDashboardReadiness({
     status,
     simMode,
@@ -1641,10 +1643,10 @@ export default function Dashboard() {
                 <View style={[styles.glassCard, cardStyle]}>
                   <View style={styles.cardHeaderRow}>
                     <SectionTitle eyebrow="INGESTION" title="Discord Listener" detail={`${channelCount} configured channel${channelCount === 1 ? '' : 's'}`} theme={theme} />
-                    <StatusDot active={Boolean(status?.discord_connected)} color={status?.discord_connected ? '#22c55e' : '#ef4444'} animated={prefs.animatedDots} />
+                    <StatusDot active={statusFlags.discordConnected} color={statusFlags.discordConnected ? '#22c55e' : '#ef4444'} animated={prefs.animatedDots} />
                   </View>
                   <View style={styles.connectionGrid}>
-                    <MetricTile label="Discord" value={status?.discord_connected ? 'Live' : 'Offline'} detail={discordResult || 'Start, stop, or test the listener.'} color={status?.discord_connected ? '#22c55e' : '#ef4444'} theme={theme} />
+                    <MetricTile label="Discord" value={statusFlags.discordConnected ? 'Live' : 'Offline'} detail={discordResult || 'Start, stop, or test the listener.'} color={statusFlags.discordConnected ? '#22c55e' : '#ef4444'} theme={theme} />
                     <MetricTile label="Channels" value={String(channelCount)} detail={firstConfiguredChannel(settings) || 'No channel configured'} theme={theme} />
                     <MetricTile label="Alerts" value={compactNumber(status?.alerts_processed || alertDigest.total)} detail={`${alertDigest.executionRate}% executed`} color={toneToColor(alertDigest.primaryStatus.tone)} theme={theme} />
                   </View>
@@ -1714,9 +1716,9 @@ export default function Dashboard() {
 
                 <View style={[styles.glassCard, cardStyle]}>
                   <View style={styles.cardHeaderRow}>
-                    <SectionTitle eyebrow="EXECUTION PATH" title={brokerName} detail={status?.broker_connected ? 'Broker connected' : 'Broker offline'} theme={theme} />
+                    <SectionTitle eyebrow="EXECUTION PATH" title={brokerName} detail={statusFlags.brokerConnected ? 'Broker connected' : 'Broker offline'} theme={theme} />
                     <TouchableOpacity style={[styles.brokerChip, { borderColor: brokerColor }]} onPress={() => setShowBrokerPicker(!showBrokerPicker)} accessibilityRole="button">
-                      <StatusDot active={Boolean(status?.broker_connected)} color={brokerColor} animated={prefs.animatedDots} />
+                      <StatusDot active={statusFlags.brokerConnected} color={brokerColor} animated={prefs.animatedDots} />
                       <Ionicons name={showBrokerPicker ? 'chevron-up' : 'chevron-down'} size={14} color={brokerColor} />
                     </TouchableOpacity>
                   </View>

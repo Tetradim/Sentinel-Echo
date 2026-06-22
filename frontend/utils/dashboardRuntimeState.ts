@@ -5,6 +5,16 @@ export interface DashboardRuntimeStatusInput {
   simulation_mode?: BooleanLike;
 }
 
+export interface DashboardConnectionStatusInput {
+  discord_connected?: BooleanLike;
+  broker_connected?: BooleanLike;
+}
+
+export interface DashboardStatusFlags {
+  discordConnected: boolean;
+  brokerConnected: boolean;
+}
+
 export interface DashboardRuntimeSettingsInput {
   simulation_mode?: BooleanLike;
 }
@@ -84,6 +94,16 @@ export interface DashboardRuntimeState {
 function toNumber(value: number | string | null | undefined, fallback: number): number {
   const parsed = Number(value ?? fallback);
   return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+export function normalizeDashboardStatusFlags(
+  status?: DashboardConnectionStatusInput | null
+): DashboardStatusFlags {
+  const source = status || {};
+  return {
+    discordConnected: parseBooleanFlag(source.discord_connected),
+    brokerConnected: parseBooleanFlag(source.broker_connected),
+  };
 }
 
 export function normalizeDashboardRuntimeState(input: DashboardRuntimeStateInput): DashboardRuntimeState {

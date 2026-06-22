@@ -14,7 +14,26 @@ require.extensions['.ts'] = function loadTs(module, filename) {
   module._compile(output, filename);
 };
 
-const { normalizeDashboardRuntimeState } = require('../utils/dashboardRuntimeState.ts');
+const {
+  normalizeDashboardRuntimeState,
+  normalizeDashboardStatusFlags,
+} = require('../utils/dashboardRuntimeState.ts');
+
+test('normalizes dashboard status flags for rendered connection state', () => {
+  const flags = normalizeDashboardStatusFlags({
+    discord_connected: 'false',
+    broker_connected: '0',
+  });
+
+  assert.deepEqual(flags, {
+    discordConnected: false,
+    brokerConnected: false,
+  });
+  assert.equal(normalizeDashboardStatusFlags({
+    discord_connected: 'true',
+    broker_connected: '1',
+  }).brokerConnected, true);
+});
 
 test('normalizes string booleans from dashboard settings responses', () => {
   const state = normalizeDashboardRuntimeState({
