@@ -119,9 +119,9 @@ def evaluate_live_readiness(
     env: Dict[str, str] | None = None,
 ) -> Dict[str, Any]:
     """Return live-trading readiness with machine-readable blockers."""
-    settings = settings or {}
-    runtime_state = runtime_state or {}
-    status = status or {}
+    settings = _dict_or_empty(settings)
+    runtime_state = _dict_or_empty(runtime_state)
+    status = _dict_or_empty(status)
     blocking: List[Dict[str, str]] = []
     warnings: List[Dict[str, str]] = []
 

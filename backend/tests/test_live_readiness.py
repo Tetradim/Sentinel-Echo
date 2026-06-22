@@ -96,6 +96,24 @@ class LiveReadinessTests(unittest.TestCase):
         self.assertIn("runtime_shutdown_active", codes)
         self.assertIn("broker_not_connected", codes)
 
+    def test_malformed_status_and_runtime_do_not_crash_readiness(self):
+        from live_readiness import evaluate_live_readiness
+
+        try:
+            result = evaluate_live_readiness(
+                READY_SETTINGS,
+                "shutdown",
+                status="connected",
+                env=READY_ENV,
+            )
+        except AttributeError as exc:
+            self.fail(f"readiness should treat malformed status/runtime as empty instead of raising: {exc}")
+        codes = {issue["code"] for issue in result["blocking_issues"]}
+
+        self.assertIn("no_live_ingestion", codes)
+        self.assertFalse(result["checks"]["runtime"]["shutdown_triggered"])
+        self.assertFalse(result["ready_for_live"])
+
     def test_authless_local_desktop_mode_does_not_block_readiness_on_api_key(self):
         from live_readiness import evaluate_live_readiness
 
