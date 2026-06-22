@@ -18,6 +18,10 @@ def _valid_duration_minutes(value: Any) -> bool:
     return type(value) is int and 1 <= value <= 480
 
 
+def _list_or_empty(value: Any) -> list[Any]:
+    return value if isinstance(value, list) else []
+
+
 def _parse_timestamp(value: Any) -> datetime | None:
     if not value:
         return None
@@ -67,7 +71,7 @@ async def arm_live_trading(
             "live_trading_arm_blocked",
             "Live trading arm was blocked by readiness checks.",
             severity="warning",
-            details={"blocking_issues": readiness.get("blocking_issues", [])},
+            details={"blocking_issues": _list_or_empty(readiness.get("blocking_issues"))},
         )
         raise RuntimeError("Live readiness has blocking issues.")
 
