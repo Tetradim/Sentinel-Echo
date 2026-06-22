@@ -72,6 +72,21 @@ class BrokerCapabilityTests(unittest.TestCase):
             )
         )
 
+    def test_missing_broker_config_fields_reports_blank_required_values(self):
+        from broker_capabilities import missing_broker_config_fields
+
+        missing = missing_broker_config_fields(
+            {
+                "broker_type": "alpaca",
+                "api_key": "key",
+                "api_secret": " ",
+                "base_url": "https://paper-api.alpaca.markets",
+            },
+            "alpaca",
+        )
+
+        self.assertEqual(missing, ("api_secret",))
+
 
 if __name__ == "__main__":
     unittest.main()

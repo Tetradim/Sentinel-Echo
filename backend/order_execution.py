@@ -6,6 +6,7 @@ import re
 from enum import Enum
 from typing import Any, Dict, Optional
 
+from broker_capabilities import missing_broker_config_fields, normalize_broker_id
 from models import BrokerConfig, BrokerType
 from utils.credentials import decrypt_broker_config
 
@@ -61,18 +62,28 @@ def materialize_secret_values(value: Any) -> Any:
 def resolve_broker_config(settings: Any, broker_id: Optional[str] = None) -> Dict[str, Any]:
     """Return decrypted, materialized config for the selected broker."""
     settings_data = materialize_secret_values(settings)
-    selected_broker = str(broker_id or settings_data.get("active_broker") or "").lower()
+    settings_data = settings_data if isinstance(settings_data, dict) else {}
+    selected_broker = normalize_broker_id(broker_id or settings_data.get("active_broker"))
     if not selected_broker:
         raise BrokerConfigurationError("No active broker configured")
 
     broker_configs = settings_data.get("broker_configs") or {}
+    broker_configs = broker_configs if isinstance(broker_configs, dict) else {}
     raw_config = broker_configs.get(selected_broker)
     if raw_config is None:
         raise BrokerConfigurationError(f"No broker config for {selected_broker}")
 
     decrypted = decrypt_broker_config(raw_config)
     config = materialize_secret_values(decrypted)
+    if not isinstance(config, dict):
+        raise BrokerConfigurationError(f"Broker config for {selected_broker} is malformed")
     config.setdefault("broker_type", selected_broker)
+    missing_fields = missing_broker_config_fields(config, selected_broker)
+    if missing_fields:
+        field_list = ", ".join(missing_fields)
+        raise BrokerConfigurationError(
+            f"Broker config for {selected_broker} is missing required fields: {field_list}"
+        )
     return config
 
 

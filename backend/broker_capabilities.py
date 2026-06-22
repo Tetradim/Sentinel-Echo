@@ -150,6 +150,19 @@ def get_broker_required_config_fields(broker_id: Any) -> tuple[str, ...]:
     return _BROKER_REQUIRED_CONFIG_FIELDS.get(normalize_broker_id(broker_id), ())
 
 
+def missing_broker_config_fields(config: Any, broker_id: Any = None) -> tuple[str, ...]:
+    """Return required broker config fields that are missing or blank."""
+    config_data = _dict_config(config)
+    required_fields = get_broker_required_config_fields(
+        broker_id or config_data.get("broker_type")
+    )
+    return tuple(
+        field
+        for field in required_fields
+        if not _has_config_value(config_data.get(field))
+    )
+
+
 def broker_config_is_usable(config: Any, broker_id: Any = None) -> bool:
     """Return true when a broker config has the broker's required values."""
     config_data = _dict_config(config)
@@ -159,7 +172,7 @@ def broker_config_is_usable(config: Any, broker_id: Any = None) -> bool:
         broker_id or config_data.get("broker_type")
     )
     if required_fields:
-        return all(_has_config_value(config_data.get(field)) for field in required_fields)
+        return not missing_broker_config_fields(config_data, broker_id)
 
     # Unknown brokers retain the legacy fallback so custom adapters can still be detected.
     relevant = {

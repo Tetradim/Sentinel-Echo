@@ -72,6 +72,90 @@ class OrderExecutionTests(unittest.TestCase):
         self.assertEqual(config["api_key"], "real-key")
         self.assertEqual(config["api_secret"], "real-secret")
 
+    def test_resolve_broker_config_rejects_malformed_broker_configs_container(self):
+        from order_execution import BrokerConfigurationError, resolve_broker_config
+
+        settings = {
+            "active_broker": "alpaca",
+            "broker_configs": "alpaca",
+        }
+
+        with self.assertRaises(BrokerConfigurationError) as raised:
+            resolve_broker_config(settings, "alpaca")
+
+        self.assertIn("No broker config for alpaca", str(raised.exception))
+
+    def test_resolve_broker_config_rejects_missing_required_credentials_after_decrypt(self):
+        from order_execution import BrokerConfigurationError, resolve_broker_config
+
+        settings = {
+            "active_broker": "alpaca",
+            "broker_configs": {
+                "alpaca": {
+                    "broker_type": "alpaca",
+                    "api_key": "enc:key",
+                    "api_secret": "enc:",
+                    "base_url": "https://paper-api.alpaca.markets",
+                }
+            },
+        }
+
+        with patch(
+            "order_execution.decrypt_broker_config",
+            return_value={
+                "broker_type": "alpaca",
+                "api_key": "real-key",
+                "api_secret": " ",
+                "base_url": "https://paper-api.alpaca.markets",
+            },
+        ):
+            with self.assertRaises(BrokerConfigurationError) as raised:
+                resolve_broker_config(settings, "alpaca")
+
+        message = str(raised.exception)
+        self.assertIn("Broker config for alpaca is missing required fields", message)
+        self.assertIn("api_secret", message)
+        self.assertNotIn("real-key", message)
+
+    def test_resolve_broker_config_rejects_malformed_decrypted_config(self):
+        from order_execution import BrokerConfigurationError, resolve_broker_config
+
+        settings = {
+            "active_broker": "alpaca",
+            "broker_configs": {
+                "alpaca": {
+                    "broker_type": "alpaca",
+                    "api_key": "enc:key",
+                    "api_secret": "enc:secret",
+                }
+            },
+        }
+
+        with patch("order_execution.decrypt_broker_config", return_value="configured"):
+            with self.assertRaises(BrokerConfigurationError) as raised:
+                resolve_broker_config(settings, "alpaca")
+
+        self.assertIn("Broker config for alpaca is malformed", str(raised.exception))
+
+    def test_configured_broker_client_rejects_incomplete_config_before_factory(self):
+        from order_execution import BrokerConfigurationError, get_configured_broker_client
+
+        settings = {
+            "active_broker": "alpaca",
+            "broker_configs": {
+                "alpaca": {
+                    "broker_type": "alpaca",
+                    "api_key": "real-key",
+                }
+            },
+        }
+
+        with patch("broker_clients.get_broker_client") as factory:
+            with self.assertRaises(BrokerConfigurationError):
+                get_configured_broker_client(settings, "alpaca")
+
+        factory.assert_not_called()
+
     def test_configured_broker_client_ignores_stored_duplicate_broker_type(self):
         from models import BrokerType
         from order_execution import get_configured_broker_client
