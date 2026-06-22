@@ -122,7 +122,7 @@ class SetupDiagnosticsTests(unittest.TestCase):
                     "discord_token": "",
                     "discord_channel_ids": [],
                     "active_broker": "alpaca",
-                    "broker_configs": {"alpaca": {"api_key": "broker-secret-key"}},
+                    "broker_configs": {"alpaca": {"api_key": "broker-secret-key", "api_secret": "broker-secret-secret"}},
                     "source_overrides": {},
                 }
             )
@@ -146,7 +146,7 @@ class SetupDiagnosticsTests(unittest.TestCase):
                     "discord_token": "",
                     "discord_channel_ids": [],
                     "active_broker": "alpaca",
-                    "broker_configs": {"alpaca": {"api_key": "broker-secret-key"}},
+                    "broker_configs": {"alpaca": {"api_key": "broker-secret-key", "api_secret": "broker-secret-secret"}},
                     "source_overrides": {},
                 }
             )
@@ -204,7 +204,7 @@ class SetupDiagnosticsTests(unittest.TestCase):
                     "discord_token": "discord-secret-token",
                     "discord_channel_ids": ["123", "456"],
                     "active_broker": "alpaca",
-                    "broker_configs": {"alpaca": {"api_key": "broker-secret-key"}},
+                    "broker_configs": {"alpaca": {"api_key": "broker-secret-key", "api_secret": "broker-secret-secret"}},
                     "source_overrides": {
                         "alerts": {
                             "paper_only": False,
@@ -250,7 +250,7 @@ class SetupDiagnosticsTests(unittest.TestCase):
                     "discord_token": "",
                     "discord_channel_ids": [],
                     "active_broker": "alpaca",
-                    "broker_configs": {"alpaca": {"api_key": "broker-secret-key"}},
+                    "broker_configs": {"alpaca": {"api_key": "broker-secret-key", "api_secret": "broker-secret-secret"}},
                     "source_overrides": {
                         "chrome-alerts": {
                             "paper_only": False,
@@ -301,7 +301,7 @@ class SetupDiagnosticsTests(unittest.TestCase):
                     "discord_token": "discord-secret-token",
                     "discord_channel_ids": ["123", "456"],
                     "active_broker": BrokerType.ALPACA,
-                    "broker_configs": {"alpaca": {"api_key": "broker-secret-key"}},
+                    "broker_configs": {"alpaca": {"api_key": "broker-secret-key", "api_secret": "broker-secret-secret"}},
                     "source_overrides": {
                         "alerts": {
                             "paper_only": False,
@@ -341,7 +341,7 @@ class SetupDiagnosticsTests(unittest.TestCase):
                     "discord_token": "discord-secret-token",
                     "discord_channel_ids": ["123"],
                     "active_broker": "alpaca",
-                    "broker_configs": {"alpaca": {"api_key": "broker-secret-key"}},
+                    "broker_configs": {"alpaca": {"api_key": "broker-secret-key", "api_secret": "broker-secret-secret"}},
                     "source_overrides": {
                         "alerts": {
                             "paper_only": False,
@@ -375,7 +375,7 @@ class SetupDiagnosticsTests(unittest.TestCase):
                     "discord_token": "",
                     "discord_channel_ids": [],
                     "active_broker": "alpaca",
-                    "broker_configs": {"alpaca": {"api_key": "broker-secret-key"}},
+                    "broker_configs": {"alpaca": {"api_key": "broker-secret-key", "api_secret": "broker-secret-secret"}},
                     "source_overrides": {
                         "alerts": {
                             "paper_only": False,
@@ -520,6 +520,45 @@ class SetupDiagnosticsTests(unittest.TestCase):
         self.assertIn("active_broker_not_configured", result["readiness"]["blocking_codes"])
         self.assertIn("Active broker is not configured.", result["warnings"])
 
+    def test_setup_diagnostics_does_not_count_incomplete_active_broker_config(self):
+        from routes import health as health_route
+
+        health_route.set_db(
+            FakeDiagnosticsDb(
+                {
+                    "discord_token": "discord-secret-token",
+                    "discord_channel_ids": ["123"],
+                    "active_broker": "alpaca",
+                    "broker_configs": {
+                        "alpaca": {
+                            "api_key": "broker-secret-key",
+                            "base_url": "https://paper-api.alpaca.markets",
+                        }
+                    },
+                    "source_overrides": {
+                        "alerts": {
+                            "paper_only": False,
+                            "require_manual_confirm": False,
+                        }
+                    },
+                    "auto_trading_enabled": True,
+                    "simulation_mode": False,
+                    "max_position_size": 1000.0,
+                    "shutdown_triggered": False,
+                }
+            )
+        )
+        health_route.update_bot_status("discord_connected", True)
+        health_route.update_bot_status("broker_connected", True)
+
+        result = asyncio.run(health_route.setup_diagnostics())
+
+        self.assertFalse(result["broker"]["configured"])
+        self.assertFalse(result["broker"]["connected"])
+        self.assertFalse(result["broker"]["order_status_supported"])
+        self.assertIn("active_broker_not_configured", result["readiness"]["blocking_codes"])
+        self.assertIn("Active broker is not configured.", result["warnings"])
+
     def test_setup_diagnostics_reports_malformed_source_overrides(self):
         from routes import health as health_route
 
@@ -529,7 +568,7 @@ class SetupDiagnosticsTests(unittest.TestCase):
                     "discord_token": "discord-secret-token",
                     "discord_channel_ids": ["123"],
                     "active_broker": "alpaca",
-                    "broker_configs": {"alpaca": {"api_key": "broker-secret-key"}},
+                    "broker_configs": {"alpaca": {"api_key": "broker-secret-key", "api_secret": "broker-secret-secret"}},
                     "source_overrides": "alerts",
                     "auto_trading_enabled": True,
                     "simulation_mode": False,
@@ -613,7 +652,7 @@ class SetupDiagnosticsTests(unittest.TestCase):
             FakeDiagnosticsDb(
                 {
                     "active_broker": "ibkr",
-                    "broker_configs": {"ibkr": {"gateway_url": "http://localhost"}},
+                    "broker_configs": {"ibkr": {"gateway_url": "http://localhost", "account_id": "DU123456"}},
                     "source_overrides": {},
                     "auto_trading_enabled": False,
                     "simulation_mode": True,

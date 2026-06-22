@@ -108,6 +108,19 @@ _BROKER_CAPABILITIES: Dict[str, Dict[str, Any]] = {
 }
 
 
+_BROKER_REQUIRED_CONFIG_FIELDS: Dict[str, tuple[str, ...]] = {
+    "alpaca": ("api_key", "api_secret"),
+    "ibkr": ("gateway_url", "account_id"),
+    "tradier": ("access_token", "account_id"),
+    "tradestation": ("ts_client_id", "ts_client_secret", "ts_refresh_token"),
+    "td_ameritrade": ("client_id", "refresh_token"),
+    "thinkorswim": ("tos_consumer_key", "tos_refresh_token", "tos_account_id"),
+    "webull": ("username", "password", "device_id", "trade_token"),
+    "robinhood": ("username", "password"),
+    "wealthsimple": ("ws_email", "ws_password"),
+}
+
+
 def normalize_broker_id(broker_id: Any, default: str = "") -> str:
     """Normalize broker ids from strings or enum-backed settings."""
     value = getattr(broker_id, "value", broker_id)
@@ -126,23 +139,42 @@ def _has_config_value(value: Any) -> bool:
     return value is not None
 
 
-def broker_config_is_usable(config: Any) -> bool:
-    """Return true when a broker config has at least one usable configured value."""
-    if not isinstance(config, dict):
+def _dict_config(config: Any) -> dict:
+    if hasattr(config, "model_dump"):
+        config = config.model_dump()
+    return config if isinstance(config, dict) else {}
+
+
+def get_broker_required_config_fields(broker_id: Any) -> tuple[str, ...]:
+    """Return the required non-empty config fields for a broker."""
+    return _BROKER_REQUIRED_CONFIG_FIELDS.get(normalize_broker_id(broker_id), ())
+
+
+def broker_config_is_usable(config: Any, broker_id: Any = None) -> bool:
+    """Return true when a broker config has the broker's required values."""
+    config_data = _dict_config(config)
+    if not config_data:
         return False
+    required_fields = get_broker_required_config_fields(
+        broker_id or config_data.get("broker_type")
+    )
+    if required_fields:
+        return all(_has_config_value(config_data.get(field)) for field in required_fields)
+
+    # Unknown brokers retain the legacy fallback so custom adapters can still be detected.
     relevant = {
         key: value
-        for key, value in config.items()
+        for key, value in config_data.items()
         if key not in {"broker_type", "configured_fields"}
     }
     return any(_has_config_value(value) for value in relevant.values())
 
 
 def is_broker_configured(broker_configs: Any, broker_id: Any) -> bool:
-    """Return true when the active broker has a non-empty saved configuration."""
+    """Return true when the active broker has a usable saved configuration."""
     configs = broker_configs if isinstance(broker_configs, dict) else {}
     broker_config = configs.get(normalize_broker_id(broker_id))
-    return broker_config_is_usable(broker_config)
+    return broker_config_is_usable(broker_config, broker_id)
 
 
 def get_broker_capabilities(broker_id: str | None) -> Dict[str, Any]:

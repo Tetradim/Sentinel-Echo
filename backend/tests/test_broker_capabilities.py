@@ -27,6 +27,51 @@ class BrokerCapabilityTests(unittest.TestCase):
         self.assertFalse(unknown["supports_order_status"])
         self.assertFalse(unknown["supports_cancel_order"])
 
+    def test_broker_configured_requires_each_required_auth_field(self):
+        from broker_capabilities import is_broker_configured
+
+        required_fields_by_broker = {
+            "alpaca": ("api_key", "api_secret"),
+            "ibkr": ("gateway_url", "account_id"),
+            "tradier": ("access_token", "account_id"),
+            "tradestation": ("ts_client_id", "ts_client_secret", "ts_refresh_token"),
+            "td_ameritrade": ("client_id", "refresh_token"),
+            "thinkorswim": ("tos_consumer_key", "tos_refresh_token", "tos_account_id"),
+            "webull": ("username", "password", "device_id", "trade_token"),
+            "robinhood": ("username", "password"),
+            "wealthsimple": ("ws_email", "ws_password"),
+        }
+
+        for broker_id, required_fields in required_fields_by_broker.items():
+            with self.subTest(broker_id=broker_id):
+                config = {"broker_type": broker_id}
+                config.update({field: f"value-{field}" for field in required_fields})
+                self.assertTrue(is_broker_configured({broker_id: config}, broker_id))
+
+                for missing_field in required_fields:
+                    incomplete = dict(config)
+                    incomplete[missing_field] = " "
+                    self.assertFalse(
+                        is_broker_configured({broker_id: incomplete}, broker_id),
+                        f"{broker_id} should require {missing_field}",
+                    )
+
+    def test_alpaca_config_ignores_defaults_without_credentials(self):
+        from broker_capabilities import is_broker_configured
+
+        self.assertFalse(
+            is_broker_configured(
+                {
+                    "alpaca": {
+                        "broker_type": "alpaca",
+                        "base_url": "https://paper-api.alpaca.markets",
+                        "gateway_url": "https://localhost:5000",
+                    }
+                },
+                "alpaca",
+            )
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

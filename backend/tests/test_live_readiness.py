@@ -11,7 +11,7 @@ READY_SETTINGS = {
     "discord_token": "discord-token",
     "discord_channel_ids": ["123456789"],
     "active_broker": "alpaca",
-    "broker_configs": {"alpaca": {"broker_type": "alpaca", "api_key": "key"}},
+    "broker_configs": {"alpaca": {"broker_type": "alpaca", "api_key": "key", "api_secret": "secret"}},
     "auto_trading_enabled": True,
     "simulation_mode": False,
     "max_position_size": 1000.0,
@@ -192,6 +192,29 @@ class LiveReadinessTests(unittest.TestCase):
 
         settings = dict(READY_SETTINGS)
         settings["broker_configs"] = {"alpaca": {"api_key": "  ", "api_secret": ""}}
+
+        result = evaluate_live_readiness(
+            settings,
+            {"shutdown_triggered": False},
+            status={"broker_connected": True, "discord_connected": True},
+            env=READY_ENV,
+        )
+
+        self.assertIn("active_broker_not_configured", result["blocking_codes"])
+        self.assertFalse(result["checks"]["broker"]["configured"])
+        self.assertFalse(result["ready_for_live"])
+
+    def test_incomplete_active_broker_config_does_not_count_configured(self):
+        from live_readiness import evaluate_live_readiness
+
+        settings = dict(READY_SETTINGS)
+        settings["broker_configs"] = {
+            "alpaca": {
+                "broker_type": "alpaca",
+                "api_key": "key",
+                "base_url": "https://paper-api.alpaca.markets",
+            }
+        }
 
         result = evaluate_live_readiness(
             settings,
