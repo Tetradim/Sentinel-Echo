@@ -107,10 +107,13 @@ def normalize_source_config(source_config: Dict[str, Any]) -> Dict[str, Any]:
         {key: source_config.get(key) for key in DEFAULT_SOURCE_CONFIG if key in source_config}
     )
     config["name"] = str(config.get("name") or "").strip()
-    config["enabled"] = bool(config.get("enabled", True))
-    config["paper_only"] = bool(config.get("paper_only", False))
-    config["paper_shadow"] = bool(config.get("paper_shadow", False))
-    config["require_manual_confirm"] = bool(config.get("require_manual_confirm", False))
+    config["enabled"] = _bool_field(config.get("enabled", True), "enabled", default=True)
+    config["paper_only"] = _bool_field(config.get("paper_only", False), "paper_only")
+    config["paper_shadow"] = _bool_field(config.get("paper_shadow", False), "paper_shadow")
+    config["require_manual_confirm"] = _bool_field(
+        config.get("require_manual_confirm", False),
+        "require_manual_confirm",
+    )
     config["parser_format"] = str(config.get("parser_format") or "default").strip() or "default"
     config["max_premium"] = _optional_positive_float_field(
         config.get("max_premium"),
@@ -295,6 +298,26 @@ def _optional_positive_float(value: Any) -> Optional[float]:
 def _positive_float(value: Any, *, default: float) -> float:
     parsed = _optional_positive_float(value)
     return parsed if parsed is not None else default
+
+
+def _bool_field(value: Any, field_name: str, *, default: bool = False) -> bool:
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return default
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        if value == 1:
+            return True
+        if value == 0:
+            return False
+        raise ValueError(f"{field_name} must be a boolean")
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in {"true", "1", "yes", "y", "on"}:
+            return True
+        if normalized in {"false", "0", "no", "n", "off"}:
+            return False
+    raise ValueError(f"{field_name} must be a boolean")
 
 
 def _optional_positive_float_field(value: Any, field_name: str) -> Optional[float]:

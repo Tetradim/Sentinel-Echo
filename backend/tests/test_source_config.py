@@ -154,6 +154,32 @@ class SourceConfigTests(unittest.TestCase):
         self.assertEqual(summary["override_count"], 0)
         self.assertEqual(summary["auto_live_sources"], 0)
 
+    def test_normalize_source_overrides_parses_boolean_strings_without_truthy_fallback(self):
+        from source_config import normalize_source_overrides
+
+        normalized = normalize_source_overrides(
+            {
+                "alerts": {
+                    "enabled": "false",
+                    "paper_only": "true",
+                    "paper_shadow": "0",
+                    "require_manual_confirm": 1,
+                }
+            }
+        )
+
+        config = normalized["alerts"]
+        self.assertFalse(config["enabled"])
+        self.assertTrue(config["paper_only"])
+        self.assertFalse(config["paper_shadow"])
+        self.assertTrue(config["require_manual_confirm"])
+
+    def test_normalize_source_overrides_rejects_ambiguous_boolean_text(self):
+        from source_config import normalize_source_overrides
+
+        with self.assertRaisesRegex(ValueError, "enabled must be a boolean"):
+            normalize_source_overrides({"alerts": {"enabled": "sometimes"}})
+
     def test_allowed_actions_block_unapproved_lifecycle_alerts(self):
         from source_config import resolve_source_config, source_skip_reason
 
