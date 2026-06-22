@@ -1,5 +1,11 @@
 # Automation Log
 
+## 2026-06-22
+
+- Inspected Sentinel Pulse's launcher lifecycle feature from `Launch-Sentinel-Pulse.ps1`, `Launch-Sentinel-Pulse-Local.ps1`, README lifecycle notes, and launcher static tests.
+- Logged the reusable "one closes the other" process lifecycle pattern in `docs/feature-log/one-closes-the-other-lifecycle.md` so it can be ported into other bot launchers.
+- Confirmed this is browser/launcher/process cleanup behavior, not an options OCO trading feature.
+
 ## 2026-06-17 20:08 UTC
 
 - Researched current Discord bot and Alpaca options automation references. Key production takeaway: Discord alert ingestion must account for Message Content intent behavior and rich embed payloads, while broker examples should remain paper-first until live execution is explicitly configured and verified.
