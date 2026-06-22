@@ -141,11 +141,11 @@ async def live_disarm():
 @router.post("/operator/panic-stop")
 async def panic_stop():
     """Disable automated live trading and set runtime shutdown state."""
-    from broker_capabilities import get_broker_capabilities
+    from broker_capabilities import get_broker_capabilities, normalize_broker_id
     from routes.health import update_bot_status
 
     settings = await db.get_settings()
-    active_broker = str(settings.get("active_broker", "ibkr")).lower()
+    active_broker = normalize_broker_id(settings.get("active_broker"), default="ibkr")
     capabilities = get_broker_capabilities(active_broker)
 
     updated_settings = await db.update_settings({"auto_trading_enabled": False})

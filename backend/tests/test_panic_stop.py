@@ -57,6 +57,19 @@ class PanicStopTests(unittest.TestCase):
         self.assertEqual(db.events[-1]["severity"], "critical")
         self.assertEqual(db.events[-1]["action"], "panic_stop")
 
+    def test_panic_stop_normalizes_enum_backed_active_broker_in_audit(self):
+        from models import BrokerType
+        from routes import operator as operator_route
+
+        db = FakePanicDb()
+        db.settings["active_broker"] = BrokerType.ALPACA
+        operator_route.set_db(db)
+
+        asyncio.run(operator_route.panic_stop())
+
+        self.assertEqual(db.events[-1]["details"]["active_broker"], "alpaca")
+        self.assertNotIn("BrokerType", " ".join(db.events[-1]["details"]["warnings"]))
+
 
 if __name__ == "__main__":
     unittest.main()
