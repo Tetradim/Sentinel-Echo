@@ -20,6 +20,7 @@ import { BACKEND_URL } from '../constants/config';
 import { BROKER_COLORS } from '../constants/brokers';
 import {
   BrokerConfigDigest,
+  getBrokerConnectionResult,
   summarizeBrokerConfig,
 } from '../utils/brokerConfigDigest';
 
@@ -206,10 +207,8 @@ export default function BrokerConfigScreen() {
     setCheckingConnection(brokerId);
     try {
       const response = await api.post(`${BACKEND_URL}/api/broker/check/${brokerId}`);
-      Alert.alert(
-        response.data.connected ? 'Connected!' : 'Not Connected',
-        response.data.message
-      );
+      const result = getBrokerConnectionResult(response.data);
+      Alert.alert(result.title, result.message);
     } catch (error) {
       console.error('Error checking connection:', error);
       Alert.alert('Error', 'Failed to check connection');

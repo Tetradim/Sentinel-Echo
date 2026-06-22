@@ -12,6 +12,7 @@ import { BROKER_COLORS, BROKER_NAMES_FULL as BROKER_NAMES } from '../constants/b
 import { SettingsDigest, summarizeSettings } from '../utils/settingsDigest';
 import { buildPremiumBufferSettingsParams } from '../utils/settingsPayload';
 import { parseSettingsViewFlags } from '../utils/settingsViewFlags';
+import { getBrokerConnectionResult } from '../utils/brokerConfigDigest';
 
 // Default demo settings
 const DEMO_SETTINGS: Settings = {
@@ -439,7 +440,8 @@ export default function SettingsScreen() {
     setBrokerChecking(true);
     try {
       const r = await api.post(`${BACKEND_URL}/api/broker/check/${settings.active_broker}`);
-      Alert.alert(r.data.connected ? '✓ Connected' : 'Not Connected', r.data.message);
+      const result = getBrokerConnectionResult(r.data);
+      Alert.alert(result.title, result.message);
     } catch { Alert.alert('Error', 'Failed to check broker connection.'); }
     finally { setBrokerChecking(false); }
   };

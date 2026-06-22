@@ -14,7 +14,7 @@ require.extensions['.ts'] = function loadTs(module, filename) {
   module._compile(output, filename);
 };
 
-const { summarizeBrokerConfig } = require('../utils/brokerConfigDigest.ts');
+const { getBrokerConnectionResult, summarizeBrokerConfig } = require('../utils/brokerConfigDigest.ts');
 
 const brokers = [
   {
@@ -104,4 +104,24 @@ test('returns an idle digest when no brokers are available', () => {
   assert.equal(digest.primaryStatus.tone, 'idle');
   assert.equal(digest.selectedBrokerName, 'None');
   assert.equal(digest.readinessPercent, 0);
+});
+
+test('parses serialized broker connection check responses', () => {
+  assert.deepEqual(getBrokerConnectionResult({
+    connected: 'false',
+    message: 'Broker rejected credentials',
+  }), {
+    connected: false,
+    title: 'Not Connected',
+    message: 'Broker rejected credentials',
+  });
+
+  assert.deepEqual(getBrokerConnectionResult({
+    connected: '1',
+    message: 'Broker connected',
+  }), {
+    connected: true,
+    title: 'Connected!',
+    message: 'Broker connected',
+  });
 });

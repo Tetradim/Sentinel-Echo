@@ -1,3 +1,5 @@
+import { parseBooleanFlag, type BooleanLike } from './booleanFlags';
+
 export type BrokerConfigDigestTone = 'live' | 'attention' | 'idle';
 
 export interface DigestConfigField {
@@ -33,6 +35,17 @@ export interface BrokerConfigDigest {
   configuredBrokerCount: number;
   unsavedBrokerCount: number;
   readinessPercent: number;
+}
+
+export interface BrokerConnectionResponse {
+  connected?: BooleanLike;
+  message?: string | null;
+}
+
+export interface BrokerConnectionResult {
+  connected: boolean;
+  title: string;
+  message: string;
 }
 
 type BrokerConfigMap = Record<string, Record<string, string | null | undefined>>;
@@ -73,6 +86,15 @@ function isBrokerConfigured(
 ): boolean {
   const fields = getFields(broker);
   return fields.length > 0 && configuredFieldCount(fields, configs[broker.id]) === fields.length;
+}
+
+export function getBrokerConnectionResult(response?: BrokerConnectionResponse | null): BrokerConnectionResult {
+  const connected = parseBooleanFlag(response?.connected);
+  return {
+    connected,
+    title: connected ? 'Connected!' : 'Not Connected',
+    message: String(response?.message || (connected ? 'Broker connection verified.' : 'Broker connection failed.')),
+  };
 }
 
 export function summarizeBrokerConfig(
