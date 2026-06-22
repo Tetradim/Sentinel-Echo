@@ -75,6 +75,45 @@ class SourceConfigTests(unittest.TestCase):
             source_skip_reason({"alert_type": "buy", "ticker": "SPY", "entry_price": 1.0}, config)
         )
 
+    def test_source_policy_summary_reports_auto_live_blockers(self):
+        from source_config import summarize_source_policy
+
+        summary = summarize_source_policy(
+            {
+                "paper": {"name": "Paper Alerts", "paper_only": True},
+                "manual": {"require_manual_confirm": True},
+                "disabled": {"enabled": False, "paper_shadow": True},
+                "live": {"paper_shadow": True},
+            }
+        )
+
+        self.assertTrue(summary["valid"])
+        self.assertEqual(summary["override_count"], 4)
+        self.assertEqual(summary["enabled_sources"], 3)
+        self.assertEqual(summary["disabled_sources"], 1)
+        self.assertEqual(summary["paper_only_sources"], 1)
+        self.assertEqual(summary["paper_shadow_sources"], 2)
+        self.assertEqual(summary["manual_confirm_sources"], 1)
+        self.assertEqual(summary["auto_live_sources"], 1)
+        self.assertEqual(summary["auto_live_source_keys"], ["live"])
+
+        blocked = {item["key"]: item for item in summary["blocked_sources"]}
+        self.assertEqual(blocked["paper"]["name"], "Paper Alerts")
+        self.assertEqual(blocked["paper"]["reasons"], ["paper_only"])
+        self.assertEqual(blocked["manual"]["reasons"], ["manual_confirm_required"])
+        self.assertEqual(blocked["disabled"]["reasons"], ["disabled"])
+
+    def test_source_policy_summary_reports_invalid_overrides_without_crashing(self):
+        from source_config import summarize_source_policy
+
+        summary = summarize_source_policy("alerts")
+
+        self.assertFalse(summary["valid"])
+        self.assertEqual(summary["error"], "source overrides must be an object")
+        self.assertEqual(summary["override_count"], 0)
+        self.assertEqual(summary["auto_live_sources"], 0)
+        self.assertEqual(summary["blocked_sources"], [])
+
     def test_allowed_actions_block_unapproved_lifecycle_alerts(self):
         from source_config import resolve_source_config, source_skip_reason
 

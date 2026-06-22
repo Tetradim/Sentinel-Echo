@@ -13,7 +13,7 @@ from broker_capabilities import (
     normalize_broker_id,
 )
 from live_readiness import evaluate_live_readiness
-from source_config import normalize_source_overrides
+from source_config import summarize_source_policy
 
 router = APIRouter(tags=["Health"])
 db = None
@@ -138,15 +138,9 @@ async def setup_diagnostics():
         broker_capabilities.get("supports_order_status", False)
     )
 
-    source_overrides = settings.get("source_overrides") or {}
-    try:
-        normalized_sources = normalize_source_overrides(source_overrides)
-        source_config_valid = True
-        source_error = ""
-    except ValueError as exc:
-        normalized_sources = {}
-        source_config_valid = False
-        source_error = str(exc)
+    source_policy = summarize_source_policy(settings.get("source_overrides") or {})
+    source_config_valid = bool(source_policy.get("valid", False))
+    source_error = str(source_policy.get("error") or "")
 
     auto_trading_enabled = bool(settings.get("auto_trading_enabled", False))
     simulation_mode = bool(settings.get("simulation_mode", True))
@@ -154,12 +148,12 @@ async def setup_diagnostics():
         runtime.get("shutdown_triggered", False)
         or settings.get("shutdown_triggered", False)
     )
-    auto_live_sources = _auto_live_source_count(normalized_sources)
+    auto_live_sources = int(source_policy.get("auto_live_sources", 0))
     readiness = evaluate_live_readiness(settings, runtime, status=status)
 
     warnings = _setup_warnings(
         discord_token_configured=discord_token_configured,
-        source_count=len(normalized_sources),
+        source_count=int(source_policy.get("override_count", 0)),
         auto_live_sources=auto_live_sources,
         source_config_valid=source_config_valid,
         source_error=source_error,
@@ -183,20 +177,7 @@ async def setup_diagnostics():
             "message_content_intent_requested": True,
             "message_content_portal_check_required": True,
         },
-        "source_policy": {
-            "override_count": len(normalized_sources),
-            "valid": source_config_valid,
-            "paper_only_sources": sum(
-                1 for config in normalized_sources.values() if config.get("paper_only")
-            ),
-            "paper_shadow_sources": sum(
-                1 for config in normalized_sources.values() if config.get("paper_shadow")
-            ),
-            "manual_confirm_sources": sum(
-                1 for config in normalized_sources.values() if config.get("require_manual_confirm")
-            ),
-            "auto_live_sources": auto_live_sources,
-        },
+        "source_policy": source_policy,
         "broker": {
             "active_broker": active_broker,
             "configured": broker_configured,
@@ -279,13 +260,3 @@ def _merge_readiness_warnings(warnings: list[str], readiness: dict) -> list[str]
             merged.append(summary)
             seen.add(summary)
     return merged
-
-
-def _auto_live_source_count(normalized_sources: dict) -> int:
-    return sum(
-        1
-        for config in normalized_sources.values()
-        if config.get("enabled", True)
-        and not config.get("paper_only")
-        and not config.get("require_manual_confirm")
-    )

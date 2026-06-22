@@ -257,6 +257,35 @@ class LiveReadinessTests(unittest.TestCase):
         self.assertFalse(result["checks"]["source_policy"]["valid"])
         self.assertFalse(result["ready_for_live"])
 
+    def test_source_policy_check_reports_blocked_source_reasons(self):
+        from live_readiness import evaluate_live_readiness
+
+        settings = dict(READY_SETTINGS)
+        settings["source_overrides"] = {
+            "paper": {"paper_only": True},
+            "manual": {"require_manual_confirm": True},
+            "disabled": {"enabled": False},
+        }
+
+        result = evaluate_live_readiness(
+            settings,
+            {"shutdown_triggered": False},
+            status={"broker_connected": True, "discord_connected": True},
+            env=READY_ENV,
+        )
+        source_policy = result["checks"]["source_policy"]
+        blocked = {item["key"]: item["reasons"] for item in source_policy["blocked_sources"]}
+
+        self.assertIn("no_live_source", result["blocking_codes"])
+        self.assertEqual(source_policy["override_count"], 3)
+        self.assertEqual(source_policy["auto_live_sources"], 0)
+        self.assertEqual(source_policy["paper_only_sources"], 1)
+        self.assertEqual(source_policy["manual_confirm_sources"], 1)
+        self.assertEqual(source_policy["disabled_sources"], 1)
+        self.assertEqual(blocked["paper"], ["paper_only"])
+        self.assertEqual(blocked["manual"], ["manual_confirm_required"])
+        self.assertEqual(blocked["disabled"], ["disabled"])
+
     def test_invalid_max_position_size_reports_blocker_without_crashing(self):
         from live_readiness import evaluate_live_readiness
 

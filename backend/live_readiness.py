@@ -12,7 +12,7 @@ from broker_capabilities import (
     missing_broker_config_fields,
     normalize_broker_id,
 )
-from source_config import normalize_source_overrides
+from source_config import summarize_source_policy
 
 
 LOCAL_BIND_HOSTS = {"127.0.0.1", "localhost", "::1"}
@@ -33,21 +33,6 @@ def _authless_desktop_mode(env: Dict[str, str] | None) -> bool:
         and _env_value(env, "USE_SQLITE", "false").lower() == "true"
         and _env_value(env, "HOST", "127.0.0.1").lower() in LOCAL_BIND_HOSTS
     )
-
-
-def _auto_live_source_count(source_overrides: Dict[str, Any]) -> tuple[int, bool, str]:
-    try:
-        normalized = normalize_source_overrides(source_overrides or {})
-    except ValueError as exc:
-        return 0, False, str(exc)
-    count = sum(
-        1
-        for config in normalized.values()
-        if config.get("enabled", True)
-        and not config.get("paper_only")
-        and not config.get("require_manual_confirm")
-    )
-    return count, True, ""
 
 
 def _dict_or_empty(value: Any) -> Dict[str, Any]:
@@ -139,9 +124,10 @@ def evaluate_live_readiness(
     if not broker_configured and broker_config_has_saved_value(active_broker_config):
         missing_broker_fields = list(missing_broker_config_fields(active_broker_config, active_broker))
     capabilities = get_broker_capabilities(active_broker)
-    auto_live_sources, source_config_valid, source_error = _auto_live_source_count(
-        settings.get("source_overrides") or {}
-    )
+    source_policy = summarize_source_policy(settings.get("source_overrides") or {})
+    auto_live_sources = int(source_policy.get("auto_live_sources", 0))
+    source_config_valid = bool(source_policy.get("valid", False))
+    source_error = str(source_policy.get("error") or "")
 
     if not _env_value(env, "API_KEY") and not _authless_desktop_mode(env):
         blocking.append(_issue("api_key_missing", "API_KEY is required before exposing live trading controls."))
@@ -200,11 +186,7 @@ def evaluate_live_readiness(
             "connected": status.get("broker_connected"),
             "capabilities": capabilities,
         },
-        "source_policy": {
-            "valid": source_config_valid,
-            "auto_live_sources": auto_live_sources,
-            "error": source_error,
-        },
+        "source_policy": source_policy,
         "signal_ingestion": {
             "discord_connected": discord_connected,
             "discord_configured": discord_configured,

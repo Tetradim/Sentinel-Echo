@@ -48,6 +48,56 @@ def normalize_source_overrides(
     return normalized
 
 
+def summarize_source_policy(source_overrides: Dict[str, Dict[str, Any]]) -> Dict[str, Any]:
+    summary = _empty_source_policy_summary()
+    try:
+        normalized_sources = normalize_source_overrides(source_overrides or {})
+    except ValueError as exc:
+        summary["valid"] = False
+        summary["error"] = str(exc)
+        return summary
+
+    summary["override_count"] = len(normalized_sources)
+    for key, config in normalized_sources.items():
+        key_text = str(key)
+        enabled = bool(config.get("enabled", True))
+        paper_only = bool(config.get("paper_only", False))
+        paper_shadow = bool(config.get("paper_shadow", False))
+        require_manual_confirm = bool(config.get("require_manual_confirm", False))
+
+        if enabled:
+            summary["enabled_sources"] += 1
+        else:
+            summary["disabled_sources"] += 1
+        if paper_only:
+            summary["paper_only_sources"] += 1
+        if paper_shadow:
+            summary["paper_shadow_sources"] += 1
+        if require_manual_confirm:
+            summary["manual_confirm_sources"] += 1
+
+        reasons = []
+        if not enabled:
+            reasons.append("disabled")
+        if paper_only:
+            reasons.append("paper_only")
+        if require_manual_confirm:
+            reasons.append("manual_confirm_required")
+
+        if reasons:
+            summary["blocked_sources"].append(
+                {
+                    "key": key_text,
+                    "name": str(config.get("name") or "").strip(),
+                    "reasons": reasons,
+                }
+            )
+        else:
+            summary["auto_live_sources"] += 1
+            summary["auto_live_source_keys"].append(key_text)
+    return summary
+
+
 def normalize_source_config(source_config: Dict[str, Any]) -> Dict[str, Any]:
     if not isinstance(source_config, dict):
         raise ValueError("source override must be an object")
@@ -86,6 +136,22 @@ def normalize_source_config(source_config: Dict[str, Any]) -> Dict[str, Any]:
         "ticker_blocklist",
     )
     return config
+
+
+def _empty_source_policy_summary() -> Dict[str, Any]:
+    return {
+        "valid": True,
+        "error": "",
+        "override_count": 0,
+        "enabled_sources": 0,
+        "disabled_sources": 0,
+        "paper_only_sources": 0,
+        "paper_shadow_sources": 0,
+        "manual_confirm_sources": 0,
+        "auto_live_sources": 0,
+        "auto_live_source_keys": [],
+        "blocked_sources": [],
+    }
 
 
 def resolve_source_config(
