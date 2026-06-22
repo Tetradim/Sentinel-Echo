@@ -29,6 +29,20 @@ logger = logging.getLogger(__name__)
 # Database instance - will be set by main server
 db = None
 
+_BOOLEAN_SETTING_DEFAULTS = {
+    "auto_trading_enabled": False,
+    "premium_buffer_enabled": False,
+    "simulation_mode": True,
+    "averaging_down_enabled": False,
+    "take_profit_enabled": False,
+    "bracket_order_enabled": False,
+    "stop_loss_enabled": False,
+    "trailing_stop_enabled": False,
+    "auto_shutdown_enabled": False,
+    "shutdown_triggered": False,
+    "sms_enabled": False,
+}
+
 
 def set_db(database):
     """Set the database reference"""
@@ -49,6 +63,9 @@ def _settings_response(settings: Dict[str, Any] | None) -> Dict[str, Any]:
     if not isinstance(settings, dict) or not settings:
         settings = Settings().model_dump()
     response = dict(settings)
+    for field, default in _BOOLEAN_SETTING_DEFAULTS.items():
+        if field in response:
+            response[field] = coerce_bool(response.get(field), default=default)
     if response.get("broker_configs"):
         decrypted = decrypt_broker_configs(response["broker_configs"])
         response["broker_configs"] = mask_broker_configs(decrypted)
@@ -210,7 +227,7 @@ async def toggle_trading():
 async def toggle_premium_buffer():
     """Toggle premium buffer"""
     settings = _dict_or_empty(await db.get_settings())
-    new_state = not settings.get('premium_buffer_enabled', False)
+    new_state = not coerce_bool(settings.get('premium_buffer_enabled'), default=False)
     await db.update_settings({'premium_buffer_enabled': new_state})
     return {"premium_buffer_enabled": new_state}
 
@@ -220,7 +237,7 @@ async def get_premium_buffer_settings():
     """Get premium buffer settings"""
     settings = _dict_or_empty(await db.get_settings())
     return {
-        "premium_buffer_enabled": settings.get('premium_buffer_enabled', False),
+        "premium_buffer_enabled": coerce_bool(settings.get('premium_buffer_enabled'), default=False),
         "premium_buffer_amount": settings.get('premium_buffer_amount', 10.0)
     }
 
@@ -237,7 +254,7 @@ async def update_premium_buffer_settings(
     await db.update_settings(update_dict)
     settings = {**update_dict, **_dict_or_empty(await db.get_settings())}
     return {
-        "premium_buffer_enabled": settings.get('premium_buffer_enabled', False),
+        "premium_buffer_enabled": coerce_bool(settings.get('premium_buffer_enabled'), default=False),
         "premium_buffer_amount": settings.get('premium_buffer_amount', premium_buffer_amount),
     }
 
@@ -247,7 +264,7 @@ async def update_premium_buffer_settings(
 async def toggle_averaging_down():
     """Toggle averaging down"""
     settings = _dict_or_empty(await db.get_settings())
-    new_state = not settings.get('averaging_down_enabled', False)
+    new_state = not coerce_bool(settings.get('averaging_down_enabled'), default=False)
     await db.update_settings({'averaging_down_enabled': new_state})
     return {"averaging_down_enabled": new_state}
 
@@ -257,7 +274,7 @@ async def get_averaging_down_settings():
     """Get averaging down settings"""
     settings = _dict_or_empty(await db.get_settings())
     return {
-        "averaging_down_enabled": settings.get('averaging_down_enabled', False),
+        "averaging_down_enabled": coerce_bool(settings.get('averaging_down_enabled'), default=False),
         "averaging_down_threshold": settings.get('averaging_down_threshold', 10.0),
         "averaging_down_percentage": settings.get('averaging_down_percentage', 25.0),
         "averaging_down_max_buys": settings.get('averaging_down_max_buys', 3)
@@ -271,7 +288,7 @@ async def update_averaging_down_settings(update: AveragingDownSettingsUpdate):
     await db.update_settings(update_dict)
     settings = {**update_dict, **_dict_or_empty(await db.get_settings())}
     return {
-        "averaging_down_enabled": settings.get('averaging_down_enabled', False),
+        "averaging_down_enabled": coerce_bool(settings.get('averaging_down_enabled'), default=False),
         "averaging_down_threshold": settings.get('averaging_down_threshold', 10.0),
         "averaging_down_percentage": settings.get('averaging_down_percentage', 25.0),
         "averaging_down_max_buys": settings.get('averaging_down_max_buys', 3)
@@ -282,8 +299,8 @@ async def update_averaging_down_settings(update: AveragingDownSettingsUpdate):
 @router.post("/toggle-take-profit")
 async def toggle_take_profit():
     """Toggle take profit"""
-    settings = await db.get_settings()
-    new_state = not settings.get('take_profit_enabled', False)
+    settings = _dict_or_empty(await db.get_settings())
+    new_state = not coerce_bool(settings.get('take_profit_enabled'), default=False)
     await db.update_settings({'take_profit_enabled': new_state})
     return {"take_profit_enabled": new_state}
 
@@ -292,7 +309,7 @@ async def toggle_take_profit():
 async def toggle_stop_loss():
     """Toggle stop loss"""
     settings = _dict_or_empty(await db.get_settings())
-    new_state = not settings.get('stop_loss_enabled', False)
+    new_state = not coerce_bool(settings.get('stop_loss_enabled'), default=False)
     await db.update_settings({'stop_loss_enabled': new_state})
     return {"stop_loss_enabled": new_state}
 
@@ -302,10 +319,10 @@ async def get_risk_management_settings():
     """Get risk management settings"""
     settings = _dict_or_empty(await db.get_settings())
     return {
-        "take_profit_enabled": settings.get('take_profit_enabled', False),
+        "take_profit_enabled": coerce_bool(settings.get('take_profit_enabled'), default=False),
         "take_profit_percentage": settings.get('take_profit_percentage', 50.0),
-        "bracket_order_enabled": settings.get('bracket_order_enabled', False),
-        "stop_loss_enabled": settings.get('stop_loss_enabled', False),
+        "bracket_order_enabled": coerce_bool(settings.get('bracket_order_enabled'), default=False),
+        "stop_loss_enabled": coerce_bool(settings.get('stop_loss_enabled'), default=False),
         "stop_loss_percentage": settings.get('stop_loss_percentage', 25.0),
         "stop_loss_order_type": settings.get('stop_loss_order_type', 'market')
     }
@@ -320,10 +337,10 @@ async def update_risk_management_settings(update: RiskManagementSettingsUpdate):
     await db.update_settings(update_dict)
     settings = {**update_dict, **_dict_or_empty(await db.get_settings())}
     return {
-        "take_profit_enabled": settings.get('take_profit_enabled', False),
+        "take_profit_enabled": coerce_bool(settings.get('take_profit_enabled'), default=False),
         "take_profit_percentage": settings.get('take_profit_percentage', 50.0),
-        "bracket_order_enabled": settings.get('bracket_order_enabled', False),
-        "stop_loss_enabled": settings.get('stop_loss_enabled', False),
+        "bracket_order_enabled": coerce_bool(settings.get('bracket_order_enabled'), default=False),
+        "stop_loss_enabled": coerce_bool(settings.get('stop_loss_enabled'), default=False),
         "stop_loss_percentage": settings.get('stop_loss_percentage', 25.0),
         "stop_loss_order_type": settings.get('stop_loss_order_type', 'market')
     }
@@ -334,7 +351,7 @@ async def update_risk_management_settings(update: RiskManagementSettingsUpdate):
 async def toggle_trailing_stop():
     """Toggle trailing stop"""
     settings = _dict_or_empty(await db.get_settings())
-    new_state = not settings.get('trailing_stop_enabled', False)
+    new_state = not coerce_bool(settings.get('trailing_stop_enabled'), default=False)
     await db.update_settings({'trailing_stop_enabled': new_state})
     return {"trailing_stop_enabled": new_state}
 
@@ -344,7 +361,7 @@ async def get_trailing_stop_settings():
     """Get trailing stop settings"""
     settings = _dict_or_empty(await db.get_settings())
     return {
-        "trailing_stop_enabled": settings.get('trailing_stop_enabled', False),
+        "trailing_stop_enabled": coerce_bool(settings.get('trailing_stop_enabled'), default=False),
         "trailing_stop_type": settings.get('trailing_stop_type', 'percent'),
         "trailing_stop_percent": settings.get('trailing_stop_percent', 10.0),
         "trailing_stop_cents": settings.get('trailing_stop_cents', 50.0)
@@ -360,7 +377,7 @@ async def update_trailing_stop_settings(update: TrailingStopSettingsUpdate):
     await db.update_settings(update_dict)
     settings = {**update_dict, **_dict_or_empty(await db.get_settings())}
     return {
-        "trailing_stop_enabled": settings.get('trailing_stop_enabled', False),
+        "trailing_stop_enabled": coerce_bool(settings.get('trailing_stop_enabled'), default=False),
         "trailing_stop_type": settings.get('trailing_stop_type', 'percent'),
         "trailing_stop_percent": settings.get('trailing_stop_percent', 10.0),
         "trailing_stop_cents": settings.get('trailing_stop_cents', 50.0)
@@ -372,7 +389,7 @@ async def update_trailing_stop_settings(update: TrailingStopSettingsUpdate):
 async def toggle_auto_shutdown():
     """Toggle auto shutdown"""
     settings = _dict_or_empty(await db.get_settings())
-    new_state = not settings.get('auto_shutdown_enabled', False)
+    new_state = not coerce_bool(settings.get('auto_shutdown_enabled'), default=False)
     await db.update_settings({'auto_shutdown_enabled': new_state})
     return {"auto_shutdown_enabled": new_state}
 
@@ -384,14 +401,14 @@ async def get_auto_shutdown_settings():
     # M6: live counters come from runtime_state, not the settings blob
     runtime = _dict_or_empty(await db.get_runtime_state())
     return {
-        "auto_shutdown_enabled": settings.get('auto_shutdown_enabled', False),
+        "auto_shutdown_enabled": coerce_bool(settings.get('auto_shutdown_enabled'), default=False),
         "max_consecutive_losses": settings.get('max_consecutive_losses', 3),
         "max_daily_losses": settings.get('max_daily_losses', 5),
         "max_daily_loss_amount": settings.get('max_daily_loss_amount', 500.0),
         "consecutive_losses": runtime.get('consecutive_losses', 0),
         "daily_losses": runtime.get('daily_losses', 0),
         "daily_loss_amount": runtime.get('daily_loss_amount', 0.0),
-        "shutdown_triggered": runtime.get('shutdown_triggered', False),
+        "shutdown_triggered": coerce_bool(runtime.get('shutdown_triggered'), default=False),
         "shutdown_reason": runtime.get('shutdown_reason', ''),
     }
 
@@ -403,7 +420,7 @@ async def update_auto_shutdown_settings(update: AutoShutdownSettingsUpdate):
     await db.update_settings(update_dict)
     settings = {**update_dict, **_dict_or_empty(await db.get_settings())}
     return {
-        "auto_shutdown_enabled": settings.get('auto_shutdown_enabled', False),
+        "auto_shutdown_enabled": coerce_bool(settings.get('auto_shutdown_enabled'), default=False),
         "max_consecutive_losses": settings.get('max_consecutive_losses', 3),
         "max_daily_losses": settings.get('max_daily_losses', 5),
         "max_daily_loss_amount": settings.get('max_daily_loss_amount', 500.0)
@@ -474,7 +491,7 @@ async def get_notification_settings():
     """Get SMS and notification settings."""
     settings = _dict_or_empty(await db.get_settings())
     return {
-        "sms_enabled": settings.get("sms_enabled", False),
+        "sms_enabled": coerce_bool(settings.get("sms_enabled"), default=False),
         "sms_phone_number": settings.get("sms_phone_number", ""),
         "twilio_account_sid": settings.get("twilio_account_sid", ""),
         "twilio_auth_token": "********" if settings.get("twilio_auth_token") else "",

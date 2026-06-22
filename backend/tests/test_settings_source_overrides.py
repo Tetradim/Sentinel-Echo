@@ -62,6 +62,15 @@ class FakeMalformedRuntimeDb(FakeSettingsDb):
         return "runtime"
 
 
+class FakeRuntimeSettingsDb(FakeSettingsDb):
+    def __init__(self, settings=None, runtime=None):
+        super().__init__(settings)
+        self.runtime = runtime or {}
+
+    async def get_runtime_state(self):
+        return dict(self.runtime)
+
+
 class SourceOverrideRouteTests(unittest.TestCase):
     def test_get_settings_treats_malformed_settings_as_defaults(self):
         from routes import settings as settings_route
@@ -74,6 +83,30 @@ class SourceOverrideRouteTests(unittest.TestCase):
         self.assertIsInstance(response, dict)
         self.assertFalse(response["auto_trading_enabled"])
         self.assertTrue(response["simulation_mode"])
+
+    def test_get_settings_coerces_known_string_flags_for_clients(self):
+        from routes import settings as settings_route
+
+        string_flags = {
+            "auto_trading_enabled": "false",
+            "premium_buffer_enabled": "false",
+            "simulation_mode": "false",
+            "averaging_down_enabled": "false",
+            "take_profit_enabled": "false",
+            "bracket_order_enabled": "false",
+            "stop_loss_enabled": "false",
+            "trailing_stop_enabled": "false",
+            "auto_shutdown_enabled": "false",
+            "shutdown_triggered": "false",
+            "sms_enabled": "false",
+        }
+        fake_db = FakeSettingsDb(string_flags)
+        settings_route.set_db(fake_db)
+
+        response = asyncio.run(settings_route.get_settings())
+
+        for flag_name in string_flags:
+            self.assertIs(response[flag_name], False)
 
     def test_update_premium_buffer_settings_persists_enabled_flag_and_amount(self):
         from routes import settings as settings_route
@@ -291,6 +324,76 @@ class SourceOverrideRouteTests(unittest.TestCase):
         self.assertFalse(response["shutdown_triggered"])
         self.assertEqual(response["shutdown_reason"], "")
 
+    def test_auto_shutdown_settings_coerces_persisted_string_shutdown_flag(self):
+        from routes import settings as settings_route
+
+        fake_db = FakeRuntimeSettingsDb(
+            {},
+            {
+                "shutdown_triggered": "false",
+                "shutdown_reason": "stored as text",
+            },
+        )
+        settings_route.set_db(fake_db)
+
+        response = asyncio.run(settings_route.get_auto_shutdown_settings())
+
+        self.assertIs(response["shutdown_triggered"], False)
+        self.assertEqual(response["shutdown_reason"], "stored as text")
+
+    def test_setting_read_endpoints_coerce_string_flags_for_clients(self):
+        from routes import settings as settings_route
+
+        cases = [
+            (
+                "get_premium_buffer_settings",
+                {"premium_buffer_enabled": "false"},
+                {"premium_buffer_enabled": False},
+            ),
+            (
+                "get_averaging_down_settings",
+                {"averaging_down_enabled": "false"},
+                {"averaging_down_enabled": False},
+            ),
+            (
+                "get_risk_management_settings",
+                {
+                    "take_profit_enabled": "false",
+                    "bracket_order_enabled": "false",
+                    "stop_loss_enabled": "false",
+                },
+                {
+                    "take_profit_enabled": False,
+                    "bracket_order_enabled": False,
+                    "stop_loss_enabled": False,
+                },
+            ),
+            (
+                "get_trailing_stop_settings",
+                {"trailing_stop_enabled": "false"},
+                {"trailing_stop_enabled": False},
+            ),
+            (
+                "get_auto_shutdown_settings",
+                {"auto_shutdown_enabled": "false"},
+                {"auto_shutdown_enabled": False},
+            ),
+            (
+                "get_notification_settings",
+                {"sms_enabled": "false"},
+                {"sms_enabled": False},
+            ),
+        ]
+        for function_name, settings, expected_flags in cases:
+            with self.subTest(function_name=function_name):
+                fake_db = FakeSettingsDb(settings)
+                settings_route.set_db(fake_db)
+
+                response = asyncio.run(getattr(settings_route, function_name)())
+
+                for flag_name, expected in expected_flags.items():
+                    self.assertIs(response[flag_name], expected)
+
     def test_averaging_down_settings_treats_malformed_settings_as_defaults(self):
         from routes import settings as settings_route
 
@@ -490,6 +593,81 @@ class SourceOverrideRouteTests(unittest.TestCase):
             },
         )
 
+    def test_setting_update_endpoints_coerce_existing_string_flags_for_clients(self):
+        from models import (
+            AutoShutdownSettingsUpdate,
+            AveragingDownSettingsUpdate,
+            RiskManagementSettingsUpdate,
+            TrailingStopSettingsUpdate,
+        )
+        from routes import settings as settings_route
+
+        cases = [
+            (
+                "update_premium_buffer_settings",
+                {"premium_buffer_enabled": "false"},
+                {"premium_buffer_amount": 11.0},
+                {"premium_buffer_enabled": False},
+            ),
+            (
+                "update_averaging_down_settings",
+                {"averaging_down_enabled": "false"},
+                {
+                    "update": AveragingDownSettingsUpdate(
+                        averaging_down_threshold=12.0,
+                    )
+                },
+                {"averaging_down_enabled": False},
+            ),
+            (
+                "update_risk_management_settings",
+                {
+                    "take_profit_enabled": "false",
+                    "bracket_order_enabled": "false",
+                    "stop_loss_enabled": "false",
+                },
+                {
+                    "update": RiskManagementSettingsUpdate(
+                        take_profit_percentage=55.0,
+                    )
+                },
+                {
+                    "take_profit_enabled": False,
+                    "bracket_order_enabled": False,
+                    "stop_loss_enabled": False,
+                },
+            ),
+            (
+                "update_trailing_stop_settings",
+                {"trailing_stop_enabled": "false"},
+                {
+                    "update": TrailingStopSettingsUpdate(
+                        trailing_stop_percent=12.0,
+                    )
+                },
+                {"trailing_stop_enabled": False},
+            ),
+            (
+                "update_auto_shutdown_settings",
+                {"auto_shutdown_enabled": "false"},
+                {
+                    "update": AutoShutdownSettingsUpdate(
+                        max_daily_losses=4,
+                    )
+                },
+                {"auto_shutdown_enabled": False},
+            ),
+        ]
+        for function_name, existing_settings, kwargs, expected_flags in cases:
+            with self.subTest(function_name=function_name):
+                fake_db = FakeSettingsDb(existing_settings)
+                settings_route.set_db(fake_db)
+
+                response = asyncio.run(getattr(settings_route, function_name)(**kwargs))
+
+                for flag_name, expected in expected_flags.items():
+                    self.assertIs(response[flag_name], expected)
+
     def test_toggle_trading_uses_persisted_setting_as_source_of_truth(self):
         from routes import settings as settings_route
         from routes.health import update_bot_status
@@ -620,6 +798,27 @@ class SourceOverrideRouteTests(unittest.TestCase):
         self.assertEqual(fake_db.updated, [])
         self.assertEqual(fake_db.operator_events[-1]["action"], "auto_trading_enable_blocked")
 
+    def test_secondary_toggles_parse_string_false_before_toggling(self):
+        from routes import settings as settings_route
+
+        cases = [
+            ("toggle_premium_buffer", "premium_buffer_enabled"),
+            ("toggle_averaging_down", "averaging_down_enabled"),
+            ("toggle_take_profit", "take_profit_enabled"),
+            ("toggle_stop_loss", "stop_loss_enabled"),
+            ("toggle_trailing_stop", "trailing_stop_enabled"),
+            ("toggle_auto_shutdown", "auto_shutdown_enabled"),
+        ]
+        for function_name, flag_name in cases:
+            with self.subTest(function_name=function_name):
+                fake_db = FakeSettingsDb({flag_name: "false"})
+                settings_route.set_db(fake_db)
+
+                response = asyncio.run(getattr(settings_route, function_name)())
+
+                self.assertEqual(response, {flag_name: True})
+                self.assertEqual(fake_db.updated, [{flag_name: True}])
+
     def test_toggle_premium_buffer_treats_malformed_settings_as_default(self):
         from routes import settings as settings_route
 
@@ -641,6 +840,17 @@ class SourceOverrideRouteTests(unittest.TestCase):
 
         self.assertEqual(response, {"averaging_down_enabled": True})
         self.assertEqual(fake_db.updated, [{"averaging_down_enabled": True}])
+
+    def test_toggle_take_profit_treats_malformed_settings_as_default(self):
+        from routes import settings as settings_route
+
+        fake_db = FakeRawSettingsDb("settings")
+        settings_route.set_db(fake_db)
+
+        response = asyncio.run(settings_route.toggle_take_profit())
+
+        self.assertEqual(response, {"take_profit_enabled": True})
+        self.assertEqual(fake_db.updated, [{"take_profit_enabled": True}])
 
     def test_toggle_stop_loss_treats_malformed_settings_as_default(self):
         from routes import settings as settings_route
