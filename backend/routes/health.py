@@ -92,9 +92,8 @@ async def get_status():
 @router.get("/diagnostics/setup")
 async def setup_diagnostics():
     """Report setup readiness without exposing tokens or broker secrets."""
-    settings = await db.get_settings() if db else {}
-    settings = settings or {}
-    runtime = await db.get_runtime_state() if db and hasattr(db, "get_runtime_state") else {}
+    settings = _dict_or_empty(await db.get_settings() if db else {})
+    runtime = _dict_or_empty(await db.get_runtime_state() if db and hasattr(db, "get_runtime_state") else {})
     status = get_bot_status()
 
     discord_token_configured = _discord_token_configured(settings, status)

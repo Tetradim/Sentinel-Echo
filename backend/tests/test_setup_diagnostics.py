@@ -20,6 +20,18 @@ class FakeDiagnosticsDb:
         return {"shutdown_triggered": False, "shutdown_reason": ""}
 
 
+class FakeRawDiagnosticsDb:
+    def __init__(self, settings, runtime_state):
+        self.settings = settings
+        self.runtime_state = runtime_state
+
+    async def get_settings(self):
+        return self.settings
+
+    async def get_runtime_state(self):
+        return self.runtime_state
+
+
 class SetupDiagnosticsTests(unittest.TestCase):
     def setUp(self):
         from routes import health as health_route
@@ -104,6 +116,21 @@ class SetupDiagnosticsTests(unittest.TestCase):
         self.assertFalse(result["readiness"]["ready_for_live"])
         self.assertFalse(result["ready_for_live"])
         self.assertIn("credential_key_missing", result["readiness"]["blocking_codes"])
+
+    def test_setup_diagnostics_treats_malformed_db_state_as_empty(self):
+        from routes import health as health_route
+
+        health_route.set_db(FakeRawDiagnosticsDb("settings", "runtime"))
+
+        try:
+            result = asyncio.run(health_route.setup_diagnostics())
+        except AttributeError as exc:
+            self.fail(f"setup diagnostics should treat malformed db state as empty instead of raising: {exc}")
+
+        self.assertFalse(result["ready_for_live"])
+        self.assertEqual(result["broker"]["active_broker"], "ibkr")
+        self.assertFalse(result["broker"]["configured"])
+        self.assertIn("Discord token is not configured.", result["warnings"])
 
     def test_setup_diagnostics_normalizes_broker_enum_value(self):
         from models import BrokerType
