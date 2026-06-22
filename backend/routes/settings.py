@@ -412,7 +412,7 @@ async def reset_loss_counters(x_admin_key: Optional[str] = Header(default=None))
                 "loss_counter_reset_blocked",
                 "Loss counter reset trading re-enable was blocked by live readiness checks.",
                 severity="warning",
-                details={"blocking_issues": readiness.get("blocking_issues", [])},
+                details={"blocking_issues": _list_or_empty(readiness.get("blocking_issues"))},
             )
             raise HTTPException(status_code=409, detail=readiness)
     # M6/C16: use the atomic reset method
