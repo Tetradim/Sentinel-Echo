@@ -77,3 +77,24 @@ test('flags unbuffered market execution as an execution review', () => {
     ['Price buffer disabled', 'Fill retry disabled', 'Market orders enabled']
   );
 });
+
+test('treats string false trading settings flags as disabled', () => {
+  const digest = summarizeTradingSettings({
+    ...guardedSettings,
+    simulationMode: 'false',
+    autoTradingEnabled: 'false',
+    priceBufferEnabled: 'false',
+    retryFilledCheck: 'false',
+  });
+
+  assert.equal(digest.primaryStatus.title, 'Manual Mode');
+  assert.equal(digest.primaryStatus.tone, 'idle');
+  assert.equal(digest.safeguardCount, 2);
+  assert.equal(digest.safeguardCoveragePercent, 40);
+  assert.equal(digest.modeLabel, 'Live');
+  assert.equal(digest.bufferLabel, 'Off');
+  assert.deepEqual(
+    digest.warningItems.map((item) => item.title),
+    ['Price buffer disabled', 'Fill retry disabled']
+  );
+});

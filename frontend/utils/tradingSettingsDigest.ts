@@ -1,12 +1,14 @@
 export type TradingSettingsDigestTone = 'live' | 'attention' | 'idle';
 
+type BooleanLike = boolean | string | number | null | undefined;
+
 export interface DigestTradingSettings {
-  simulationMode?: boolean | null;
-  autoTradingEnabled?: boolean | null;
-  priceBufferEnabled?: boolean | null;
+  simulationMode?: BooleanLike;
+  autoTradingEnabled?: BooleanLike;
+  priceBufferEnabled?: BooleanLike;
   priceBufferPercentage?: number | null;
   orderTimeout?: number | null;
-  retryFilledCheck?: boolean | null;
+  retryFilledCheck?: BooleanLike;
   activeBroker?: string | null;
   brokerGatewayUrl?: string | null;
   brokerAccountId?: string | null;
@@ -55,12 +57,31 @@ function normalizeBrokerLabel(value: string | null | undefined): string {
   return broker ? broker.toUpperCase() : 'None';
 }
 
+function parseBooleanFlag(value: BooleanLike, fallback = false): boolean {
+  if (typeof value === 'boolean') return value;
+  if (typeof value === 'number') {
+    if (value === 1) return true;
+    if (value === 0) return false;
+    return fallback;
+  }
+  if (typeof value === 'string') {
+    const normalized = value.trim().toLowerCase();
+    if (['true', '1', 'yes', 'y', 'on'].includes(normalized)) return true;
+    if (['false', '0', 'no', 'n', 'off'].includes(normalized)) return false;
+  }
+  return fallback;
+}
+
 export function summarizeTradingSettings(settings: DigestTradingSettings): TradingSettingsDigest {
   const brokerConfigured = hasText(settings.brokerAccountId) && hasText(settings.brokerGatewayUrl);
+  const simulationMode = parseBooleanFlag(settings.simulationMode);
+  const autoTradingEnabled = parseBooleanFlag(settings.autoTradingEnabled);
+  const priceBufferEnabled = parseBooleanFlag(settings.priceBufferEnabled);
+  const retryFilledCheck = parseBooleanFlag(settings.retryFilledCheck);
   const safeguardChecks = [
-    Boolean(settings.simulationMode),
-    Boolean(settings.priceBufferEnabled),
-    Boolean(settings.retryFilledCheck),
+    simulationMode,
+    priceBufferEnabled,
+    retryFilledCheck,
     String(settings.orderType || '').toUpperCase() === 'LIMIT',
     brokerConfigured,
   ];
@@ -76,10 +97,10 @@ export function summarizeTradingSettings(settings: DigestTradingSettings): Tradi
   }
 
   const executionWarnings: TradingSettingsDigestWarning[] = [];
-  if (!settings.priceBufferEnabled) {
+  if (!priceBufferEnabled) {
     executionWarnings.push({ title: 'Price buffer disabled', detail: 'Alert prices will be sent without a margin.' });
   }
-  if (!settings.retryFilledCheck) {
+  if (!retryFilledCheck) {
     executionWarnings.push({ title: 'Fill retry disabled', detail: 'Filled status checks will not retry after timeout.' });
   }
   if (String(settings.orderType || '').toUpperCase() === 'MARKET') {
@@ -87,12 +108,12 @@ export function summarizeTradingSettings(settings: DigestTradingSettings): Tradi
   }
 
   const liveWarnings: TradingSettingsDigestWarning[] = [];
-  if (!settings.simulationMode && settings.autoTradingEnabled) {
+  if (!simulationMode && autoTradingEnabled) {
     liveWarnings.push({ title: 'Live auto trading', detail: 'Real orders can be placed automatically.' });
   }
 
   let primaryStatus: TradingSettingsDigestStatus;
-  if (!settings.autoTradingEnabled) {
+  if (!autoTradingEnabled) {
     primaryStatus = {
       title: 'Manual Mode',
       detail: 'Alerts require operator approval before execution.',
@@ -112,11 +133,11 @@ export function summarizeTradingSettings(settings: DigestTradingSettings): Tradi
     };
   } else {
     primaryStatus = {
-      title: settings.simulationMode ? 'Sim Auto-Ready' : 'Live Auto-Armed',
-      detail: settings.simulationMode
+      title: simulationMode ? 'Sim Auto-Ready' : 'Live Auto-Armed',
+      detail: simulationMode
         ? 'Automated alerts are routed to simulated execution.'
         : 'Automated alerts can place live broker orders.',
-      tone: settings.simulationMode ? 'live' : 'attention',
+      tone: simulationMode ? 'live' : 'attention',
     };
   }
 
@@ -125,9 +146,9 @@ export function summarizeTradingSettings(settings: DigestTradingSettings): Tradi
     warningItems: [...brokerWarnings, ...executionWarnings, ...liveWarnings],
     safeguardCount,
     safeguardCoveragePercent,
-    modeLabel: settings.simulationMode ? 'Simulation' : 'Live',
+    modeLabel: simulationMode ? 'Simulation' : 'Live',
     brokerLabel: normalizeBrokerLabel(settings.activeBroker),
-    bufferLabel: settings.priceBufferEnabled ? formatPercent(toNumber(settings.priceBufferPercentage)) : 'Off',
+    bufferLabel: priceBufferEnabled ? formatPercent(toNumber(settings.priceBufferPercentage)) : 'Off',
     timeoutLabel: `${toNumber(settings.orderTimeout)}s`,
   };
 }
