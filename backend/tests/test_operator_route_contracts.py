@@ -66,6 +66,8 @@ class FakeTradingDb:
         self.inserted_events = []
         self.trade_updates = []
         self.position_updates = []
+        self.settings_updates = []
+        self.runtime_updates = []
 
     async def get_trades(self, limit=50):
         return [dict(self.trade)]
@@ -108,6 +110,14 @@ class FakeTradingDb:
 
     async def get_operator_events(self, limit=100):
         return list(reversed(self.inserted_events))[:limit]
+
+    async def update_settings(self, update):
+        self.settings_updates.append(update)
+        return dict(update)
+
+    async def update_runtime_state(self, update):
+        self.runtime_updates.append(update)
+        return dict(update)
 
     async def get_settings(self):
         return {
@@ -356,6 +366,28 @@ class OperatorRouteContractTests(unittest.TestCase):
         self.assertEqual(fake_db.position["remaining_quantity"], 2)
         self.assertEqual(fake_db.position["current_price"], 3.0)
         self.assertEqual(fake_db.inserted_trades[0]["exit_price"], 3.0)
+
+    def test_position_sell_defaults_to_simulated_when_settings_are_malformed(self):
+        from routes import settings as settings_route
+        from routes import trading as trading_route
+
+        fake_db = FakeRawTradingDb("settings")
+        trading_route.set_db(fake_db)
+        settings_route.set_db(fake_db)
+
+        response = asyncio.run(
+            trading_route.sell_position_from_operator(
+                "pos-1",
+                sell_percentage=50,
+                exit_price=3.0,
+            )
+        )
+
+        self.assertEqual(response["sold_quantity"], 2)
+        self.assertEqual(fake_db.inserted_trades[0]["broker"], "ibkr")
+        self.assertEqual(fake_db.inserted_trades[0]["status"], "simulated")
+        self.assertTrue(fake_db.inserted_trades[0]["simulated"])
+        self.assertEqual(fake_db.runtime_updates[-1]["shutdown_reason"], "Settings are malformed")
 
     def test_test_alert_endpoint_creates_simulated_records(self):
         from routes import trading as trading_route

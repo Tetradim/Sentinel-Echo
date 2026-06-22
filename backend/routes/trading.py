@@ -109,7 +109,7 @@ async def _sell_position_at_price(
         max(1, int(position.remaining_quantity * (percentage / 100))),
     )
 
-    settings = await db.get_settings()
+    settings = _dict_or_empty(await db.get_settings())
     active_broker = _enum_value(settings.get("active_broker", "ibkr"))
     simulation_mode = bool(settings.get("simulation_mode", True))
 
