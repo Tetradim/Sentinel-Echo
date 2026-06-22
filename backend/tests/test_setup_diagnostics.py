@@ -130,6 +130,37 @@ class SetupDiagnosticsTests(unittest.TestCase):
         self.assertFalse(result["discord_connected"])
         self.assertTrue(result["broker_connected"])
 
+    def test_health_does_not_report_unconfigured_broker_connected(self):
+        from routes import health as health_route
+
+        health_route.set_db(
+            FakeDiagnosticsDb(
+                {
+                    "discord_token": "discord-secret-token",
+                    "discord_channel_ids": ["123"],
+                    "active_broker": "alpaca",
+                    "broker_configs": {},
+                    "source_overrides": {
+                        "alerts": {
+                            "paper_only": False,
+                            "require_manual_confirm": False,
+                        }
+                    },
+                    "auto_trading_enabled": True,
+                    "simulation_mode": False,
+                    "max_position_size": 1000.0,
+                }
+            )
+        )
+        health_route.update_bot_status("discord_connected", True)
+        health_route.update_bot_status("broker_connected", True)
+
+        result = asyncio.run(health_route.health())
+
+        self.assertEqual(result["status"], "degraded")
+        self.assertTrue(result["discord_connected"])
+        self.assertFalse(result["broker_connected"])
+
     def test_setup_diagnostics_ready_for_live_uses_shared_readiness_result(self):
         from routes import health as health_route
 
