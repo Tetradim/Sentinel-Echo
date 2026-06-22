@@ -203,7 +203,7 @@ def _discord_token_configured(settings: dict, status: dict) -> bool:
     return (
         bool(str(settings.get("discord_token") or "").strip())
         or bool(os.environ.get("DISCORD_BOT_TOKEN", "").strip())
-        or bool(status.get("discord_token_configured", False))
+        or coerce_bool(status.get("discord_token_configured"), default=False)
     )
 
 

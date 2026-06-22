@@ -434,6 +434,49 @@ class SetupDiagnosticsTests(unittest.TestCase):
         self.assertEqual(result["discord"]["channel_count"], 0)
         self.assertIn("no_live_ingestion", result["readiness"]["blocking_codes"])
 
+    def test_setup_diagnostics_parses_serialized_false_token_status(self):
+        from routes import health as health_route
+
+        health_route.set_db(
+            FakeDiagnosticsDb(
+                {
+                    "discord_token": "",
+                    "discord_channel_ids": [],
+                    "active_broker": "alpaca",
+                    "broker_configs": {
+                        "alpaca": {
+                            "api_key": "broker-secret-key",
+                            "api_secret": "broker-secret-secret",
+                        }
+                    },
+                    "source_overrides": {
+                        "alerts": {
+                            "paper_only": False,
+                            "require_manual_confirm": False,
+                        }
+                    },
+                    "auto_trading_enabled": True,
+                    "simulation_mode": False,
+                    "max_position_size": 1000.0,
+                    "shutdown_triggered": False,
+                }
+            )
+        )
+        health_route.update_bot_status("discord_connected", True)
+        health_route.update_bot_status("discord_token_configured", "false")
+        health_route.update_bot_status("discord_channel_count", 1)
+
+        with patch.dict(
+            "os.environ",
+            {"DISCORD_BOT_TOKEN": "", "DISCORD_CHANNEL_IDS": ""},
+        ):
+            result = asyncio.run(health_route.setup_diagnostics())
+
+        self.assertFalse(result["discord"]["token_configured"])
+        self.assertFalse(result["discord"]["connected"])
+        self.assertIn("Discord token is not configured.", result["warnings"])
+        self.assertIn("no_live_ingestion", result["readiness"]["blocking_codes"])
+
     def test_setup_diagnostics_counts_runtime_discord_config_snapshot(self):
         from routes import health as health_route
 
