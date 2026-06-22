@@ -117,6 +117,15 @@ class FakeTradingDb:
         }
 
 
+class FakeRawTradingDb(FakeTradingDb):
+    def __init__(self, settings):
+        super().__init__()
+        self.settings = settings
+
+    async def get_settings(self):
+        return self.settings
+
+
 class FakeBrokerDb:
     async def get_settings(self):
         return {
@@ -364,6 +373,20 @@ class OperatorRouteContractTests(unittest.TestCase):
         self.assertEqual(fake_db.inserted_trades[0]["status"], "simulated")
         self.assertEqual(fake_db.inserted_positions[0]["status"], "open")
         self.assertEqual(fake_db.inserted_positions[0]["trade_ids"], [fake_db.inserted_trades[0]["id"]])
+
+    def test_test_alert_endpoint_defaults_to_simulated_when_settings_are_malformed(self):
+        from routes import trading as trading_route
+
+        fake_db = FakeRawTradingDb("settings")
+        trading_route.set_db(fake_db)
+
+        response = asyncio.run(trading_route.create_test_alert())
+
+        self.assertEqual(response["message"], "Test alert created")
+        self.assertEqual(fake_db.inserted_trades[0]["broker"], "ibkr")
+        self.assertTrue(fake_db.inserted_trades[0]["simulated"])
+        self.assertEqual(fake_db.inserted_trades[0]["status"], "simulated")
+        self.assertTrue(fake_db.inserted_positions[0]["simulated"])
 
 
 if __name__ == "__main__":

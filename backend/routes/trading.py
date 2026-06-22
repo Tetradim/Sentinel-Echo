@@ -70,6 +70,10 @@ def _enum_value(value: Any) -> Any:
     return value.value if hasattr(value, "value") else value
 
 
+def _dict_or_empty(value: Any) -> dict[str, Any]:
+    return value if isinstance(value, dict) else {}
+
+
 async def _sell_position_at_price(
     position_id: str,
     percentage: float,
@@ -196,7 +200,7 @@ async def create_test_alert():
 
 async def create_test_alert_records(database, *, message: str = "Test alert created"):
     """Create a safe simulated alert/trade/position set for local UI testing."""
-    settings = await database.get_settings()
+    settings = _dict_or_empty(await database.get_settings())
     active_broker = str(_enum_value(settings.get("active_broker", "ibkr")))
     now = datetime.now(timezone.utc)
 
