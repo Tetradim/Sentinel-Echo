@@ -10,7 +10,9 @@ import { BACKEND_URL, DEMO_MODE } from '../constants/config';
 import {
   AlertDigest,
   AlertFilter,
+  DigestAlert,
   filterAlerts,
+  getAlertExecutionStatus,
   summarizeAlerts,
 } from '../utils/alertDigest';
 
@@ -24,10 +26,10 @@ const DEMO_ALERTS: AlertItem[] = [
   { id: '6', ticker: 'META', strike: 480, option_type: 'CALL', expiration: '2024-05-17', entry_price: 8.50, raw_message: 'BTO META 480C May 17', channel_name: 'alerts', received_at: '2024-04-16T16:00:00Z', processed: true, trade_executed: true },
 ];
 
-interface AlertItem {
+interface AlertItem extends DigestAlert {
   id: string; ticker: string; strike: number; option_type: string;
   expiration: string; entry_price: number; raw_message: string;
-  channel_name: string; received_at: string; processed: boolean; trade_executed: boolean;
+  channel_name: string; received_at: string;
 }
 
 function DigestStat({ label, value, color }: { label: string; value: string; color?: string }) {
@@ -114,9 +116,7 @@ export default function AlertsScreen() {
   const fmt = (d: string) => new Date(d).toLocaleString();
 
   const renderItem = ({ item: a }: { item: AlertItem }) => {
-    const statusLabel = a.trade_executed ? 'Executed' : a.processed ? 'Review' : 'Unparsed';
-    const statusColor = a.trade_executed ? '#22c55e' : a.processed ? '#f59e0b' : '#ef4444';
-    const statusBg = a.trade_executed ? '#14532d' : a.processed ? '#422006' : '#2d1515';
+    const status = getAlertExecutionStatus(a);
 
     return (
       <View style={s.card}>
@@ -129,9 +129,9 @@ export default function AlertsScreen() {
               </Text>
             </View>
           </View>
-          <View style={[s.statusPill, { backgroundColor: statusBg }]}>
-            <View style={[s.statusDot, { backgroundColor: statusColor }]} />
-            <Text style={[s.statusText, { color: statusColor }]}>{statusLabel}</Text>
+          <View style={[s.statusPill, { backgroundColor: status.backgroundColor }]}>
+            <View style={[s.statusDot, { backgroundColor: status.color }]} />
+            <Text style={[s.statusText, { color: status.color }]}>{status.label}</Text>
           </View>
         </View>
 

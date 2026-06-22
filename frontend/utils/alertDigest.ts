@@ -29,6 +29,15 @@ export interface AlertDigest {
   primaryStatus: AlertDigestStatus;
 }
 
+export type AlertExecutionStatusKey = 'executed' | 'review' | 'unparsed';
+
+export interface AlertExecutionStatus {
+  key: AlertExecutionStatusKey;
+  label: string;
+  color: string;
+  backgroundColor: string;
+}
+
 function normalizeTicker(ticker?: string | null): string | null {
   const value = String(ticker || '').trim().toUpperCase().replace(/^\$/, '');
   return value || null;
@@ -109,4 +118,31 @@ export function filterAlerts<TAlert extends DigestAlert>(
   if (filter === 'review') return alerts.filter((alert) => !parseBooleanFlag(alert.trade_executed));
   if (filter === 'unparsed') return alerts.filter((alert) => !parseBooleanFlag(alert.processed));
   return alerts;
+}
+
+export function getAlertExecutionStatus(alert: DigestAlert): AlertExecutionStatus {
+  if (parseBooleanFlag(alert.trade_executed)) {
+    return {
+      key: 'executed',
+      label: 'Executed',
+      color: '#22c55e',
+      backgroundColor: '#14532d',
+    };
+  }
+
+  if (parseBooleanFlag(alert.processed)) {
+    return {
+      key: 'review',
+      label: 'Review',
+      color: '#f59e0b',
+      backgroundColor: '#422006',
+    };
+  }
+
+  return {
+    key: 'unparsed',
+    label: 'Unparsed',
+    color: '#ef4444',
+    backgroundColor: '#2d1515',
+  };
 }

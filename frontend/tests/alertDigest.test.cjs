@@ -14,7 +14,7 @@ require.extensions['.ts'] = function loadTs(module, filename) {
   module._compile(output, filename);
 };
 
-const { filterAlerts, summarizeAlerts } = require('../utils/alertDigest.ts');
+const { filterAlerts, getAlertExecutionStatus, summarizeAlerts } = require('../utils/alertDigest.ts');
 
 const alerts = [
   {
@@ -78,6 +78,26 @@ test('parses string booleans for alert execution and parsing states', () => {
   assert.deepEqual(filterAlerts(stringBackedAlerts, 'executed').map((alert) => alert.id), ['string-executed']);
   assert.deepEqual(filterAlerts(stringBackedAlerts, 'review').map((alert) => alert.id), ['string-review', 'string-unparsed']);
   assert.deepEqual(filterAlerts(stringBackedAlerts, 'unparsed').map((alert) => alert.id), ['string-unparsed']);
+});
+
+test('builds row status from parsed alert booleans', () => {
+  assert.equal(getAlertExecutionStatus({
+    id: 'review',
+    processed: 'true',
+    trade_executed: 'false',
+  }).label, 'Review');
+
+  assert.equal(getAlertExecutionStatus({
+    id: 'unparsed',
+    processed: 'false',
+    trade_executed: 'false',
+  }).label, 'Unparsed');
+
+  assert.equal(getAlertExecutionStatus({
+    id: 'executed',
+    processed: 'true',
+    trade_executed: '1',
+  }).label, 'Executed');
 });
 
 test('returns a calm empty digest for no alerts', () => {
