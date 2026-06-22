@@ -70,19 +70,25 @@ async def get_status():
     status = get_bot_status()
     if db:
         settings = _dict_or_empty(await db.get_settings())
+        runtime = {}
+        has_runtime_state = hasattr(db, "get_runtime_state")
+        if has_runtime_state:
+            runtime = _dict_or_empty(await db.get_runtime_state())
         active_broker = normalize_broker_id(
             settings.get("active_broker", status.get("active_broker", "ibkr")),
             default="ibkr",
         )
+        readiness = evaluate_live_readiness(settings, runtime, status=status)
+        signal_ingestion = readiness.get("checks", {}).get("signal_ingestion", {})
         status.update(
             {
+                "discord_connected": bool(signal_ingestion.get("discord_connected", False)),
                 "active_broker": active_broker,
                 "auto_trading_enabled": bool(settings.get("auto_trading_enabled", False)),
                 "simulation_mode": bool(settings.get("simulation_mode", True)),
             }
         )
-        if hasattr(db, "get_runtime_state"):
-            runtime = _dict_or_empty(await db.get_runtime_state())
+        if has_runtime_state:
             status["shutdown_triggered"] = bool(runtime.get("shutdown_triggered", False))
             status["shutdown_reason"] = runtime.get("shutdown_reason", "")
     return status

@@ -79,6 +79,30 @@ class SetupDiagnosticsTests(unittest.TestCase):
         self.assertFalse(result["shutdown_triggered"])
         self.assertEqual(result["shutdown_reason"], "")
 
+    def test_status_does_not_report_stale_discord_connected_without_config(self):
+        from routes import health as health_route
+
+        health_route.set_db(
+            FakeDiagnosticsDb(
+                {
+                    "discord_token": "",
+                    "discord_channel_ids": [],
+                    "active_broker": "alpaca",
+                    "broker_configs": {"alpaca": {"api_key": "broker-secret-key"}},
+                    "source_overrides": {},
+                }
+            )
+        )
+        health_route.update_bot_status("discord_connected", True)
+
+        with patch.dict(
+            "os.environ",
+            {"DISCORD_BOT_TOKEN": "", "DISCORD_CHANNEL_IDS": ""},
+        ):
+            result = asyncio.run(health_route.get_status())
+
+        self.assertFalse(result["discord_connected"])
+
     def test_health_degrades_stale_discord_connected_without_config(self):
         from routes import health as health_route
 
