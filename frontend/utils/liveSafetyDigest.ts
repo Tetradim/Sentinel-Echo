@@ -22,6 +22,13 @@ export interface LiveReadinessPayload {
       active_broker?: string;
       connected?: boolean;
     };
+    source_policy?: {
+      blocked_sources?: Array<{
+        key?: string;
+        name?: string;
+        reasons?: string[];
+      }>;
+    };
   };
 }
 
@@ -48,6 +55,30 @@ function formatArmedUntil(value: string | undefined): string {
   });
 }
 
+function formatSourceBlockReason(reason: string): string {
+  if (reason === 'paper_only') return 'is paper-only';
+  if (reason === 'manual_confirm_required') return 'requires manual confirmation';
+  if (reason === 'disabled') return 'is disabled';
+  return reason.replace(/_/g, ' ');
+}
+
+function formatSourcePolicyBlockers(readiness: LiveReadinessPayload | null | undefined): string | null {
+  const blockedSources = readiness?.checks?.source_policy?.blocked_sources || [];
+  const details = blockedSources
+    .map((source) => {
+      const label = String(source.name || source.key || '').trim();
+      const reasons = (source.reasons || [])
+        .map((reason) => formatSourceBlockReason(String(reason || '').trim()))
+        .filter(Boolean);
+      if (!label || reasons.length <= 0) return '';
+      return `${label} ${reasons.join(' and ')}`;
+    })
+    .filter(Boolean);
+
+  if (details.length <= 0) return null;
+  return `No live source: ${details.join('; ')}.`;
+}
+
 export function summarizeLiveSafety(readiness: LiveReadinessPayload | null | undefined): LiveSafetyDigest {
   const blockers = readiness?.blocking_issues || [];
   const runtime = readiness?.checks?.runtime || {};
@@ -70,9 +101,13 @@ export function summarizeLiveSafety(readiness: LiveReadinessPayload | null | und
   }
 
   if (blockers.length > 0) {
+    const firstBlocker = blockers[0];
+    const sourcePolicyDetail = firstBlocker?.code === 'no_live_source'
+      ? formatSourcePolicyBlockers(readiness)
+      : null;
     return {
       title: 'Live Blocked',
-      detail: blockers[0]?.summary || 'Readiness checks are blocking live arming.',
+      detail: sourcePolicyDetail || firstBlocker?.summary || 'Readiness checks are blocking live arming.',
       tone: 'blocked',
       blockerCount: blockers.length,
       canArm: false,

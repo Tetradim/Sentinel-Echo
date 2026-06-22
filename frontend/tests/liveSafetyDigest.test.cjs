@@ -28,6 +28,29 @@ test('live safety digest prioritizes blockers', () => {
   assert.equal(digest.canArm, false);
 });
 
+test('live safety digest explains source policy blockers', () => {
+  const digest = summarizeLiveSafety({
+    ready_for_live: false,
+    blocking_issues: [
+      { code: 'no_live_source', summary: 'No enabled source can submit live orders automatically.' },
+    ],
+    checks: {
+      source_policy: {
+        blocked_sources: [
+          { key: 'paper', reasons: ['paper_only'] },
+          { key: 'manual', reasons: ['manual_confirm_required'] },
+          { key: 'disabled', reasons: ['disabled'] },
+        ],
+      },
+    },
+  });
+
+  assert.equal(digest.title, 'Live Blocked');
+  assert.match(digest.detail, /paper is paper-only/);
+  assert.match(digest.detail, /manual requires manual confirmation/);
+  assert.match(digest.detail, /disabled is disabled/);
+});
+
 test('live safety digest exposes armed state', () => {
   const digest = summarizeLiveSafety({
     ready_for_live: true,
