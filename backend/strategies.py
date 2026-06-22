@@ -12,6 +12,8 @@ from typing import Optional, Dict, List, Tuple
 from dataclasses import dataclass, field
 from enum import Enum
 
+from settings_flags import coerce_bool
+
 logger = logging.getLogger(__name__)
 
 
@@ -316,9 +318,9 @@ class StrategyManager:
     
     def configure_from_settings(self, settings: dict) -> None:
         """Configure strategies from settings"""
-        self.enable_trailing_stop = settings.get('trailing_stop_enabled', True)
-        self.enable_take_profit = settings.get('take_profit_enabled', True)
-        self.enable_time_exit = settings.get('time_exit_enabled', False)
+        self.enable_trailing_stop = coerce_bool(settings.get('trailing_stop_enabled'), default=True)
+        self.enable_take_profit = coerce_bool(settings.get('take_profit_enabled'), default=True)
+        self.enable_time_exit = coerce_bool(settings.get('time_exit_enabled'), default=False)
         
         if self.enable_trailing_stop:
             self.trailing_stop = AdvancedTrailingStop(
