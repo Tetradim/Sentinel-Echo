@@ -234,7 +234,7 @@ async def update_premium_buffer_settings(
     if premium_buffer_enabled is not None:
         update_dict['premium_buffer_enabled'] = premium_buffer_enabled
     await db.update_settings(update_dict)
-    settings = await db.get_settings()
+    settings = {**update_dict, **_dict_or_empty(await db.get_settings())}
     return {
         "premium_buffer_enabled": settings.get('premium_buffer_enabled', False),
         "premium_buffer_amount": settings.get('premium_buffer_amount', premium_buffer_amount),
@@ -254,7 +254,7 @@ async def toggle_averaging_down():
 @router.get("/averaging-down-settings")
 async def get_averaging_down_settings():
     """Get averaging down settings"""
-    settings = await db.get_settings()
+    settings = _dict_or_empty(await db.get_settings())
     return {
         "averaging_down_enabled": settings.get('averaging_down_enabled', False),
         "averaging_down_threshold": settings.get('averaging_down_threshold', 10.0),
@@ -317,7 +317,7 @@ async def update_risk_management_settings(update: RiskManagementSettingsUpdate):
     if 'stop_loss_order_type' in update_dict and update_dict['stop_loss_order_type'] not in ['market', 'limit']:
         raise HTTPException(status_code=400, detail="stop_loss_order_type must be 'market' or 'limit'")
     await db.update_settings(update_dict)
-    settings = await db.get_settings()
+    settings = {**update_dict, **_dict_or_empty(await db.get_settings())}
     return {
         "take_profit_enabled": settings.get('take_profit_enabled', False),
         "take_profit_percentage": settings.get('take_profit_percentage', 50.0),
@@ -341,7 +341,7 @@ async def toggle_trailing_stop():
 @router.get("/trailing-stop-settings")
 async def get_trailing_stop_settings():
     """Get trailing stop settings"""
-    settings = await db.get_settings()
+    settings = _dict_or_empty(await db.get_settings())
     return {
         "trailing_stop_enabled": settings.get('trailing_stop_enabled', False),
         "trailing_stop_type": settings.get('trailing_stop_type', 'percent'),
@@ -471,7 +471,7 @@ async def reset_loss_counters(x_admin_key: Optional[str] = Header(default=None))
 @router.get("/notification-settings")
 async def get_notification_settings():
     """Get SMS and notification settings."""
-    settings = await db.get_settings()
+    settings = _dict_or_empty(await db.get_settings())
     return {
         "sms_enabled": settings.get("sms_enabled", False),
         "sms_phone_number": settings.get("sms_phone_number", ""),

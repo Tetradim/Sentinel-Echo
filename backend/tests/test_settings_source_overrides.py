@@ -279,6 +279,115 @@ class SourceOverrideRouteTests(unittest.TestCase):
         self.assertFalse(response["shutdown_triggered"])
         self.assertEqual(response["shutdown_reason"], "")
 
+    def test_averaging_down_settings_treats_malformed_settings_as_defaults(self):
+        from routes import settings as settings_route
+
+        fake_db = FakeRawSettingsDb("settings")
+        settings_route.set_db(fake_db)
+
+        response = asyncio.run(settings_route.get_averaging_down_settings())
+
+        self.assertEqual(
+            response,
+            {
+                "averaging_down_enabled": False,
+                "averaging_down_threshold": 10.0,
+                "averaging_down_percentage": 25.0,
+                "averaging_down_max_buys": 3,
+            },
+        )
+
+    def test_trailing_stop_settings_treats_malformed_settings_as_defaults(self):
+        from routes import settings as settings_route
+
+        fake_db = FakeRawSettingsDb("settings")
+        settings_route.set_db(fake_db)
+
+        response = asyncio.run(settings_route.get_trailing_stop_settings())
+
+        self.assertEqual(
+            response,
+            {
+                "trailing_stop_enabled": False,
+                "trailing_stop_type": "percent",
+                "trailing_stop_percent": 10.0,
+                "trailing_stop_cents": 50.0,
+            },
+        )
+
+    def test_notification_settings_treats_malformed_settings_as_defaults(self):
+        from routes import settings as settings_route
+
+        fake_db = FakeRawSettingsDb("settings")
+        settings_route.set_db(fake_db)
+
+        response = asyncio.run(settings_route.get_notification_settings())
+
+        self.assertEqual(
+            response,
+            {
+                "sms_enabled": False,
+                "sms_phone_number": "",
+                "twilio_account_sid": "",
+                "twilio_auth_token": "",
+                "twilio_from_number": "",
+            },
+        )
+
+    def test_update_premium_buffer_settings_treats_malformed_response_as_defaults(self):
+        from routes import settings as settings_route
+
+        fake_db = FakeRawSettingsDb("settings")
+        settings_route.set_db(fake_db)
+
+        response = asyncio.run(
+            settings_route.update_premium_buffer_settings(
+                premium_buffer_amount=15.0,
+                premium_buffer_enabled=True,
+            )
+        )
+
+        self.assertEqual(
+            fake_db.updated,
+            [{"premium_buffer_amount": 15.0, "premium_buffer_enabled": True}],
+        )
+        self.assertEqual(
+            response,
+            {"premium_buffer_enabled": True, "premium_buffer_amount": 15.0},
+        )
+
+    def test_update_risk_management_settings_treats_malformed_response_as_defaults(self):
+        from models import RiskManagementSettingsUpdate
+        from routes import settings as settings_route
+
+        fake_db = FakeRawSettingsDb("settings")
+        settings_route.set_db(fake_db)
+
+        response = asyncio.run(
+            settings_route.update_risk_management_settings(
+                RiskManagementSettingsUpdate(
+                    take_profit_enabled=True,
+                    stop_loss_percentage=20.0,
+                )
+            )
+        )
+
+        self.assertEqual(
+            fake_db.updated,
+            [{"take_profit_enabled": True, "stop_loss_percentage": 20.0}],
+        )
+        self.assertEqual(
+            response,
+            {
+                "take_profit_enabled": True,
+                "take_profit_percentage": 50.0,
+                "bracket_order_enabled": False,
+                "stop_loss_enabled": False,
+                "stop_loss_percentage": 20.0,
+                "stop_loss_order_type": "market",
+            },
+        )
+
     def test_toggle_trading_uses_persisted_setting_as_source_of_truth(self):
         from routes import settings as settings_route
         from routes.health import update_bot_status
