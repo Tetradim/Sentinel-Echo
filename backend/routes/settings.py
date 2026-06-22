@@ -408,7 +408,7 @@ async def reset_loss_counters(x_admin_key: Optional[str] = Header(default=None))
         candidate_settings = dict(settings or {})
         candidate_settings["auto_trading_enabled"] = True
         runtime = await db.get_runtime_state() if hasattr(db, "get_runtime_state") else {}
-        readiness = evaluate_live_readiness(candidate_settings, runtime, status=get_bot_status())
+        readiness = _dict_or_empty(evaluate_live_readiness(candidate_settings, runtime, status=get_bot_status()))
         if not readiness.get("ready_for_live", False):
             await record_operator_event(
                 db,
