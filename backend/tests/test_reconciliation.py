@@ -18,6 +18,8 @@ class FakeReconciliationDb:
                 "details": {
                     "contract_version": "chrome.discord.message.v1",
                     "event_id": "bridge-accepted",
+                    "raw_text": "BTO SPY 500C 6/21 @ 1.25",
+                    "capture_path": "C:/captures/2026-06-22.txt",
                     "channel": {
                         "id": "chrome-alerts",
                         "url": "https://discord.com/channels/1/chrome-alerts",
@@ -235,6 +237,8 @@ class FakeTradeRequestedMissingTradeDb:
                 "details": {
                     "contract_version": "chrome.discord.message.v1",
                     "event_id": "bridge-trade-requested-no-trade",
+                    "raw_text": "BTO SPY 500C 6/21 @ 1.25",
+                    "capture_path": "C:/captures/2026-06-22.txt",
                     "channel": {
                         "id": "chrome-alerts",
                         "url": "https://discord.com/channels/1/chrome-alerts",
@@ -312,6 +316,8 @@ class FakeAcceptedBridgeMissingParserProofDb:
                 "details": {
                     "contract_version": "chrome.discord.message.v1",
                     "event_id": "bridge-accepted-without-parser-proof",
+                    "raw_text": "BTO SPY 500C 6/21 @ 1.25",
+                    "capture_path": "C:/captures/2026-06-22.txt",
                     "channel": {
                         "id": "chrome-alerts",
                         "url": "https://discord.com/channels/1/chrome-alerts",
@@ -381,6 +387,8 @@ class FakeAcceptedBridgeMissingContractProofDb:
                 "action": "bridge_alert_decision",
                 "details": {
                     "event_id": "bridge-accepted-without-contract-proof",
+                    "raw_text": "BTO SPY 500C 6/21 @ 1.25",
+                    "capture_path": "C:/captures/2026-06-22.txt",
                     "channel": {
                         "id": "chrome-alerts",
                         "url": "https://discord.com/channels/1/chrome-alerts",
@@ -454,6 +462,8 @@ class FakeAcceptedBridgeMissingSourceIdentityProofDb:
                 "details": {
                     "contract_version": "chrome.discord.message.v1",
                     "event_id": "bridge-accepted-without-source-identity-proof",
+                    "raw_text": "BTO SPY 500C 6/21 @ 1.25",
+                    "capture_path": "C:/captures/2026-06-22.txt",
                     "channel": {
                         "id": "chrome-alerts",
                     },
@@ -525,6 +535,8 @@ class FakeAcceptedBridgeMissingSourceMetadataPolicyProofDb:
                 "details": {
                     "contract_version": "chrome.discord.message.v1",
                     "event_id": "bridge-accepted-without-source-metadata-policy-proof",
+                    "raw_text": "BTO SPY 500C 6/21 @ 1.25",
+                    "capture_path": "C:/captures/2026-06-22.txt",
                     "channel": {
                         "id": "chrome-alerts",
                         "url": "https://discord.com/channels/1/chrome-alerts",
@@ -545,6 +557,83 @@ class FakeAcceptedBridgeMissingSourceMetadataPolicyProofDb:
                         "key": "chrome-alerts",
                         "override_matched": True,
                         "min_parser_confidence": "medium",
+                    },
+                    "parser": {
+                        "confidence": "medium",
+                    },
+                },
+            }
+        ]
+
+
+class FakeAcceptedBridgeMissingAlertCaptureProofDb:
+    async def get_alerts(self, limit=100):
+        return [
+            {
+                "id": "alert-accepted-without-capture-proof",
+                "ticker": "SPY",
+                "alert_type": "buy",
+                "trade_executed": True,
+                "processed": True,
+            }
+        ]
+
+    async def get_trades(self, limit=100):
+        return [
+            {
+                "id": "trade-accepted-without-capture-proof",
+                "alert_id": "alert-accepted-without-capture-proof",
+                "ticker": "SPY",
+                "status": "filled",
+                "order_id": "order-accepted-without-capture-proof",
+                "simulated": False,
+            }
+        ]
+
+    async def get_positions(self, status=None):
+        return [
+            {
+                "id": "position-accepted-without-capture-proof",
+                "ticker": "SPY",
+                "status": "open",
+                "trade_ids": ["trade-accepted-without-capture-proof"],
+                "simulated": False,
+            }
+        ]
+
+    async def get_operator_events(self, limit=100):
+        return [
+            {
+                "id": "event-accepted-without-capture-proof",
+                "timestamp": "2026-06-22T15:00:00Z",
+                "action": "bridge_alert_decision",
+                "details": {
+                    "contract_version": "chrome.discord.message.v1",
+                    "event_id": "bridge-accepted-without-capture-proof",
+                    "channel": {
+                        "id": "chrome-alerts",
+                        "url": "https://discord.com/channels/1/chrome-alerts",
+                    },
+                    "author": {
+                        "id": "mike",
+                        "name": "MikeInvesting",
+                    },
+                    "parsed": {"ticker": "SPY"},
+                    "decision": {
+                        "status": "accepted",
+                        "alert_inserted": True,
+                        "alert_id": "alert-accepted-without-capture-proof",
+                        "trade_requested": True,
+                        "trade_request_reason": "auto trading enabled",
+                    },
+                    "source": {
+                        "key": "chrome-alerts",
+                        "override_matched": True,
+                        "min_parser_confidence": "medium",
+                        "parser_confidence_allowed": True,
+                        "channel_url_allowed": True,
+                        "author_id_allowed": True,
+                        "metadata_policy_passed": True,
                     },
                     "parser": {
                         "confidence": "medium",
@@ -708,6 +797,22 @@ class ReconciliationTests(unittest.TestCase):
         self.assertEqual(
             report["summary"]["attention_reasons"],
             ["accepted bridge alert missing source metadata policy proof"],
+        )
+
+    def test_alert_chain_report_flags_accepted_bridge_alert_without_alert_capture_proof(self):
+        from reconciliation import build_alert_chain_report
+
+        report = asyncio.run(build_alert_chain_report(FakeAcceptedBridgeMissingAlertCaptureProofDb()))
+        row = report["rows"][0]
+
+        self.assertEqual(row["status"], "attention")
+        self.assertEqual(row["attention_reason"], "accepted bridge alert missing alert capture proof")
+        self.assertEqual(row["raw_text"], "")
+        self.assertEqual(row["capture_path"], "")
+        self.assertFalse(row["deterministic"])
+        self.assertEqual(
+            report["summary"]["attention_reasons"],
+            ["accepted bridge alert missing alert capture proof"],
         )
 
 

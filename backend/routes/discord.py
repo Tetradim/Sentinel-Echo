@@ -396,6 +396,7 @@ async def ingest_chrome_bridge_message(
         audit_event = await _record_chrome_bridge_alert_audit(
             payload=payload,
             raw_text=alert_text,
+            capture_path=capture_path,
             parsed=parsed_preview,
             parser_metadata=parser_metadata,
             source_config=source_config,
@@ -484,6 +485,7 @@ async def ingest_chrome_bridge_message(
     audit_event = await _record_chrome_bridge_alert_audit(
         payload=payload,
         raw_text=alert_text,
+        capture_path=capture_path,
         parsed=result.parsed,
         parser_metadata=parser_metadata,
         source_config=source_config,
@@ -605,6 +607,7 @@ async def _record_chrome_bridge_alert_audit(
     *,
     payload: ChromeBridgeMessage,
     raw_text: str,
+    capture_path: Any,
     parsed: Dict[str, Any] | None,
     parser_metadata: Dict[str, Any],
     source_config: Dict[str, Any],
@@ -643,6 +646,7 @@ async def _record_chrome_bridge_alert_audit(
                 "name": payload.bridge_target_name,
             },
             "raw_text": raw_text,
+            "capture_path": str(capture_path),
             "parsed": parsed,
             "parser": parser_metadata,
             "source": {

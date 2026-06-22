@@ -67,6 +67,10 @@ def _has_source_metadata_policy_proof(source: dict[str, Any]) -> bool:
     )
 
 
+def _has_alert_capture_proof(details: dict[str, Any]) -> bool:
+    return bool(_clean_text(details.get("raw_text")) and _clean_text(details.get("capture_path")))
+
+
 def summarize_reconciliation_rows(rows: List[Dict[str, Any]]) -> Dict[str, Any]:
     """Summarize unresolved alert/trade/position chains for readiness checks."""
     unresolved_reasons: list[str] = []
@@ -170,6 +174,8 @@ async def build_alert_chain_report(db, *, limit: int = 100) -> Dict[str, Any]:
                 attention_reason = "accepted bridge alert missing source identity proof"
             elif not _has_source_metadata_policy_proof(source):
                 attention_reason = "accepted bridge alert missing source metadata policy proof"
+            elif not _has_alert_capture_proof(details):
+                attention_reason = "accepted bridge alert missing alert capture proof"
             elif trade_requested and not _clean_text(reconciliation.get("trade_id")):
                 attention_reason = "trade requested but no linked trade"
             else:
@@ -186,6 +192,8 @@ async def build_alert_chain_report(db, *, limit: int = 100) -> Dict[str, Any]:
                 "contract_version": _clean_text(details.get("contract_version")),
                 "event_id": event_id,
                 "observed_at": _clean_text(event.get("timestamp")),
+                "raw_text": _clean_text(details.get("raw_text")),
+                "capture_path": _clean_text(details.get("capture_path")),
                 "channel_id": _clean_text(channel.get("id")),
                 "channel_url": _clean_text(channel.get("url")),
                 "author_id": _clean_text(author.get("id")),

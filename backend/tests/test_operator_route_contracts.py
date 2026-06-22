@@ -244,6 +244,8 @@ class OperatorRouteContractTests(unittest.TestCase):
                 "details": {
                     "contract_version": "chrome.discord.message.v1",
                     "event_id": "bridge-1",
+                    "raw_text": "BTO SPY 500C 6/21 @ 1.25",
+                    "capture_path": "C:/captures/2026-06-22.txt",
                     "parsed": {"ticker": "SPY"},
                     "decision": {
                         "status": "accepted",

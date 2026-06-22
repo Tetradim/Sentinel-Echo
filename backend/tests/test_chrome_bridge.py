@@ -102,6 +102,7 @@ class ChromeBridgeRouteTests(unittest.TestCase):
         self.assertEqual(fake_db.alerts[0]["raw_message"], "BTO SPY 500C 6/21 @ 1.25")
         self.assertEqual(fake_db.operator_events[-1]["details"]["decision"]["alert_id"], result["alert_id"])
         self.assertEqual(fake_db.operator_events[-1]["details"]["decision"]["trade_request_reason"], "auto trading disabled")
+        self.assertEqual(fake_db.operator_events[-1]["details"]["capture_path"], result["capture_path"])
         self.assertTrue(pathlib.Path(result["capture_path"]).exists())
         self.assertTrue(result["bus_event_id"])
 
