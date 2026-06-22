@@ -3,6 +3,7 @@ import { View, Text, StyleSheet, Switch, TouchableOpacity } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { BrokerSettingsPanel } from './BrokerSettings';
 import type { BrokerSettingsData, Broker } from '../../types/profiles';
+import { parseProfileBrokerFlags } from '../../utils/profileBrokerFlags';
 
 interface BrokerRowProps {
   broker: Broker;
@@ -15,14 +16,15 @@ interface BrokerRowProps {
 }
 
 const getBrokerSummary = (settings: BrokerSettingsData | undefined): string | null => {
-  if (!settings || !settings.enabled) return null;
+  const flags = parseProfileBrokerFlags(settings);
+  if (!flags.enabled) return null;
   const features = [];
-  if (settings.alerts_only) features.push('Alerts Only');
-  else if (settings.auto_trading_enabled) features.push('Auto');
-  if (settings.bracket_order_enabled) features.push('Bracket');
-  if (settings.trailing_stop_enabled) features.push('Trail');
-  if (settings.take_profit_enabled) features.push('TP');
-  if (settings.stop_loss_enabled) features.push('SL');
+  if (flags.alertsOnly) features.push('Alerts Only');
+  else if (flags.autoTradingEnabled) features.push('Auto');
+  if (flags.bracketOrderEnabled) features.push('Bracket');
+  if (flags.trailingStopEnabled) features.push('Trail');
+  if (flags.takeProfitEnabled) features.push('TP');
+  if (flags.stopLossEnabled) features.push('SL');
   return features.length > 0 ? features.join(' • ') : 'Enabled';
 };
 
@@ -35,6 +37,7 @@ export const BrokerRow: React.FC<BrokerRowProps> = ({
   onToggle,
   onUpdate,
 }) => {
+  const flags = parseProfileBrokerFlags(settings);
   const summary = getBrokerSummary(settings);
 
   return (
@@ -43,7 +46,7 @@ export const BrokerRow: React.FC<BrokerRowProps> = ({
         {/* M22 fix: Switch sits outside the expand TouchableOpacity so Android
             doesn't fire both the Switch onValueChange and the row onPress */}
         <Switch
-          value={settings?.enabled || false}
+          value={flags.enabled}
           onValueChange={() => onToggle(profileId, broker.id, 'enabled')}
           trackColor={{ false: '#374151', true: '#22c55e' }}
           thumbColor="#fff"
@@ -54,12 +57,12 @@ export const BrokerRow: React.FC<BrokerRowProps> = ({
           testID={`broker-header-${broker.id}`}
         >
           <View>
-            <Text style={[styles.brokerName, !settings?.enabled && styles.disabledText]}>
+            <Text style={[styles.brokerName, !flags.enabled && styles.disabledText]}>
               {broker.name}
             </Text>
             {summary && <Text style={styles.brokerSummary}>{summary}</Text>}
           </View>
-          {settings?.enabled && (
+          {flags.enabled && (
             <Ionicons
               name={isExpanded ? 'chevron-up' : 'settings-outline'}
               size={18}
@@ -69,7 +72,7 @@ export const BrokerRow: React.FC<BrokerRowProps> = ({
         </TouchableOpacity>
       </View>
 
-      {isExpanded && settings?.enabled && (
+      {isExpanded && flags.enabled && settings && (
         <BrokerSettingsPanel
           settings={settings}
           profileId={profileId}

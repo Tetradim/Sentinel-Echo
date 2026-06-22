@@ -2,6 +2,7 @@ import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import { SettingRow, SettingRowWithInput } from './SettingRow';
 import type { BrokerSettingsData } from '../../types/profiles';
+import { parseProfileBrokerFlags } from '../../utils/profileBrokerFlags';
 
 interface BrokerSettingsProps {
   settings: BrokerSettingsData;
@@ -18,6 +19,8 @@ export const BrokerSettingsPanel: React.FC<BrokerSettingsProps> = ({
   onToggle,
   onUpdate,
 }) => {
+  const flags = parseProfileBrokerFlags(settings);
+
   return (
     <View style={styles.brokerSettings}>
       {/* Trading Mode */}
@@ -25,17 +28,17 @@ export const BrokerSettingsPanel: React.FC<BrokerSettingsProps> = ({
       
       <SettingRow
         title="Alerts Only"
-        enabled={settings.alerts_only}
+        enabled={flags.alertsOnly}
         onToggle={() => onToggle(profileId, brokerId, 'alerts_only')}
         trackColor="#f59e0b"
         testID={`setting-alerts-only-${brokerId}`}
       />
 
-      {!settings.alerts_only && (
+      {!flags.alertsOnly && (
         <>
           <SettingRow
             title="Auto Trading"
-            enabled={settings.auto_trading_enabled}
+            enabled={flags.autoTradingEnabled}
             onToggle={() => onToggle(profileId, brokerId, 'auto_trading_enabled')}
             trackColor="#22c55e"
             testID={`setting-auto-trading-${brokerId}`}
@@ -48,18 +51,18 @@ export const BrokerSettingsPanel: React.FC<BrokerSettingsProps> = ({
             title="Take Profit"
             value={settings.take_profit_percentage}
             onValueChange={(num) => onUpdate(profileId, brokerId, 'take_profit_percentage', num)}
-            enabled={settings.take_profit_enabled}
+            enabled={flags.takeProfitEnabled}
             onToggle={() => onToggle(profileId, brokerId, 'take_profit_enabled')}
             trackColor="#22c55e"
             inputLabel="%"
             testID={`setting-take-profit-${brokerId}`}
           />
 
-          {settings.take_profit_enabled && (
+          {flags.takeProfitEnabled && (
             <SettingRow
               title="Bracket Order"
               description="TP + SL together"
-              enabled={settings.bracket_order_enabled}
+              enabled={flags.bracketOrderEnabled}
               onToggle={() => onToggle(profileId, brokerId, 'bracket_order_enabled')}
               trackColor="#3b82f6"
               testID={`setting-bracket-order-${brokerId}`}
@@ -70,7 +73,7 @@ export const BrokerSettingsPanel: React.FC<BrokerSettingsProps> = ({
             title="Stop Loss"
             value={settings.stop_loss_percentage}
             onValueChange={(num) => onUpdate(profileId, brokerId, 'stop_loss_percentage', num)}
-            enabled={settings.stop_loss_enabled}
+            enabled={flags.stopLossEnabled}
             onToggle={() => onToggle(profileId, brokerId, 'stop_loss_enabled')}
             trackColor="#ef4444"
             inputLabel="%"
@@ -81,7 +84,7 @@ export const BrokerSettingsPanel: React.FC<BrokerSettingsProps> = ({
             title="Trailing Stop"
             value={settings.trailing_stop_percent}
             onValueChange={(num) => onUpdate(profileId, brokerId, 'trailing_stop_percent', num)}
-            enabled={settings.trailing_stop_enabled}
+            enabled={flags.trailingStopEnabled}
             onToggle={() => onToggle(profileId, brokerId, 'trailing_stop_enabled')}
             trackColor="#8b5cf6"
             inputLabel="% from high"
@@ -91,7 +94,7 @@ export const BrokerSettingsPanel: React.FC<BrokerSettingsProps> = ({
           <SettingRow
             title="Averaging Down"
             description="Buy more on drops"
-            enabled={settings.averaging_down_enabled}
+            enabled={flags.averagingDownEnabled}
             onToggle={() => onToggle(profileId, brokerId, 'averaging_down_enabled')}
             trackColor="#f59e0b"
             testID={`setting-averaging-down-${brokerId}`}
@@ -100,7 +103,7 @@ export const BrokerSettingsPanel: React.FC<BrokerSettingsProps> = ({
           <SettingRow
             title="Auto Shutdown"
             description={`After ${settings.max_consecutive_losses} losses`}
-            enabled={settings.auto_shutdown_enabled}
+            enabled={flags.autoShutdownEnabled}
             onToggle={() => onToggle(profileId, brokerId, 'auto_shutdown_enabled')}
             trackColor="#f97316"
             testID={`setting-auto-shutdown-${brokerId}`}

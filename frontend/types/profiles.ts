@@ -1,18 +1,20 @@
+export type ProfileBooleanLike = boolean | string | number | null | undefined;
+
 export interface BrokerSettingsData {
   broker_id: string;
-  enabled: boolean;
-  auto_trading_enabled: boolean;
-  alerts_only: boolean;
-  premium_buffer_enabled: boolean;
-  take_profit_enabled: boolean;
+  enabled: ProfileBooleanLike;
+  auto_trading_enabled: ProfileBooleanLike;
+  alerts_only: ProfileBooleanLike;
+  premium_buffer_enabled: ProfileBooleanLike;
+  take_profit_enabled: ProfileBooleanLike;
   take_profit_percentage: number;
-  bracket_order_enabled: boolean;
-  stop_loss_enabled: boolean;
+  bracket_order_enabled: ProfileBooleanLike;
+  stop_loss_enabled: ProfileBooleanLike;
   stop_loss_percentage: number;
-  trailing_stop_enabled: boolean;
+  trailing_stop_enabled: ProfileBooleanLike;
   trailing_stop_percent: number;
-  averaging_down_enabled: boolean;
-  auto_shutdown_enabled: boolean;
+  averaging_down_enabled: ProfileBooleanLike;
+  auto_shutdown_enabled: ProfileBooleanLike;
   max_consecutive_losses: number;
 }
 
