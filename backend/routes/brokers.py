@@ -18,6 +18,10 @@ def set_db(database):
     db = database
 
 
+def _dict_or_empty(value):
+    return value if isinstance(value, dict) else {}
+
+
 # Broker info for frontend
 BROKERS_INFO = [
     BrokerInfo(id="ibkr", name="Interactive Brokers", description="Professional-grade broker", supports_options=True, requires_gateway=True,
@@ -71,7 +75,7 @@ async def get_brokers():
 @router.get("/active-broker")
 async def get_active_broker():
     """Get currently active broker"""
-    settings = await db.get_settings()
+    settings = _dict_or_empty(await db.get_settings())
     return {"active_broker": settings.get('active_broker', 'ibkr')}
 
 

@@ -144,6 +144,14 @@ class FakeBrokerDb:
         }
 
 
+class FakeRawBrokerDb:
+    def __init__(self, settings):
+        self.settings = settings
+
+    async def get_settings(self):
+        return self.settings
+
+
 class OperatorRouteContractTests(unittest.TestCase):
     def test_app_exposes_routes_used_by_operator_screens(self):
         from server import app
@@ -286,6 +294,15 @@ class OperatorRouteContractTests(unittest.TestCase):
 
         self.assertFalse(response["connected"])
         self.assertTrue(fake_client.closed)
+
+    def test_active_broker_defaults_when_settings_are_malformed(self):
+        from routes import brokers as brokers_route
+
+        brokers_route.set_db(FakeRawBrokerDb("settings"))
+
+        response = asyncio.run(brokers_route.get_active_broker())
+
+        self.assertEqual(response, {"active_broker": "ibkr"})
 
     def test_trade_close_endpoint_updates_status_and_realized_pnl(self):
         from routes import settings as settings_route
