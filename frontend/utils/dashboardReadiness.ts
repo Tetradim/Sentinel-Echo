@@ -2,6 +2,8 @@ export type ReadinessTone = 'live' | 'attention' | 'blocked';
 
 export type ReadinessState = 'ready' | 'attention' | 'blocked';
 
+type BooleanLike = boolean | string | number | null | undefined;
+
 export type ReadinessActionTarget =
   | '/broker-config'
   | '/discord-settings'
@@ -9,21 +11,21 @@ export type ReadinessActionTarget =
   | '/trading-settings';
 
 export interface ReadinessStatus {
-  discord_connected?: boolean;
-  broker_connected?: boolean;
-  auto_trading_enabled?: boolean;
+  discord_connected?: BooleanLike;
+  broker_connected?: BooleanLike;
+  auto_trading_enabled?: BooleanLike;
 }
 
 export interface DashboardReadinessInput {
   status: ReadinessStatus | null;
-  simMode: boolean;
-  autoShutdownEnabled: boolean;
-  shutdownTriggered: boolean;
-  takeProfitEnabled: boolean;
-  stopLossEnabled: boolean;
-  trailingStopEnabled: boolean;
-  premiumBufferEnabled: boolean;
-  liveExitAutomationSupported?: boolean;
+  simMode: BooleanLike;
+  autoShutdownEnabled: BooleanLike;
+  shutdownTriggered: BooleanLike;
+  takeProfitEnabled: BooleanLike;
+  stopLossEnabled: BooleanLike;
+  trailingStopEnabled: BooleanLike;
+  premiumBufferEnabled: BooleanLike;
+  liveExitAutomationSupported?: BooleanLike;
 }
 
 export interface ReadinessAction {
@@ -75,9 +77,10 @@ function getTitle(tone: ReadinessTone): string {
 }
 
 function getPrimaryAction(items: ReadinessItem[], tone: ReadinessTone): ReadinessAction {
-  const firstActionable = items.find(
+  const actionableItems = items.filter(
     (item) => item.state !== 'ready' && item.actionLabel && item.actionTarget
   );
+  const firstActionable = actionableItems.find((item) => item.state === 'blocked') || actionableItems[0];
 
   if (firstActionable?.actionLabel && firstActionable.actionTarget) {
     return {
@@ -95,22 +98,49 @@ function getPrimaryAction(items: ReadinessItem[], tone: ReadinessTone): Readines
 function getSummary(
   tone: ReadinessTone,
   items: ReadinessItem[],
-  input: DashboardReadinessInput
+  simMode: boolean
 ): string {
-  const firstIssue = items.find((item) => item.state !== 'ready');
+  const firstIssue = items.find((item) => item.state === 'blocked') ||
+    items.find((item) => item.state !== 'ready');
 
   if (firstIssue) return firstIssue.detail;
-  if (input.simMode) return 'Simulation trading is ready with protections online.';
+  if (simMode) return 'Simulation trading is ready with protections online.';
   return 'Live trading path is ready with protections online.';
+}
+
+function parseBooleanFlag(value: BooleanLike, fallback = false): boolean {
+  if (typeof value === 'boolean') return value;
+  if (typeof value === 'number') {
+    if (value === 1) return true;
+    if (value === 0) return false;
+    return fallback;
+  }
+  if (typeof value === 'string') {
+    const normalized = value.trim().toLowerCase();
+    if (['true', '1', 'yes', 'y', 'on'].includes(normalized)) return true;
+    if (['false', '0', 'no', 'n', 'off'].includes(normalized)) return false;
+  }
+  return fallback;
 }
 
 export function buildDashboardReadiness(input: DashboardReadinessInput): DashboardReadiness {
   const status = input.status;
-  const exitGuardsConfigured = input.takeProfitEnabled || input.stopLossEnabled || input.trailingStopEnabled;
-  const exitGuardsActive = exitGuardsConfigured && Boolean(input.liveExitAutomationSupported);
+  const discordConnected = parseBooleanFlag(status?.discord_connected);
+  const brokerConnected = parseBooleanFlag(status?.broker_connected);
+  const autoTradingEnabled = parseBooleanFlag(status?.auto_trading_enabled);
+  const simMode = parseBooleanFlag(input.simMode);
+  const autoShutdownEnabled = parseBooleanFlag(input.autoShutdownEnabled);
+  const shutdownTriggered = parseBooleanFlag(input.shutdownTriggered);
+  const takeProfitEnabled = parseBooleanFlag(input.takeProfitEnabled);
+  const stopLossEnabled = parseBooleanFlag(input.stopLossEnabled);
+  const trailingStopEnabled = parseBooleanFlag(input.trailingStopEnabled);
+  const premiumBufferEnabled = parseBooleanFlag(input.premiumBufferEnabled);
+  const liveExitAutomationSupported = parseBooleanFlag(input.liveExitAutomationSupported);
+  const exitGuardsConfigured = takeProfitEnabled || stopLossEnabled || trailingStopEnabled;
+  const exitGuardsActive = exitGuardsConfigured && liveExitAutomationSupported;
 
   const items: ReadinessItem[] = [
-    input.shutdownTriggered
+    shutdownTriggered
       ? {
           id: 'shutdown',
           label: 'Shutdown',
@@ -123,15 +153,15 @@ export function buildDashboardReadiness(input: DashboardReadinessInput): Dashboa
       : {
           id: 'shutdown',
           label: 'Shutdown',
-          detail: input.autoShutdownEnabled
+          detail: autoShutdownEnabled
             ? 'Loss-limit shutdown is watching the session.'
             : 'Auto shutdown is off; enable it before unattended trading.',
-          state: input.autoShutdownEnabled ? 'ready' : 'attention',
-          icon: input.autoShutdownEnabled ? 'power' : 'power-outline',
+          state: autoShutdownEnabled ? 'ready' : 'attention',
+          icon: autoShutdownEnabled ? 'power' : 'power-outline',
           actionLabel: 'Tune Risk',
           actionTarget: '/risk-settings',
         },
-    status?.broker_connected
+    brokerConnected
       ? {
           id: 'broker',
           label: 'Broker',
@@ -148,7 +178,7 @@ export function buildDashboardReadiness(input: DashboardReadinessInput): Dashboa
           actionLabel: 'Configure Broker',
           actionTarget: '/broker-config',
         },
-    status?.discord_connected
+    discordConnected
       ? {
           id: 'discord',
           label: 'Discord',
@@ -165,7 +195,7 @@ export function buildDashboardReadiness(input: DashboardReadinessInput): Dashboa
           actionLabel: 'Open Discord',
           actionTarget: '/discord-settings',
         },
-    status?.auto_trading_enabled
+    autoTradingEnabled
       ? {
           id: 'automation',
           label: 'Automation',
@@ -186,11 +216,11 @@ export function buildDashboardReadiness(input: DashboardReadinessInput): Dashboa
       ? {
           id: 'guards',
           label: 'Exit Guards',
-          detail: input.premiumBufferEnabled
+          detail: premiumBufferEnabled
             ? 'Exit guards and premium buffer are armed.'
             : 'Exit guards are armed; premium buffer is off.',
           state: 'ready',
-          icon: input.premiumBufferEnabled ? 'shield-checkmark' : 'shield-half',
+          icon: premiumBufferEnabled ? 'shield-checkmark' : 'shield-half',
         }
       : exitGuardsConfigured
         ? {
@@ -217,7 +247,7 @@ export function buildDashboardReadiness(input: DashboardReadinessInput): Dashboa
 
   return {
     title: getTitle(tone),
-    summary: getSummary(tone, items, input),
+    summary: getSummary(tone, items, simMode),
     tone,
     score: getScore(items),
     items,

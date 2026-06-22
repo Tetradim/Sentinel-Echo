@@ -82,6 +82,36 @@ test('surfaces shutdown review before lower priority warnings', () => {
   assert.equal(readiness.items[0].id, 'shutdown');
 });
 
+test('treats string false dashboard flags as disabled', () => {
+  const readiness = buildDashboardReadiness({
+    status: {
+      discord_connected: 'false',
+      broker_connected: 'false',
+      auto_trading_enabled: 'false',
+    },
+    simMode: 'false',
+    autoShutdownEnabled: 'false',
+    shutdownTriggered: 'false',
+    takeProfitEnabled: 'false',
+    stopLossEnabled: 'false',
+    trailingStopEnabled: 'false',
+    premiumBufferEnabled: 'false',
+    liveExitAutomationSupported: 'false',
+  });
+
+  const shutdownItem = readiness.items.find((item) => item.id === 'shutdown');
+  const brokerItem = readiness.items.find((item) => item.id === 'broker');
+  const automationItem = readiness.items.find((item) => item.id === 'automation');
+  const guardItem = readiness.items.find((item) => item.id === 'guards');
+
+  assert.equal(readiness.tone, 'blocked');
+  assert.equal(readiness.primaryAction.label, 'Configure Broker');
+  assert.equal(shutdownItem.state, 'attention');
+  assert.equal(brokerItem.state, 'blocked');
+  assert.equal(automationItem.state, 'attention');
+  assert.equal(guardItem.state, 'attention');
+});
+
 test('flags missing exit guards while keeping the bot in review state', () => {
   const readiness = buildDashboardReadiness({
     ...readyInput,
