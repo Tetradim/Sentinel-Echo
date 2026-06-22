@@ -754,7 +754,9 @@ def _source_override_matched(
     source_key: str,
     source_name: str,
 ) -> bool:
-    overrides = settings.get("source_overrides") or {}
+    overrides = settings.get("source_overrides")
+    if not isinstance(overrides, dict):
+        return False
     candidates = {
         str(source_key or "").strip().lower(),
         str(source_name or "").strip().lower(),

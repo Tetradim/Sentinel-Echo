@@ -108,6 +108,37 @@ class DiscordParsePreviewTests(unittest.TestCase):
             result["warnings"],
         )
 
+    def test_parse_preview_reports_malformed_source_overrides_without_crashing(self):
+        from routes import discord as discord_route
+
+        fake_db = FakePreviewDb(
+            {
+                "auto_trading_enabled": True,
+                "simulation_mode": False,
+                "default_quantity": 1,
+                "max_position_size": 1000.0,
+                "source_overrides": "alerts",
+            }
+        )
+        discord_route.set_db(fake_db)
+
+        result = asyncio.run(
+            discord_route.preview_discord_alert(
+                {
+                    "raw_text": "BTO SPY 500C 6/21 @ 1.25",
+                    "source_key": "alerts",
+                }
+            )
+        )
+
+        self.assertEqual(result["parsed"]["ticker"], "SPY")
+        self.assertEqual(result["skip_reason"], "invalid source config: source overrides must be an object")
+        self.assertFalse(result["execution_preview"]["would_request_trade"])
+        self.assertIn(
+            "Source config is invalid: source overrides must be an object.",
+            result["warnings"],
+        )
+
     def test_parse_preview_does_not_break_entry_price_label_patterns(self):
         from routes import discord as discord_route
 

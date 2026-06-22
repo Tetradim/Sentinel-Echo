@@ -40,7 +40,7 @@ def normalize_source_overrides(
     if not isinstance(source_overrides, dict):
         raise ValueError("source overrides must be an object")
     normalized: Dict[str, Dict[str, Any]] = {}
-    for raw_key, raw_config in (source_overrides or {}).items():
+    for raw_key, raw_config in source_overrides.items():
         key = str(raw_key or "").strip()
         if not key:
             raise ValueError("source override key cannot be empty")
@@ -51,7 +51,7 @@ def normalize_source_overrides(
 def summarize_source_policy(source_overrides: Dict[str, Dict[str, Any]]) -> Dict[str, Any]:
     summary = _empty_source_policy_summary()
     try:
-        normalized_sources = normalize_source_overrides(source_overrides or {})
+        normalized_sources = normalize_source_overrides(_source_overrides_or_empty(source_overrides))
     except ValueError as exc:
         summary["valid"] = False
         summary["error"] = str(exc)
@@ -164,7 +164,7 @@ def resolve_source_config(
     channel_name: str = "",
 ) -> Dict[str, Any]:
     """Resolve a per-source config by channel id first, then channel name."""
-    overrides = settings.get("source_overrides") or {}
+    overrides = _source_overrides_or_empty(settings.get("source_overrides"))
     if not isinstance(overrides, dict):
         config = normalize_source_config({"enabled": False})
         config["invalid_reason"] = "source overrides must be an object"
@@ -182,6 +182,10 @@ def resolve_source_config(
         config["name"] = channel_name or str(channel_id)
     config["key"] = key or str(channel_id)
     return config
+
+
+def _source_overrides_or_empty(source_overrides: Any) -> Any:
+    return {} if source_overrides is None else source_overrides
 
 
 def source_skip_reason(parsed_alert: Dict[str, Any], source_config: Dict[str, Any]) -> Optional[str]:

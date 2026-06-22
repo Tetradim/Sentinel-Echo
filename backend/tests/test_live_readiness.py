@@ -257,6 +257,29 @@ class LiveReadinessTests(unittest.TestCase):
         self.assertFalse(result["checks"]["source_policy"]["valid"])
         self.assertFalse(result["ready_for_live"])
 
+    def test_falsey_malformed_source_overrides_report_invalid_policy(self):
+        from live_readiness import evaluate_live_readiness
+
+        for malformed in ("", []):
+            with self.subTest(malformed=repr(malformed)):
+                settings = dict(READY_SETTINGS)
+                settings["source_overrides"] = malformed
+
+                result = evaluate_live_readiness(
+                    settings,
+                    {"shutdown_triggered": False},
+                    status={"broker_connected": True, "discord_connected": True},
+                    env=READY_ENV,
+                )
+
+                self.assertIn("source_policy_invalid", result["blocking_codes"])
+                self.assertNotIn("no_live_source", result["blocking_codes"])
+                self.assertFalse(result["checks"]["source_policy"]["valid"])
+                self.assertEqual(
+                    result["checks"]["source_policy"]["error"],
+                    "source overrides must be an object",
+                )
+
     def test_source_policy_check_reports_blocked_source_reasons(self):
         from live_readiness import evaluate_live_readiness
 

@@ -124,7 +124,7 @@ def evaluate_live_readiness(
     if not broker_configured and broker_config_has_saved_value(active_broker_config):
         missing_broker_fields = list(missing_broker_config_fields(active_broker_config, active_broker))
     capabilities = get_broker_capabilities(active_broker)
-    source_policy = summarize_source_policy(settings.get("source_overrides") or {})
+    source_policy = summarize_source_policy(settings.get("source_overrides"))
     auto_live_sources = int(source_policy.get("auto_live_sources", 0))
     source_config_valid = bool(source_policy.get("valid", False))
     source_error = str(source_policy.get("error") or "")

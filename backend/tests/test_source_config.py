@@ -144,6 +144,18 @@ class SourceConfigTests(unittest.TestCase):
         self.assertEqual(summary["auto_live_sources"], 0)
         self.assertEqual(summary["blocked_sources"], [])
 
+    def test_source_policy_summary_rejects_falsey_non_object_override_containers(self):
+        from source_config import summarize_source_policy
+
+        for malformed in ("", []):
+            with self.subTest(malformed=repr(malformed)):
+                summary = summarize_source_policy(malformed)
+
+                self.assertFalse(summary["valid"])
+                self.assertEqual(summary["error"], "source overrides must be an object")
+                self.assertEqual(summary["override_count"], 0)
+                self.assertEqual(summary["auto_live_sources"], 0)
+
     def test_source_policy_summary_rejects_falsey_non_object_source_configs(self):
         from source_config import summarize_source_policy
 

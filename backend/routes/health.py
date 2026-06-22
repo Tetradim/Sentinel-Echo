@@ -138,7 +138,7 @@ async def setup_diagnostics():
         broker_capabilities.get("supports_order_status", False)
     )
 
-    source_policy = summarize_source_policy(settings.get("source_overrides") or {})
+    source_policy = summarize_source_policy(settings.get("source_overrides"))
     source_config_valid = bool(source_policy.get("valid", False))
     source_error = str(source_policy.get("error") or "")
 
