@@ -26,6 +26,7 @@ export interface BridgeAlertDecisionDigest {
   acceptedCount: number;
   skippedCount: number;
   title: string;
+  stateLabel: 'Idle' | 'Clear' | 'Review';
   detail: string;
   rows: BridgeAlertDecisionRow[];
 }
@@ -107,6 +108,7 @@ export function summarizeBridgeAlertDecisions(
       acceptedCount: 0,
       skippedCount: 0,
       title: 'No Bridge Alerts',
+      stateLabel: 'Idle',
       detail: 'No Chrome bridge alert decisions are in the current event window.',
       rows,
     };
@@ -117,6 +119,7 @@ export function summarizeBridgeAlertDecisions(
     acceptedCount,
     skippedCount,
     title: skippedCount > 0 ? 'Bridge Alerts Need Review' : 'Bridge Alerts Accepted',
+    stateLabel: skippedCount > 0 ? 'Review' : 'Clear',
     detail: `${skippedCount} skipped, ${acceptedCount} accepted in current event window.`,
     rows,
   };

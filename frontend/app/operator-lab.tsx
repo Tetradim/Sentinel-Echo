@@ -569,7 +569,7 @@ export default function OperatorLabScreen() {
                 color={bridgeAlerts.skippedCount > 0 ? '#ef4444' : '#22c55e'}
               />
               <Text style={[s.panelPillText, bridgeAlerts.skippedCount > 0 ? s.panelPillTextBlocked : null]}>
-                {bridgeAlerts.title}
+                {bridgeAlerts.stateLabel}
               </Text>
             </View>
           </View>

@@ -59,6 +59,7 @@ test('bridge alert digest summarizes accepted and skipped audit events', () => {
   assert.equal(digest.acceptedCount, 1);
   assert.equal(digest.skippedCount, 1);
   assert.equal(digest.title, 'Bridge Alerts Need Review');
+  assert.equal(digest.stateLabel, 'Review');
   assert.match(digest.detail, /1 skipped/);
   assert.equal(digest.rows[0].status, 'skipped');
   assert.equal(digest.rows[0].tickerLabel, 'SPY 744 PUT 2026-06-22');
@@ -73,5 +74,6 @@ test('bridge alert digest reports quiet state when no audit events exist', () =>
 
   assert.equal(digest.total, 0);
   assert.equal(digest.title, 'No Bridge Alerts');
+  assert.equal(digest.stateLabel, 'Idle');
   assert.equal(digest.detail, 'No Chrome bridge alert decisions are in the current event window.');
 });
