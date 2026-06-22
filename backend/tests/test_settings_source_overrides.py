@@ -40,6 +40,13 @@ class FakeSettingsDb:
     async def reset_loss_counters(self):
         self.loss_counters_reset += 1
 
+    async def increment_loss_counters(self, loss_amount):
+        return {
+            "consecutive_losses": 1,
+            "daily_losses": 1,
+            "daily_loss_amount": loss_amount,
+        }
+
     async def insert_operator_event(self, event):
         self.operator_events.append(event)
         return event["id"]
@@ -48,6 +55,11 @@ class FakeSettingsDb:
 class FakeRawSettingsDb(FakeSettingsDb):
     async def get_settings(self):
         return self.settings
+
+
+class FakeMalformedRuntimeDb(FakeSettingsDb):
+    async def get_runtime_state(self):
+        return "runtime"
 
 
 class SourceOverrideRouteTests(unittest.TestCase):
@@ -388,6 +400,96 @@ class SourceOverrideRouteTests(unittest.TestCase):
             },
         )
 
+    def test_update_averaging_down_settings_treats_malformed_response_as_defaults(self):
+        from models import AveragingDownSettingsUpdate
+        from routes import settings as settings_route
+
+        fake_db = FakeRawSettingsDb("settings")
+        settings_route.set_db(fake_db)
+
+        response = asyncio.run(
+            settings_route.update_averaging_down_settings(
+                AveragingDownSettingsUpdate(
+                    averaging_down_enabled=True,
+                    averaging_down_threshold=8.0,
+                )
+            )
+        )
+
+        self.assertEqual(
+            fake_db.updated,
+            [{"averaging_down_enabled": True, "averaging_down_threshold": 8.0}],
+        )
+        self.assertEqual(
+            response,
+            {
+                "averaging_down_enabled": True,
+                "averaging_down_threshold": 8.0,
+                "averaging_down_percentage": 25.0,
+                "averaging_down_max_buys": 3,
+            },
+        )
+
+    def test_update_trailing_stop_settings_treats_malformed_response_as_defaults(self):
+        from models import TrailingStopSettingsUpdate
+        from routes import settings as settings_route
+
+        fake_db = FakeRawSettingsDb("settings")
+        settings_route.set_db(fake_db)
+
+        response = asyncio.run(
+            settings_route.update_trailing_stop_settings(
+                TrailingStopSettingsUpdate(
+                    trailing_stop_enabled=True,
+                    trailing_stop_type="premium",
+                )
+            )
+        )
+
+        self.assertEqual(
+            fake_db.updated,
+            [{"trailing_stop_enabled": True, "trailing_stop_type": "premium"}],
+        )
+        self.assertEqual(
+            response,
+            {
+                "trailing_stop_enabled": True,
+                "trailing_stop_type": "premium",
+                "trailing_stop_percent": 10.0,
+                "trailing_stop_cents": 50.0,
+            },
+        )
+
+    def test_update_auto_shutdown_settings_treats_malformed_response_as_defaults(self):
+        from models import AutoShutdownSettingsUpdate
+        from routes import settings as settings_route
+
+        fake_db = FakeRawSettingsDb("settings")
+        settings_route.set_db(fake_db)
+
+        response = asyncio.run(
+            settings_route.update_auto_shutdown_settings(
+                AutoShutdownSettingsUpdate(
+                    auto_shutdown_enabled=True,
+                    max_daily_losses=2,
+                )
+            )
+        )
+
+        self.assertEqual(
+            fake_db.updated,
+            [{"auto_shutdown_enabled": True, "max_daily_losses": 2}],
+        )
+        self.assertEqual(
+            response,
+            {
+                "auto_shutdown_enabled": True,
+                "max_consecutive_losses": 3,
+                "max_daily_losses": 2,
+                "max_daily_loss_amount": 500.0,
+            },
+        )
+
     def test_toggle_trading_uses_persisted_setting_as_source_of_truth(self):
         from routes import settings as settings_route
         from routes.health import update_bot_status
@@ -621,6 +723,26 @@ class SourceOverrideRouteTests(unittest.TestCase):
         )
         self.assertEqual(fake_db.updated, [{"auto_trading_enabled": False}])
 
+    def test_shutdown_check_treats_malformed_runtime_state_as_empty(self):
+        from routes import settings as settings_route
+
+        fake_db = FakeMalformedRuntimeDb(
+            {
+                "auto_shutdown_enabled": True,
+                "max_consecutive_losses": 3,
+                "max_daily_losses": 5,
+                "max_daily_loss_amount": 500.0,
+            }
+        )
+        settings_route.set_db(fake_db)
+
+        reason = asyncio.run(settings_route.check_and_trigger_shutdown(-125.0))
+
+        self.assertIsNone(reason)
+        self.assertEqual(len(fake_db.runtime_updates), 1)
+        self.assertEqual(fake_db.runtime_updates[0]["daily_losses"], 0)
+        self.assertEqual(fake_db.runtime_updates[0]["daily_loss_amount"], 0.0)
+
     def test_settings_update_rejects_invalid_risk_numbers(self):
         from pydantic import ValidationError
         from models import SettingsUpdate
@@ -687,6 +809,19 @@ class SourceOverrideRouteTests(unittest.TestCase):
                 }
             ],
         )
+
+    def test_sms_notification_treats_malformed_settings_as_disabled(self):
+        from fastapi import HTTPException
+        from routes import settings as settings_route
+
+        fake_db = FakeRawSettingsDb("settings")
+        settings_route.set_db(fake_db)
+
+        with self.assertRaises(HTTPException) as raised:
+            asyncio.run(settings_route.test_sms_notification())
+
+        self.assertEqual(raised.exception.status_code, 400)
+        self.assertEqual(raised.exception.detail, "SMS notifications are disabled.")
 
     def test_update_source_overrides_normalizes_before_saving(self):
         from routes import settings as settings_route

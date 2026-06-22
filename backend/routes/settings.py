@@ -268,7 +268,7 @@ async def update_averaging_down_settings(update: AveragingDownSettingsUpdate):
     """Update averaging down settings"""
     update_dict = {k: v for k, v in update.model_dump().items() if v is not None}
     await db.update_settings(update_dict)
-    settings = await db.get_settings()
+    settings = {**update_dict, **_dict_or_empty(await db.get_settings())}
     return {
         "averaging_down_enabled": settings.get('averaging_down_enabled', False),
         "averaging_down_threshold": settings.get('averaging_down_threshold', 10.0),
@@ -357,7 +357,7 @@ async def update_trailing_stop_settings(update: TrailingStopSettingsUpdate):
     if 'trailing_stop_type' in update_dict and update_dict['trailing_stop_type'] not in ['percent', 'premium']:
         raise HTTPException(status_code=400, detail="trailing_stop_type must be 'percent' or 'premium'")
     await db.update_settings(update_dict)
-    settings = await db.get_settings()
+    settings = {**update_dict, **_dict_or_empty(await db.get_settings())}
     return {
         "trailing_stop_enabled": settings.get('trailing_stop_enabled', False),
         "trailing_stop_type": settings.get('trailing_stop_type', 'percent'),
@@ -400,7 +400,7 @@ async def update_auto_shutdown_settings(update: AutoShutdownSettingsUpdate):
     """Update auto shutdown settings"""
     update_dict = {k: v for k, v in update.model_dump().items() if v is not None}
     await db.update_settings(update_dict)
-    settings = await db.get_settings()
+    settings = {**update_dict, **_dict_or_empty(await db.get_settings())}
     return {
         "auto_shutdown_enabled": settings.get('auto_shutdown_enabled', False),
         "max_consecutive_losses": settings.get('max_consecutive_losses', 3),
@@ -511,7 +511,7 @@ async def test_sms_notification():
     """Send a test SMS to verify Twilio credentials."""
     from notifications import send_notification
 
-    settings = await db.get_settings()
+    settings = _dict_or_empty(await db.get_settings())
     if not settings.get("sms_enabled"):
         raise HTTPException(status_code=400, detail="SMS notifications are disabled.")
     entry = await send_notification(
@@ -591,7 +591,7 @@ async def check_and_trigger_shutdown(realized_pnl: float):
         return None
 
     # Reset daily counters if the calendar day has rolled over
-    runtime = await db.get_runtime_state()
+    runtime = _dict_or_empty(await db.get_runtime_state())
     today = datetime.now(timezone.utc).strftime('%Y-%m-%d')
     if runtime.get('last_loss_reset_date', '') != today:
         await db.update_runtime_state({
