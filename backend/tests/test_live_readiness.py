@@ -388,6 +388,27 @@ class LiveReadinessTests(unittest.TestCase):
         self.assertIn("no_live_ingestion", codes)
         self.assertFalse(result["ready_for_live"])
 
+    def test_live_readiness_parses_serialized_false_status_flags(self):
+        from live_readiness import evaluate_live_readiness
+
+        result = evaluate_live_readiness(
+            READY_SETTINGS,
+            {"shutdown_triggered": False},
+            status={
+                "broker_connected": "false",
+                "discord_connected": "false",
+                "chrome_bridge_healthy": "false",
+            },
+            env=READY_ENV,
+        )
+
+        self.assertIn("broker_not_connected", result["blocking_codes"])
+        self.assertIn("no_live_ingestion", result["blocking_codes"])
+        self.assertFalse(result["checks"]["broker"]["connected"])
+        self.assertFalse(result["checks"]["signal_ingestion"]["discord_connected"])
+        self.assertFalse(result["checks"]["signal_ingestion"]["chrome_bridge_healthy"])
+        self.assertFalse(result["ready_for_live"])
+
     def test_discord_connected_flag_requires_configured_token_and_channel(self):
         from live_readiness import evaluate_live_readiness
 
@@ -437,6 +458,29 @@ class LiveReadinessTests(unittest.TestCase):
         self.assertFalse(signal["discord_configured"])
         self.assertIn("no_live_ingestion", codes)
         self.assertFalse(result["ready_for_live"])
+
+    def test_serialized_false_token_status_does_not_configure_discord(self):
+        from live_readiness import evaluate_live_readiness
+
+        settings = dict(READY_SETTINGS)
+        settings.update({"discord_token": "", "discord_channel_ids": []})
+
+        result = evaluate_live_readiness(
+            settings,
+            {"shutdown_triggered": False},
+            status={
+                "broker_connected": True,
+                "discord_connected": True,
+                "discord_token_configured": "false",
+                "discord_channel_count": 1,
+                "chrome_bridge_healthy": False,
+            },
+            env=READY_ENV,
+        )
+
+        self.assertFalse(result["checks"]["signal_ingestion"]["discord_configured"])
+        self.assertFalse(result["checks"]["signal_ingestion"]["discord_connected"])
+        self.assertIn("no_live_ingestion", result["blocking_codes"])
 
     def test_malformed_saved_channel_ids_do_not_crash_or_configure_discord(self):
         from live_readiness import evaluate_live_readiness

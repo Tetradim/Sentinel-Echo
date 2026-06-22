@@ -64,7 +64,7 @@ def _discord_configured(settings: Dict[str, Any], status: Dict[str, Any], env: D
     token_configured = (
         bool(str(settings.get("discord_token") or "").strip())
         or bool(_env_value(env, "DISCORD_BOT_TOKEN"))
-        or bool(status.get("discord_token_configured", False))
+        or coerce_bool(status.get("discord_token_configured"), default=False)
     )
     return token_configured and _configured_discord_channel_count(settings, status, env) > 0
 
@@ -101,6 +101,12 @@ def _nonnegative_int(value: Any) -> int:
 
 def _codes(issues: Iterable[Dict[str, str]]) -> set[str]:
     return {issue["code"] for issue in issues}
+
+
+def _optional_status_bool(status: Dict[str, Any], key: str) -> bool | None:
+    if key not in status or status.get(key) is None:
+        return None
+    return coerce_bool(status.get(key), default=False)
 
 
 def evaluate_live_readiness(
@@ -162,11 +168,12 @@ def evaluate_live_readiness(
         blocking.append(_issue("broker_options_unsupported", "Active broker does not support options trading."))
     if not capabilities.get("supports_order_status"):
         blocking.append(_issue("broker_order_status_unsupported", "Active broker lacks fill status polling."))
-    if status.get("broker_connected") is False:
+    broker_connected = _optional_status_bool(status, "broker_connected")
+    if broker_connected is False:
         blocking.append(_issue("broker_not_connected", "Broker connection is not healthy."))
     discord_configured = _discord_configured(settings, status, env)
-    discord_connected = bool(status.get("discord_connected", False)) and discord_configured
-    chrome_bridge_healthy = bool(status.get("chrome_bridge_healthy", False))
+    discord_connected = coerce_bool(status.get("discord_connected"), default=False) and discord_configured
+    chrome_bridge_healthy = coerce_bool(status.get("chrome_bridge_healthy"), default=False)
     if not discord_connected and not chrome_bridge_healthy:
         blocking.append(
             _issue(
@@ -188,7 +195,7 @@ def evaluate_live_readiness(
             "active_broker": active_broker,
             "configured": broker_configured,
             "missing_required_fields": missing_broker_fields,
-            "connected": status.get("broker_connected"),
+            "connected": broker_connected if broker_connected is not None else status.get("broker_connected"),
             "capabilities": capabilities,
         },
         "source_policy": source_policy,
