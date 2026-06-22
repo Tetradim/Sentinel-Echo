@@ -2,7 +2,7 @@
 Broker management endpoints
 """
 from fastapi import APIRouter, HTTPException
-from broker_capabilities import get_broker_capabilities
+from broker_capabilities import get_broker_capabilities, is_broker_configured, normalize_broker_id
 from models import BrokerType, BrokerInfo
 from operator_audit import record_operator_event
 
@@ -33,8 +33,9 @@ def _active_broker_id(settings):
 
 def _broker_config(settings, broker_id):
     broker_configs = _dict_or_empty(_dict_or_empty(settings).get("broker_configs", {}))
-    config = broker_configs.get(broker_id)
-    return config if isinstance(config, dict) else None
+    normalized_broker_id = normalize_broker_id(broker_id)
+    config = broker_configs.get(normalized_broker_id)
+    return config if is_broker_configured(broker_configs, normalized_broker_id) else None
 
 
 # Broker info for frontend

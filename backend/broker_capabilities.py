@@ -114,6 +114,37 @@ def normalize_broker_id(broker_id: Any, default: str = "") -> str:
     return str(value or default).strip().lower()
 
 
+def _has_config_value(value: Any) -> bool:
+    if hasattr(value, "get_secret_value"):
+        value = value.get_secret_value()
+    if isinstance(value, str):
+        return bool(value.strip())
+    if isinstance(value, dict):
+        return any(_has_config_value(item) for item in value.values())
+    if isinstance(value, (list, tuple, set)):
+        return any(_has_config_value(item) for item in value)
+    return value is not None
+
+
+def broker_config_is_usable(config: Any) -> bool:
+    """Return true when a broker config has at least one usable configured value."""
+    if not isinstance(config, dict):
+        return False
+    relevant = {
+        key: value
+        for key, value in config.items()
+        if key not in {"broker_type", "configured_fields"}
+    }
+    return any(_has_config_value(value) for value in relevant.values())
+
+
+def is_broker_configured(broker_configs: Any, broker_id: Any) -> bool:
+    """Return true when the active broker has a non-empty saved configuration."""
+    configs = broker_configs if isinstance(broker_configs, dict) else {}
+    broker_config = configs.get(normalize_broker_id(broker_id))
+    return broker_config_is_usable(broker_config)
+
+
 def get_broker_capabilities(broker_id: str | None) -> Dict[str, Any]:
     """Return a copy of capability metadata for a broker id."""
     normalized = normalize_broker_id(broker_id)

@@ -5,7 +5,7 @@ FIXED C2b, C20, M28, M29
 from fastapi import APIRouter
 import os
 import threading
-from broker_capabilities import get_broker_capabilities, normalize_broker_id
+from broker_capabilities import get_broker_capabilities, is_broker_configured, normalize_broker_id
 from live_readiness import evaluate_live_readiness
 from source_config import normalize_source_overrides
 
@@ -119,7 +119,7 @@ async def setup_diagnostics():
 
     active_broker = normalize_broker_id(settings.get("active_broker"), default="ibkr")
     broker_configs = _dict_or_empty(settings.get("broker_configs"))
-    broker_configured = active_broker in broker_configs
+    broker_configured = is_broker_configured(broker_configs, active_broker)
     broker_connected = broker_configured and bool(status.get("broker_connected", False))
     broker_capabilities = get_broker_capabilities(active_broker)
     order_status_supported = broker_configured and bool(
