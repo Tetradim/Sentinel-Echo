@@ -1,3 +1,5 @@
+import { parseBooleanFlag, type BooleanLike } from './booleanFlags';
+
 export type AlertFilter = 'all' | 'executed' | 'review' | 'unparsed';
 
 export type AlertDigestTone = 'live' | 'attention' | 'empty';
@@ -5,8 +7,8 @@ export type AlertDigestTone = 'live' | 'attention' | 'empty';
 export interface DigestAlert {
   id: string;
   ticker?: string | null;
-  processed?: boolean;
-  trade_executed?: boolean;
+  processed?: BooleanLike;
+  trade_executed?: BooleanLike;
   channel_name?: string | null;
   received_at?: string | null;
 }
@@ -83,9 +85,9 @@ function getPrimaryStatus(total: number, needsReview: number, unparsed: number):
 
 export function summarizeAlerts(alerts: DigestAlert[]): AlertDigest {
   const total = alerts.length;
-  const executed = alerts.filter((alert) => Boolean(alert.trade_executed)).length;
-  const unparsed = alerts.filter((alert) => !alert.processed).length;
-  const needsReview = alerts.filter((alert) => !alert.trade_executed).length;
+  const executed = alerts.filter((alert) => parseBooleanFlag(alert.trade_executed)).length;
+  const unparsed = alerts.filter((alert) => !parseBooleanFlag(alert.processed)).length;
+  const needsReview = alerts.filter((alert) => !parseBooleanFlag(alert.trade_executed)).length;
   const executionRate = total === 0 ? 0 : Math.round((executed / total) * 100);
 
   return {
@@ -103,8 +105,8 @@ export function filterAlerts<TAlert extends DigestAlert>(
   alerts: TAlert[],
   filter: AlertFilter
 ): TAlert[] {
-  if (filter === 'executed') return alerts.filter((alert) => Boolean(alert.trade_executed));
-  if (filter === 'review') return alerts.filter((alert) => !alert.trade_executed);
-  if (filter === 'unparsed') return alerts.filter((alert) => !alert.processed);
+  if (filter === 'executed') return alerts.filter((alert) => parseBooleanFlag(alert.trade_executed));
+  if (filter === 'review') return alerts.filter((alert) => !parseBooleanFlag(alert.trade_executed));
+  if (filter === 'unparsed') return alerts.filter((alert) => !parseBooleanFlag(alert.processed));
   return alerts;
 }
