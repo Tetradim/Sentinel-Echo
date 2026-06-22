@@ -217,7 +217,7 @@ async def toggle_premium_buffer():
 @router.get("/premium-buffer-settings")
 async def get_premium_buffer_settings():
     """Get premium buffer settings"""
-    settings = await db.get_settings()
+    settings = _dict_or_empty(await db.get_settings())
     return {
         "premium_buffer_enabled": settings.get('premium_buffer_enabled', False),
         "premium_buffer_amount": settings.get('premium_buffer_amount', 10.0)

@@ -231,6 +231,19 @@ class SourceOverrideRouteTests(unittest.TestCase):
 
         self.assertEqual(response, {"max_positions_per_ticker": 3})
 
+    def test_premium_buffer_settings_treats_malformed_settings_as_defaults(self):
+        from routes import settings as settings_route
+
+        fake_db = FakeRawSettingsDb("settings")
+        settings_route.set_db(fake_db)
+
+        response = asyncio.run(settings_route.get_premium_buffer_settings())
+
+        self.assertEqual(
+            response,
+            {"premium_buffer_enabled": False, "premium_buffer_amount": 10.0},
+        )
+
     def test_toggle_trading_uses_persisted_setting_as_source_of_truth(self):
         from routes import settings as settings_route
         from routes.health import update_bot_status
