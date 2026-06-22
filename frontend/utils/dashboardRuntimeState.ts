@@ -91,9 +91,48 @@ export interface DashboardRuntimeState {
   premiumBufferAmt: number;
 }
 
+const DASHBOARD_TOGGLE_RESPONSE_KEYS = [
+  'auto_trading_enabled',
+  'simulation_mode',
+  'averaging_down_enabled',
+  'take_profit_enabled',
+  'stop_loss_enabled',
+  'trailing_stop_enabled',
+  'auto_shutdown_enabled',
+  'premium_buffer_enabled',
+] as const;
+
+type DashboardToggleResponse = Record<string, unknown> | BooleanLike;
+
 function toNumber(value: number | string | null | undefined, fallback: number): number {
   const parsed = Number(value ?? fallback);
   return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function parseStrictBooleanFlag(value: unknown): boolean | null {
+  if (!['boolean', 'number', 'string'].includes(typeof value) && value != null) {
+    return null;
+  }
+
+  const trueFallback = parseBooleanFlag(value as BooleanLike, true);
+  const falseFallback = parseBooleanFlag(value as BooleanLike, false);
+  return trueFallback === falseFallback ? trueFallback : null;
+}
+
+export function readDashboardToggleValue(response: DashboardToggleResponse): boolean | null {
+  const direct = parseStrictBooleanFlag(response);
+  if (direct !== null) return direct;
+
+  if (!response || typeof response !== 'object' || Array.isArray(response)) {
+    return null;
+  }
+
+  for (const key of DASHBOARD_TOGGLE_RESPONSE_KEYS) {
+    const parsed = parseStrictBooleanFlag(response[key]);
+    if (parsed !== null) return parsed;
+  }
+
+  return null;
 }
 
 export function normalizeDashboardStatusFlags(

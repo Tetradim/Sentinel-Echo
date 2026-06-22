@@ -33,7 +33,11 @@ import { summarizeAlerts } from '../utils/alertDigest';
 import { summarizePositions } from '../utils/positionDigest';
 import { summarizeSettings } from '../utils/settingsDigest';
 import { summarizeTrades } from '../utils/tradeDigest';
-import { normalizeDashboardRuntimeState, normalizeDashboardStatusFlags } from '../utils/dashboardRuntimeState';
+import {
+  normalizeDashboardRuntimeState,
+  normalizeDashboardStatusFlags,
+  readDashboardToggleValue,
+} from '../utils/dashboardRuntimeState';
 
 type AccentKey = 'indigo' | 'mint' | 'amber' | 'rose' | 'sky' | 'violet' | 'gold' | 'coral';
 type PatternKey = 'triangle' | 'hex' | 'circuit';
@@ -1398,8 +1402,8 @@ export default function Dashboard() {
     loadSetter?.(true);
     try {
       const res = await api.post(`${BACKEND_URL}/api/${endpoint}`);
-      const key = Object.keys(res.data || {}).find((candidate) => typeof res.data[candidate] === 'boolean');
-      if (key) setter(Boolean(res.data[key]));
+      const toggledValue = readDashboardToggleValue(res.data);
+      if (toggledValue !== null) setter(toggledValue);
       await fetchData();
     } catch (e: any) {
       Alert.alert('Error', e?.response?.data?.detail || 'Failed to toggle setting.');

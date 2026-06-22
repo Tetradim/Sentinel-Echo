@@ -17,6 +17,7 @@ require.extensions['.ts'] = function loadTs(module, filename) {
 const {
   normalizeDashboardRuntimeState,
   normalizeDashboardStatusFlags,
+  readDashboardToggleValue,
 } = require('../utils/dashboardRuntimeState.ts');
 
 test('normalizes dashboard status flags for rendered connection state', () => {
@@ -96,4 +97,20 @@ test('prefers status simulation mode and falls back to settings when absent', ()
     status: {},
     settings: { simulation_mode: 'true' },
   }).simMode, true);
+});
+
+test('reads serialized dashboard toggle responses without truthy string coercion', () => {
+  assert.equal(readDashboardToggleValue({
+    auto_trading_enabled: 'false',
+    message: 'auto trading disabled',
+  }), false);
+
+  assert.equal(readDashboardToggleValue({
+    message: 'updated',
+    premium_buffer_enabled: '1',
+  }), true);
+
+  assert.equal(readDashboardToggleValue({
+    message: 'updated',
+  }), null);
 });
