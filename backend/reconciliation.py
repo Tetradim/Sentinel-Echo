@@ -3,10 +3,8 @@ from __future__ import annotations
 
 from typing import Any, Dict, List
 
+from bridge_contract import CHROME_BRIDGE_CONTRACT_VERSION
 from settings_flags import coerce_bool
-
-
-CHROME_BRIDGE_CONTRACT_VERSION = "chrome.discord.message.v1"
 
 
 def _first_trade_for_alert(trades: list[dict], alert_id: str) -> dict | None:

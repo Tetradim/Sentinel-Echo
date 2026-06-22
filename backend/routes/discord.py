@@ -7,6 +7,7 @@ from models import Settings, DiscordAlertPatterns, DiscordAlertPatternsUpdate
 from discord_ingestion import DiscordIngestionDeps, handle_discord_message
 from discord_alert_text import build_discord_alert_text
 from alert_capture_recorder import record_alert_capture
+from bridge_contract import CHROME_BRIDGE_CONTRACT_VERSION
 from bot_event_bus import publish_event
 from bridge_health import evaluate_bridge_health, record_bridge_heartbeat
 from operator_audit import record_operator_event
@@ -575,7 +576,7 @@ def _publish_chrome_bridge_signal(
         "signal.observed",
         source_bot="chrome-discord-bridge",
         payload={
-            "contract_version": "chrome.discord.message.v1",
+            "contract_version": CHROME_BRIDGE_CONTRACT_VERSION,
             "event_id": payload.event_id,
             "source": payload.source,
             "channel_id": payload.channel_id,
@@ -624,7 +625,7 @@ async def _record_chrome_bridge_alert_audit(
         summary,
         severity="warning" if skipped else "info",
         details={
-            "contract_version": "chrome.discord.message.v1",
+            "contract_version": CHROME_BRIDGE_CONTRACT_VERSION,
             "event_id": payload.event_id,
             "channel": {
                 "id": payload.channel_id,
