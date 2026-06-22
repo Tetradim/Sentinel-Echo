@@ -10,6 +10,10 @@ from operator_audit import record_operator_event
 CONFIRMATION_PHRASE = "ARM LIVE TRADING"
 
 
+def _dict_or_empty(value: Any) -> Dict[str, Any]:
+    return value if isinstance(value, dict) else {}
+
+
 def _parse_timestamp(value: Any) -> datetime | None:
     if not value:
         return None
@@ -51,6 +55,7 @@ async def arm_live_trading(
         raise ValueError(f'Confirmation must match "{CONFIRMATION_PHRASE}".')
     if duration_minutes < 1 or duration_minutes > 480:
         raise ValueError("duration_minutes must be between 1 and 480.")
+    readiness = _dict_or_empty(readiness)
     if not readiness.get("ready_for_live", False):
         await record_operator_event(
             db,
