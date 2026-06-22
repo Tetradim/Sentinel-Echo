@@ -25,6 +25,10 @@ def _list_or_empty(value: Any) -> list[Any]:
     return value if isinstance(value, list) else []
 
 
+def _dict_or_empty(value: Any) -> dict[str, Any]:
+    return value if isinstance(value, dict) else {}
+
+
 class OperatorSimulateExitRequest(BaseModel):
     position_id: Optional[str] = None
     sell_percentage: float = Field(default=50, ge=1, le=100)
@@ -111,7 +115,7 @@ async def get_live_readiness():
 @router.post("/operator/live-arm")
 async def live_arm(request: LiveArmRequest):
     """Arm live trading for a bounded runtime window after readiness passes."""
-    readiness = await _live_readiness_payload()
+    readiness = _dict_or_empty(await _live_readiness_payload())
     if not readiness.get("ready_for_live", False):
         await record_operator_event(
             db,
