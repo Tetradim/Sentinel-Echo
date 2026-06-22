@@ -4,7 +4,7 @@ from __future__ import annotations
 import os
 from typing import Any, Dict, Iterable, List
 
-from broker_capabilities import get_broker_capabilities
+from broker_capabilities import get_broker_capabilities, normalize_broker_id
 from source_config import normalize_source_overrides
 
 
@@ -123,7 +123,7 @@ def evaluate_live_readiness(
     blocking: List[Dict[str, str]] = []
     warnings: List[Dict[str, str]] = []
 
-    active_broker = str(settings.get("active_broker") or "ibkr").lower()
+    active_broker = normalize_broker_id(settings.get("active_broker"), default="ibkr")
     broker_configs = _dict_or_empty(settings.get("broker_configs"))
     capabilities = get_broker_capabilities(active_broker)
     auto_live_sources, source_config_valid, source_error = _auto_live_source_count(

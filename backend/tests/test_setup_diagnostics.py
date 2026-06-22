@@ -105,6 +105,47 @@ class SetupDiagnosticsTests(unittest.TestCase):
         self.assertFalse(result["ready_for_live"])
         self.assertIn("credential_key_missing", result["readiness"]["blocking_codes"])
 
+    def test_setup_diagnostics_normalizes_broker_enum_value(self):
+        from models import BrokerType
+        from routes import health as health_route
+
+        health_route.set_db(
+            FakeDiagnosticsDb(
+                {
+                    "discord_token": "discord-secret-token",
+                    "discord_channel_ids": ["123", "456"],
+                    "active_broker": BrokerType.ALPACA,
+                    "broker_configs": {"alpaca": {"api_key": "broker-secret-key"}},
+                    "source_overrides": {
+                        "alerts": {
+                            "paper_only": False,
+                            "require_manual_confirm": False,
+                        }
+                    },
+                    "auto_trading_enabled": True,
+                    "simulation_mode": False,
+                    "max_position_size": 1000.0,
+                    "shutdown_triggered": False,
+                }
+            )
+        )
+        health_route.update_bot_status("discord_connected", True)
+        health_route.update_bot_status("broker_connected", True)
+
+        with patch.dict(
+            "os.environ",
+            {
+                "API_KEY": "api-key",
+                "CREDENTIAL_KEY": "0" * 64,
+            },
+        ):
+            result = asyncio.run(health_route.setup_diagnostics())
+
+        self.assertEqual(result["broker"]["active_broker"], "alpaca")
+        self.assertTrue(result["broker"]["configured"])
+        self.assertTrue(result["broker"]["order_status_supported"])
+        self.assertNotIn("active_broker_not_configured", result["readiness"]["blocking_codes"])
+
     def test_setup_diagnostics_warnings_include_shared_readiness_blockers(self):
         from routes import health as health_route
 

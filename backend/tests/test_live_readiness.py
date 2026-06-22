@@ -48,6 +48,24 @@ class LiveReadinessTests(unittest.TestCase):
         self.assertTrue(result["ready_for_live"])
         self.assertEqual(result["blocking_issues"], [])
 
+    def test_broker_enum_value_is_normalized_for_readiness(self):
+        from live_readiness import evaluate_live_readiness
+        from models import BrokerType
+
+        settings = dict(READY_SETTINGS)
+        settings["active_broker"] = BrokerType.ALPACA
+
+        result = evaluate_live_readiness(
+            settings,
+            {"shutdown_triggered": False},
+            status={"broker_connected": True, "discord_connected": True},
+            env=READY_ENV,
+        )
+
+        self.assertTrue(result["ready_for_live"])
+        self.assertEqual(result["checks"]["broker"]["active_broker"], "alpaca")
+        self.assertNotIn("active_broker_not_configured", result["blocking_codes"])
+
     def test_readiness_reports_core_blockers(self):
         from live_readiness import evaluate_live_readiness
 

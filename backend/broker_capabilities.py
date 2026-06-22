@@ -108,9 +108,15 @@ _BROKER_CAPABILITIES: Dict[str, Dict[str, Any]] = {
 }
 
 
+def normalize_broker_id(broker_id: Any, default: str = "") -> str:
+    """Normalize broker ids from strings or enum-backed settings."""
+    value = getattr(broker_id, "value", broker_id)
+    return str(value or default).strip().lower()
+
+
 def get_broker_capabilities(broker_id: str | None) -> Dict[str, Any]:
     """Return a copy of capability metadata for a broker id."""
-    normalized = str(broker_id or "").strip().lower()
+    normalized = normalize_broker_id(broker_id)
     capabilities = _BROKER_CAPABILITIES.get(normalized)
     if not capabilities:
         fallback = deepcopy(_DEFAULT_CAPABILITIES)

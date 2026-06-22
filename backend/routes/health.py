@@ -5,7 +5,7 @@ FIXED C2b, C20, M28, M29
 from fastapi import APIRouter
 import os
 import threading
-from broker_capabilities import get_broker_capabilities
+from broker_capabilities import get_broker_capabilities, normalize_broker_id
 from live_readiness import evaluate_live_readiness
 from source_config import normalize_source_overrides
 
@@ -71,9 +71,10 @@ async def get_status():
     if db:
         settings = await db.get_settings()
         settings = settings or {}
-        active_broker = settings.get("active_broker", status.get("active_broker", "ibkr"))
-        if hasattr(active_broker, "value"):
-            active_broker = active_broker.value
+        active_broker = normalize_broker_id(
+            settings.get("active_broker", status.get("active_broker", "ibkr")),
+            default="ibkr",
+        )
         status.update(
             {
                 "active_broker": active_broker,
@@ -99,7 +100,7 @@ async def setup_diagnostics():
     discord_token_configured = _discord_token_configured(settings, status)
     channel_ids = settings.get("discord_channel_ids") or []
 
-    active_broker = str(settings.get("active_broker") or "").lower() or "ibkr"
+    active_broker = normalize_broker_id(settings.get("active_broker"), default="ibkr")
     broker_configs = _dict_or_empty(settings.get("broker_configs"))
     broker_configured = active_broker in broker_configs
     broker_capabilities = get_broker_capabilities(active_broker)
