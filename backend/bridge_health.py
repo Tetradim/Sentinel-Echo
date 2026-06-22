@@ -6,6 +6,7 @@ from typing import Any
 import os
 
 from bot_event_bus import publish_event
+from settings_flags import coerce_bool
 
 
 _lock = Lock()
@@ -17,7 +18,7 @@ def record_bridge_heartbeat(payload: dict[str, Any]) -> dict[str, Any]:
     global _last_heartbeat
     heartbeat = {
         "status": str(payload.get("status") or "ok"),
-        "bridge_enabled": bool(payload.get("bridge_enabled", False)),
+        "bridge_enabled": coerce_bool(payload.get("bridge_enabled"), default=False),
         "url": payload.get("url") or "",
         "channel_id": payload.get("channel_id") or "",
         "observed_at": payload.get("observed_at") or datetime.now(timezone.utc).isoformat(),
