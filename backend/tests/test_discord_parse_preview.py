@@ -30,6 +30,11 @@ class FakePreviewDb:
         self.updated_patterns.append(patterns)
 
 
+class FakeRawPreviewDb(FakePreviewDb):
+    async def get_settings(self):
+        return self.settings
+
+
 class DiscordParsePreviewTests(unittest.TestCase):
     def test_parse_preview_returns_policy_and_quantity_without_saving(self):
         from routes import discord as discord_route
@@ -77,6 +82,31 @@ class DiscordParsePreviewTests(unittest.TestCase):
         )
         self.assertEqual(fake_db.updated_settings, [])
         self.assertEqual(fake_db.updated_patterns, [])
+
+    def test_parse_preview_treats_malformed_settings_as_safe_defaults(self):
+        from routes import discord as discord_route
+
+        fake_db = FakeRawPreviewDb("settings")
+        discord_route.set_db(fake_db)
+
+        result = asyncio.run(
+            discord_route.preview_discord_alert(
+                {
+                    "raw_text": "BTO SPY 500C 6/21 @ 1.25",
+                    "source_key": "alerts",
+                }
+            )
+        )
+
+        self.assertEqual(result["parsed"]["ticker"], "SPY")
+        self.assertFalse(result["execution_preview"]["would_request_trade"])
+        self.assertEqual(result["execution_preview"]["reason"], "auto trading disabled")
+        self.assertFalse(result["execution_preview"]["auto_trading_enabled"])
+        self.assertTrue(result["execution_preview"]["simulation_mode"])
+        self.assertIn(
+            "Auto trading is disabled; preview will not request a trade.",
+            result["warnings"],
+        )
 
     def test_parse_preview_does_not_break_entry_price_label_patterns(self):
         from routes import discord as discord_route

@@ -106,6 +106,10 @@ def get_discord_bot():
     return discord_bot, discord_bot_thread
 
 
+def _dict_or_empty(value: Any) -> dict[str, Any]:
+    return value if isinstance(value, dict) else {}
+
+
 def resolve_discord_start_config(
     settings: dict | None,
     *,
@@ -225,8 +229,7 @@ async def preview_discord_alert(request: Dict[str, Any] = Body(...)):
     if not raw_text:
         raise HTTPException(status_code=400, detail="raw_text is required")
 
-    settings = await db.get_settings() if db else {}
-    settings = settings or {}
+    settings = _dict_or_empty(await db.get_settings() if db else {})
     source_key = str(
         request.get("source_key")
         or request.get("channel_id")
