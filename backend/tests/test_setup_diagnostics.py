@@ -195,6 +195,19 @@ class SetupDiagnosticsTests(unittest.TestCase):
         self.assertFalse(result["discord_connected"])
         self.assertTrue(result["broker_connected"])
 
+    def test_health_parses_serialized_false_status_without_db(self):
+        from routes import health as health_route
+
+        health_route.set_db(None)
+        health_route.update_bot_status("discord_connected", "false")
+        health_route.update_bot_status("broker_connected", "false")
+
+        result = asyncio.run(health_route.health())
+
+        self.assertEqual(result["status"], "degraded")
+        self.assertFalse(result["discord_connected"])
+        self.assertFalse(result["broker_connected"])
+
     def test_health_does_not_report_unconfigured_broker_connected(self):
         from routes import health as health_route
 

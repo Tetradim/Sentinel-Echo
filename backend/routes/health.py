@@ -68,7 +68,7 @@ def _readiness_status_snapshot() -> dict:
 async def health():
     """FIXED M28: real health check"""
     status = _readiness_status_snapshot()
-    discord_ok = bool(status.get("discord_connected", False))
+    discord_ok = coerce_bool(status.get("discord_connected"), default=False)
     if db:
         settings = await db.get_settings() or {}
         runtime = await db.get_runtime_state() if hasattr(db, "get_runtime_state") else {}
@@ -78,7 +78,7 @@ async def health():
         discord_ok = bool(signal_ingestion.get("discord_connected", False))
         broker_ok = bool(broker.get("connected", False)) and bool(broker.get("configured", False))
     else:
-        broker_ok = bool(status.get("broker_connected", False))
+        broker_ok = coerce_bool(status.get("broker_connected"), default=False)
     return {
         "status": "healthy" if (discord_ok and broker_ok) else "degraded",
         "discord_connected": discord_ok,
