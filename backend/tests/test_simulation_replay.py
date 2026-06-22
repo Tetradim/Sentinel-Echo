@@ -95,6 +95,38 @@ class SimulationReplayTests(unittest.TestCase):
         self.assertEqual(result["execution_preview"]["quantity"], 0)
         self.assertFalse(result["execution_preview"]["would_request_trade"])
 
+    def test_preview_treats_malformed_settings_as_safe_defaults(self):
+        from simulation_replay import build_replay_preview
+
+        replay = {
+            "contract_version": "simulation.consolidation.replay.v1",
+            "events": [
+                {
+                    "event_id": "discord_alert:m-malformed-settings",
+                    "type": "discord_alert",
+                    "timestamp": "2026-06-19T14:30:00+00:00",
+                    "channel_id": "123",
+                    "payload": {
+                        "message": {
+                            "channel_id": "123",
+                            "channel_name": "alerts",
+                            "content": "BTO SPY 500C 6/21 @ 1.25",
+                        }
+                    },
+                }
+            ],
+        }
+
+        preview = build_replay_preview(replay, "settings")
+
+        self.assertEqual(preview["parsed_count"], 1)
+        self.assertEqual(preview["would_request_trade_count"], 0)
+        result = preview["results"][0]
+        self.assertTrue(result["would_insert_alert"])
+        self.assertFalse(result["would_request_trade"])
+        self.assertEqual(result["execution_preview"]["reason"], "auto trading disabled")
+        self.assertTrue(result["execution_preview"]["simulation_mode"])
+
     def test_normalize_replay_url_accepts_engine_root_or_full_endpoint(self):
         from simulation_replay import normalize_replay_url
 

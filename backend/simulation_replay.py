@@ -16,6 +16,10 @@ class SimulationReplayError(RuntimeError):
     pass
 
 
+def _dict_or_empty(value: Any) -> dict[str, Any]:
+    return value if isinstance(value, dict) else {}
+
+
 def normalize_replay_url(value: str | None = None) -> str:
     configured = (value or os.environ.get("SIMULATION_ENGINE_REPLAY_URL") or DEFAULT_REPLAY_URL).strip()
     configured = configured.rstrip("/")
@@ -59,7 +63,7 @@ async def fetch_engine_replay(
 
 
 def build_replay_preview(replay: dict[str, Any], settings: dict[str, Any] | None = None) -> dict[str, Any]:
-    settings = settings or {}
+    settings = _dict_or_empty(settings)
     events = replay.get("events") or []
     results = []
     parsed_count = 0
