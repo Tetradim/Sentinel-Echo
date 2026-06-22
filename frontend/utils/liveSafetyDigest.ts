@@ -1,33 +1,35 @@
 export type LiveSafetyTone = 'live' | 'attention' | 'blocked' | 'idle';
 
+type BooleanLike = boolean | string | number | null | undefined;
+
 export interface LiveReadinessIssue {
   code: string;
   summary: string;
 }
 
 export interface LiveReadinessPayload {
-  ready_for_live?: boolean;
+  ready_for_live?: BooleanLike;
   blocking_issues?: LiveReadinessIssue[];
   checks?: {
     runtime?: {
-      live_trading_armed?: boolean;
+      live_trading_armed?: BooleanLike;
       live_trading_armed_until?: string;
-      shutdown_triggered?: boolean;
+      shutdown_triggered?: BooleanLike;
     };
     trading?: {
-      simulation_mode?: boolean;
-      auto_trading_enabled?: boolean;
+      simulation_mode?: BooleanLike;
+      auto_trading_enabled?: BooleanLike;
     };
     broker?: {
       active_broker?: string;
-      connected?: boolean;
+      connected?: BooleanLike;
     };
     source_policy?: {
-      blocked_sources?: Array<{
+      blocked_sources?: {
         key?: string;
         name?: string;
         reasons?: string[];
-      }>;
+      }[];
     };
   };
 }
@@ -62,6 +64,21 @@ function formatSourceBlockReason(reason: string): string {
   return reason.replace(/_/g, ' ');
 }
 
+function parseBooleanFlag(value: BooleanLike, fallback = false): boolean {
+  if (typeof value === 'boolean') return value;
+  if (typeof value === 'number') {
+    if (value === 1) return true;
+    if (value === 0) return false;
+    return fallback;
+  }
+  if (typeof value === 'string') {
+    const normalized = value.trim().toLowerCase();
+    if (['true', '1', 'yes', 'y', 'on'].includes(normalized)) return true;
+    if (['false', '0', 'no', 'n', 'off'].includes(normalized)) return false;
+  }
+  return fallback;
+}
+
 function formatSourcePolicyBlockers(readiness: LiveReadinessPayload | null | undefined): string | null {
   const blockedSources = readiness?.checks?.source_policy?.blocked_sources || [];
   const details = blockedSources
@@ -84,8 +101,8 @@ export function summarizeLiveSafety(readiness: LiveReadinessPayload | null | und
   const runtime = readiness?.checks?.runtime || {};
   const trading = readiness?.checks?.trading || {};
   const broker = readiness?.checks?.broker || {};
-  const isArmed = Boolean(runtime.live_trading_armed);
-  const canArm = Boolean(readiness?.ready_for_live) && !isArmed;
+  const isArmed = parseBooleanFlag(runtime.live_trading_armed);
+  const canArm = parseBooleanFlag(readiness?.ready_for_live) && !isArmed;
 
   if (isArmed) {
     return {
@@ -118,9 +135,10 @@ export function summarizeLiveSafety(readiness: LiveReadinessPayload | null | und
   }
 
   if (canArm) {
+    const simulationMode = parseBooleanFlag(trading.simulation_mode);
     return {
       title: 'Ready To Arm',
-      detail: `${String(broker.active_broker || 'broker').toUpperCase()} is ready; simulation is ${trading.simulation_mode ? 'on' : 'off'}.`,
+      detail: `${String(broker.active_broker || 'broker').toUpperCase()} is ready; simulation is ${simulationMode ? 'on' : 'off'}.`,
       tone: 'live',
       blockerCount: 0,
       canArm: true,

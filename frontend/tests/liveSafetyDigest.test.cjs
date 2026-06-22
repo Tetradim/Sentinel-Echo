@@ -83,3 +83,54 @@ test('live safety digest allows arming when ready and unarmed', () => {
   assert.equal(digest.canArm, true);
   assert.equal(digest.primaryAction, 'arm');
 });
+
+test('live safety digest treats string false armed flag as unarmed', () => {
+  const digest = summarizeLiveSafety({
+    ready_for_live: true,
+    blocking_issues: [],
+    checks: {
+      runtime: {
+        live_trading_armed: 'false',
+        live_trading_armed_until: '2099-01-01T00:00:00+00:00',
+      },
+      broker: { active_broker: 'alpaca' },
+      trading: { simulation_mode: false },
+    },
+  });
+
+  assert.equal(digest.title, 'Ready To Arm');
+  assert.equal(digest.isArmed, false);
+  assert.equal(digest.canArm, true);
+  assert.equal(digest.primaryAction, 'arm');
+});
+
+test('live safety digest treats string false readiness as not ready', () => {
+  const digest = summarizeLiveSafety({
+    ready_for_live: 'false',
+    blocking_issues: [],
+    checks: {
+      runtime: { live_trading_armed: false },
+      broker: { active_broker: 'alpaca' },
+      trading: { simulation_mode: false },
+    },
+  });
+
+  assert.equal(digest.title, 'Safety Idle');
+  assert.equal(digest.canArm, false);
+  assert.equal(digest.primaryAction, 'review');
+});
+
+test('live safety digest treats string false simulation flag as off', () => {
+  const digest = summarizeLiveSafety({
+    ready_for_live: true,
+    blocking_issues: [],
+    checks: {
+      runtime: { live_trading_armed: false },
+      broker: { active_broker: 'alpaca' },
+      trading: { simulation_mode: 'false' },
+    },
+  });
+
+  assert.equal(digest.title, 'Ready To Arm');
+  assert.match(digest.detail, /simulation is off/);
+});
