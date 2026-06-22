@@ -7,7 +7,7 @@ Environment variables:
     DISCORD_BOT_TOKEN     - Your Discord bot token (required for Discord)
     DISCORD_CHANNEL_IDS   - Comma-separated channel IDs to listen on
     MONGO_URL            - MongoDB connection string
-    DATABASE_PATH       - SQLite database path (default: tradebot.db)
+    DATABASE_PATH       - SQLite database path (default: data/consolidation.sqlite3)
     IBKR_GATEWAY_URL     - IBKR Gateway URL (default: https://localhost:5000)
     IBKR_ACCOUNT_ID     - IBKR account ID
     API_SECRET_KEY      - Secret key for API authentication
@@ -23,6 +23,8 @@ from pathlib import Path
 # Setup path
 SCRIPT_DIR = Path(__file__).parent
 sys.path.insert(0, str(SCRIPT_DIR))
+
+from database_paths import configured_database_path
 
 # Configure logging
 logging.basicConfig(
@@ -50,7 +52,7 @@ def check_environment():
     # Database check
     use_sqlite = os.environ.get('USE_SQLITE', 'true').lower() == 'true'
     if use_sqlite:
-        db_path = os.environ.get('DATABASE_PATH', 'tradebot.db')
+        db_path = configured_database_path()
         if not os.path.exists(db_path) and os.path.dirname(db_path):
             os.makedirs(os.path.dirname(db_path), exist_ok=True)
             logger.info(f"Created database directory: {os.path.dirname(db_path)}")

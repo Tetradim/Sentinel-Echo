@@ -15,6 +15,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 from server import app, init_discord_bot, shutdown_bot
 from database import init_database
+from database_paths import configured_database_path
 
 logging.basicConfig(
     level=logging.INFO,
@@ -29,7 +30,7 @@ def load_environment():
     optional = {
         'MONGO_URL': 'mongodb://localhost:27017',
         'DB_NAME': 'tradebot',
-        'DATABASE_PATH': 'tradebot.db',
+        'DATABASE_PATH': configured_database_path(),
         'DISCORD_BOT_TOKEN': '',
         'DISCORD_CHANNEL_IDS': '',
         'IBKR_GATEWAY_URL': 'https://localhost:5000',

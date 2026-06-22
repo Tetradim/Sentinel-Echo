@@ -2,14 +2,16 @@
 SQLite Database Layer for Desktop App
 This module provides SQLite support as an alternative to MongoDB for the standalone desktop version.
 """
-import os
 import json
 import sqlite3
 from datetime import datetime, timezone  # FIXED M7
 from typing import Optional, List, Dict, Any
 from contextlib import contextmanager
 
-DATABASE_PATH = os.environ.get('DATABASE_PATH', 'tradebot.db')
+from database_paths import configured_database_path
+
+
+DATABASE_PATH = configured_database_path()
 
 
 def _json_default(value):

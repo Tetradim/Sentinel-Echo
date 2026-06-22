@@ -44,6 +44,7 @@ from trade_lifecycle import build_exit_plans, is_exit_alert
 
 # Import database abstraction
 from database import init_database, get_db, USE_SQLITE, MongoDBDatabase
+from database_paths import configured_database_path
 
 # Import routes
 from routes import (
@@ -59,7 +60,7 @@ logger = logging.getLogger(__name__)
 # Database configuration
 MONGO_URL = os.environ.get('MONGO_URL', 'mongodb://localhost:27017')
 DB_NAME = os.environ.get('DB_NAME', 'tradebot')
-SQLITE_PATH = os.environ.get('DATABASE_PATH', 'tradebot.db')
+SQLITE_PATH = configured_database_path()
 
 # MongoDB clients (only used if not using SQLite)
 mongo_client = None

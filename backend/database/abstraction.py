@@ -17,6 +17,8 @@ from typing import Dict, List, Any, Optional
 from datetime import datetime, timezone
 from abc import ABC, abstractmethod
 
+from database_paths import configured_database_path
+
 logger = logging.getLogger(__name__)
 
 USE_SQLITE = os.environ.get('USE_SQLITE', 'false').lower() == 'true'
@@ -452,8 +454,8 @@ class SQLiteDatabase(DatabaseInterface):
     M6:  runtime_state is a separate table, not embedded in the settings blob.
     """
 
-    def __init__(self, db_path: str = 'tradebot.db'):
-        self.db_path = db_path
+    def __init__(self, db_path: str | None = None):
+        self.db_path = db_path or configured_database_path()
         self._settings_lock = asyncio.Lock()
         self._init_lock = asyncio.Lock()
         self._initialised = False
@@ -997,7 +999,7 @@ class SQLiteDatabase(DatabaseInterface):
 # Factory / globals
 # ---------------------------------------------------------------------------
 
-def get_database(mongo_db=None, sqlite_path: str = 'tradebot.db') -> DatabaseInterface:
+def get_database(mongo_db=None, sqlite_path: str | None = None) -> DatabaseInterface:
     if USE_SQLITE:
         return SQLiteDatabase(sqlite_path)
     if mongo_db is not None:
@@ -1008,7 +1010,7 @@ def get_database(mongo_db=None, sqlite_path: str = 'tradebot.db') -> DatabaseInt
 _db_instance: Optional[DatabaseInterface] = None
 
 
-def init_database(mongo_db=None, sqlite_path: str = 'tradebot.db') -> DatabaseInterface:
+def init_database(mongo_db=None, sqlite_path: str | None = None) -> DatabaseInterface:
     global _db_instance
     _db_instance = get_database(mongo_db, sqlite_path)
     return _db_instance
