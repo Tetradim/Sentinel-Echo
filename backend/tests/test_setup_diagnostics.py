@@ -2,6 +2,7 @@ import asyncio
 import pathlib
 import sys
 import unittest
+from datetime import datetime, timezone
 from unittest.mock import patch
 
 
@@ -35,9 +36,12 @@ class FakeRawDiagnosticsDb:
 class SetupDiagnosticsTests(unittest.TestCase):
     def setUp(self):
         from routes import health as health_route
+        import bridge_health
 
         health_route.update_bot_status("discord_connected", False)
         health_route.update_bot_status("broker_connected", False)
+        bridge_health._last_heartbeat = None
+        bridge_health._last_attention_key = None
 
     def test_update_bot_status_ignores_unknown_status_keys(self):
         from routes import health as health_route
@@ -212,6 +216,57 @@ class SetupDiagnosticsTests(unittest.TestCase):
         self.assertEqual(result["broker"]["active_broker"], "ibkr")
         self.assertFalse(result["broker"]["configured"])
         self.assertIn("Discord token is not configured.", result["warnings"])
+
+    def test_setup_diagnostics_uses_healthy_chrome_bridge_as_ingestion_path(self):
+        from routes import health as health_route
+        import bridge_health
+
+        health_route.set_db(
+            FakeDiagnosticsDb(
+                {
+                    "discord_token": "",
+                    "discord_channel_ids": [],
+                    "active_broker": "alpaca",
+                    "broker_configs": {"alpaca": {"api_key": "broker-secret-key"}},
+                    "source_overrides": {
+                        "chrome-alerts": {
+                            "paper_only": False,
+                            "require_manual_confirm": False,
+                        }
+                    },
+                    "auto_trading_enabled": True,
+                    "simulation_mode": False,
+                    "max_position_size": 1000.0,
+                    "shutdown_triggered": False,
+                }
+            )
+        )
+        health_route.update_bot_status("broker_connected", True)
+        bridge_health._last_heartbeat = {
+            "status": "ok",
+            "bridge_enabled": True,
+            "url": "https://discord.com/channels/1/2",
+            "channel_id": "chrome-alerts",
+            "observed_at": datetime.now(timezone.utc).isoformat(),
+            "last_forward_at": "",
+            "last_forward_status": "",
+            "details": {},
+        }
+
+        with patch.dict(
+            "os.environ",
+            {
+                "API_KEY": "api-key",
+                "CREDENTIAL_KEY": "0" * 64,
+                "DISCORD_BOT_TOKEN": "",
+                "DISCORD_CHANNEL_IDS": "",
+            },
+        ):
+            result = asyncio.run(health_route.setup_diagnostics())
+
+        self.assertFalse(result["discord"]["connected"])
+        self.assertTrue(result["readiness"]["checks"]["signal_ingestion"]["chrome_bridge_healthy"])
+        self.assertNotIn("no_live_ingestion", result["readiness"]["blocking_codes"])
 
     def test_setup_diagnostics_normalizes_broker_enum_value(self):
         from models import BrokerType

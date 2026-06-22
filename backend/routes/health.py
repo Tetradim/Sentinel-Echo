@@ -47,10 +47,18 @@ def update_bot_status(key: str, value):
         bot_status[key] = value
 
 
+def _readiness_status_snapshot() -> dict:
+    from bridge_health import evaluate_bridge_health
+
+    status = get_bot_status()
+    status["chrome_bridge_healthy"] = bool(evaluate_bridge_health().get("healthy", False))
+    return status
+
+
 @router.get("/health")
 async def health():
     """FIXED M28: real health check"""
-    status = get_bot_status()
+    status = _readiness_status_snapshot()
     discord_ok = bool(status.get("discord_connected", False))
     if db:
         settings = await db.get_settings() or {}
@@ -72,7 +80,7 @@ async def health():
 @router.get("/status")
 async def get_status():
     """Get current bot status, with trading flags derived from persisted settings."""
-    status = get_bot_status()
+    status = _readiness_status_snapshot()
     if db:
         settings = _dict_or_empty(await db.get_settings())
         runtime = {}
@@ -104,7 +112,7 @@ async def setup_diagnostics():
     """Report setup readiness without exposing tokens or broker secrets."""
     settings = _dict_or_empty(await db.get_settings() if db else {})
     runtime = _dict_or_empty(await db.get_runtime_state() if db and hasattr(db, "get_runtime_state") else {})
-    status = get_bot_status()
+    status = _readiness_status_snapshot()
 
     discord_token_configured = _discord_token_configured(settings, status)
     channel_ids = settings.get("discord_channel_ids") or []
