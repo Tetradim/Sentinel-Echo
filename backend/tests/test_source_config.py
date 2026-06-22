@@ -42,6 +42,36 @@ class SourceConfigTests(unittest.TestCase):
         self.assertFalse(config["paper_only"])
         self.assertIsNone(source_skip_reason({"alert_type": "buy", "entry_price": 1.0}, config))
 
+    def test_malformed_falsey_source_value_disables_resolved_source(self):
+        from source_config import resolve_source_config, source_skip_reason
+
+        settings = {"source_overrides": {"alerts": ""}}
+
+        config = resolve_source_config(settings, channel_id="999", channel_name="alerts")
+
+        self.assertFalse(config["enabled"])
+        self.assertEqual(config["invalid_reason"], "source override must be an object")
+        self.assertEqual(
+            source_skip_reason({"alert_type": "buy", "ticker": "SPY", "entry_price": 1.0}, config),
+            "invalid source config: source override must be an object",
+        )
+
+    def test_malformed_source_overrides_disable_resolved_source_without_crashing(self):
+        from source_config import resolve_source_config, source_skip_reason
+
+        config = resolve_source_config(
+            {"source_overrides": "alerts"},
+            channel_id="999",
+            channel_name="alerts",
+        )
+
+        self.assertFalse(config["enabled"])
+        self.assertEqual(config["invalid_reason"], "source overrides must be an object")
+        self.assertEqual(
+            source_skip_reason({"alert_type": "buy", "ticker": "SPY", "entry_price": 1.0}, config),
+            "invalid source config: source overrides must be an object",
+        )
+
     def test_disabled_source_skips_every_alert(self):
         from source_config import resolve_source_config, source_skip_reason
 
@@ -113,6 +143,16 @@ class SourceConfigTests(unittest.TestCase):
         self.assertEqual(summary["override_count"], 0)
         self.assertEqual(summary["auto_live_sources"], 0)
         self.assertEqual(summary["blocked_sources"], [])
+
+    def test_source_policy_summary_rejects_falsey_non_object_source_configs(self):
+        from source_config import summarize_source_policy
+
+        summary = summarize_source_policy({"alerts": ""})
+
+        self.assertFalse(summary["valid"])
+        self.assertEqual(summary["error"], "source override must be an object")
+        self.assertEqual(summary["override_count"], 0)
+        self.assertEqual(summary["auto_live_sources"], 0)
 
     def test_allowed_actions_block_unapproved_lifecycle_alerts(self):
         from source_config import resolve_source_config, source_skip_reason
