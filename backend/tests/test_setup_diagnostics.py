@@ -396,6 +396,7 @@ class SetupDiagnosticsTests(unittest.TestCase):
         result = asyncio.run(health_route.setup_diagnostics())
 
         self.assertFalse(result["broker"]["configured"])
+        self.assertFalse(result["broker"]["connected"])
         self.assertFalse(result["broker"]["order_status_supported"])
         self.assertIn("active_broker_not_configured", result["readiness"]["blocking_codes"])
         self.assertIn("Active broker is not configured.", result["warnings"])

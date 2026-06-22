@@ -110,6 +110,7 @@ async def setup_diagnostics():
     active_broker = normalize_broker_id(settings.get("active_broker"), default="ibkr")
     broker_configs = _dict_or_empty(settings.get("broker_configs"))
     broker_configured = active_broker in broker_configs
+    broker_connected = broker_configured and bool(status.get("broker_connected", False))
     broker_capabilities = get_broker_capabilities(active_broker)
     order_status_supported = broker_configured and bool(
         broker_capabilities.get("supports_order_status", False)
@@ -176,7 +177,7 @@ async def setup_diagnostics():
         "broker": {
             "active_broker": active_broker,
             "configured": broker_configured,
-            "connected": bool(status.get("broker_connected", False)),
+            "connected": broker_connected,
             "order_status_supported": order_status_supported,
             "capabilities": broker_capabilities,
         },
