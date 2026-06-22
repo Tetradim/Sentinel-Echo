@@ -25,6 +25,11 @@ class FakeChromeBridgeDb:
         return alert["id"]
 
 
+class FakeRawChromeBridgeDb(FakeChromeBridgeDb):
+    async def get_settings(self):
+        return self.settings
+
+
 class ChromeBridgeRouteTests(unittest.TestCase):
     def setUp(self):
         from routes import discord as discord_route
@@ -86,6 +91,30 @@ class ChromeBridgeRouteTests(unittest.TestCase):
         self.assertEqual(fake_db.alerts[0]["raw_message"], "BTO SPY 500C 6/21 @ 1.25")
         self.assertTrue(pathlib.Path(result["capture_path"]).exists())
         self.assertTrue(result["bus_event_id"])
+
+    def test_chrome_bridge_message_treats_malformed_settings_as_safe_defaults(self):
+        from routes import discord as discord_route
+
+        fake_db = FakeRawChromeBridgeDb("settings")
+        discord_route.set_db(fake_db)
+
+        request = types.SimpleNamespace(client=types.SimpleNamespace(host="127.0.0.1"))
+        payload = discord_route.ChromeBridgeMessage(
+            event_id="chrome-message-malformed-settings",
+            channel_id="chrome-alerts",
+            channel_name="chrome-alerts",
+            author_name="Analyst",
+            content="BTO SPY 500C 6/21 @ 1.25",
+        )
+
+        result = asyncio.run(discord_route.ingest_chrome_bridge_message(payload, request))
+
+        self.assertEqual(result["status"], "accepted")
+        self.assertTrue(result["alert_inserted"])
+        self.assertFalse(result["trade_requested"])
+        self.assertEqual(result["parsed"]["ticker"], "SPY")
+        self.assertEqual(fake_db.alerts[0]["ticker"], "SPY")
+        self.assertTrue(pathlib.Path(result["capture_path"]).exists())
 
     def test_chrome_bridge_heartbeat_records_health(self):
         from routes import discord as discord_route

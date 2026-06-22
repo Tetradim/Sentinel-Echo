@@ -327,8 +327,8 @@ async def ingest_chrome_bridge_message(
     if not alert_text:
         raise HTTPException(status_code=400, detail="message content or embed text is required")
 
-    settings = await db.get_settings() if db else {}
-    channel_ids = _chrome_bridge_channel_ids(settings or {}, payload.channel_id)
+    settings = _dict_or_empty(await db.get_settings() if db else {})
+    channel_ids = _chrome_bridge_channel_ids(settings, payload.channel_id)
 
     async def process_trade_adapter(alert, parsed):
         from server import process_trade
@@ -347,7 +347,7 @@ async def ingest_chrome_bridge_message(
         synthetic_message,
         channel_ids=channel_ids,
         deps=DiscordIngestionDeps(
-            load_settings=lambda: settings or {},
+            load_settings=lambda: settings,
             insert_alert=insert_alert_adapter,
             process_trade=process_trade_adapter,
             update_status=update_status_adapter,
