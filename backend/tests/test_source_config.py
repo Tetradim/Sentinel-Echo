@@ -292,6 +292,66 @@ class SourceConfigTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "ticker_blocklist contains invalid ticker"):
             normalize_source_overrides({"alerts": {"ticker_blocklist": ["BAD TICKER"]}})
 
+    def test_source_metadata_policy_blocks_unapproved_bridge_channel_and_author(self):
+        from source_config import resolve_source_config, source_metadata_skip_reason
+
+        settings = {
+            "source_overrides": {
+                "alerts": {
+                    "allowed_channel_urls": ["https://discord.com/channels/1/2"],
+                    "allowed_author_ids": ["mike"],
+                }
+            }
+        }
+        config = resolve_source_config(settings, channel_id="alerts", channel_name="alerts")
+
+        self.assertEqual(
+            source_metadata_skip_reason(
+                config,
+                channel_url="https://discord.com/channels/1/3",
+                author_id="mike",
+                parser_confidence="medium",
+            ),
+            "channel URL not allowed for source",
+        )
+        self.assertEqual(
+            source_metadata_skip_reason(
+                config,
+                channel_url="https://discord.com/channels/1/2",
+                author_id="other",
+                parser_confidence="medium",
+            ),
+            "author not allowed for source",
+        )
+        self.assertIsNone(
+            source_metadata_skip_reason(
+                config,
+                channel_url="https://discord.com/channels/1/2",
+                author_id="mike",
+                parser_confidence="medium",
+            )
+        )
+
+    def test_source_metadata_policy_blocks_below_minimum_parser_confidence(self):
+        from source_config import resolve_source_config, source_metadata_skip_reason
+
+        settings = {
+            "source_overrides": {
+                "alerts": {
+                    "min_parser_confidence": "medium",
+                }
+            }
+        }
+        config = resolve_source_config(settings, channel_id="alerts", channel_name="alerts")
+
+        self.assertEqual(
+            source_metadata_skip_reason(config, parser_confidence="low"),
+            "parser confidence low below required medium",
+        )
+        self.assertIsNone(
+            source_metadata_skip_reason(config, parser_confidence="medium")
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

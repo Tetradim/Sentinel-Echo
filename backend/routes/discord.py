@@ -9,10 +9,12 @@ from discord_alert_text import build_discord_alert_text
 from alert_capture_recorder import record_alert_capture
 from bot_event_bus import publish_event
 from bridge_health import evaluate_bridge_health, record_bridge_heartbeat
+from operator_audit import record_operator_event
 from risk import calculate_position_size
 from source_config import (
     apply_source_quantity_limits,
     resolve_source_config,
+    source_metadata_skip_reason,
     source_skip_reason,
 )
 from settings_flags import coerce_bool
@@ -339,6 +341,84 @@ async def ingest_chrome_bridge_message(
         raise HTTPException(status_code=400, detail="message content or embed text is required")
 
     settings = _dict_or_empty(await db.get_settings() if db else {})
+    stored_patterns = await db.get_discord_patterns() if hasattr(db, "get_discord_patterns") else {}
+    patterns = _merge_pattern_overrides(stored_patterns or {}, {})
+    parsed_preview, parser_metadata = _parse_alert_for_preview(alert_text, patterns)
+    source_config = resolve_source_config(
+        settings,
+        channel_id=payload.channel_id,
+        channel_name=payload.channel_name,
+    )
+    source_override_matched = _source_override_matched(
+        settings,
+        payload.channel_id,
+        payload.channel_name,
+    )
+    preflight_skip_reason = _chrome_bridge_preflight_skip_reason(
+        settings=settings,
+        parsed=parsed_preview,
+        parser_metadata=parser_metadata,
+        source_config=source_config,
+        source_override_matched=source_override_matched,
+        payload=payload,
+    )
+    if preflight_skip_reason:
+        ingestion_result = {
+            "status": "skipped",
+            "alert_inserted": False,
+            "trade_requested": False,
+            "skip_reason": preflight_skip_reason,
+        }
+        capture_path = record_alert_capture(
+            event_id=payload.event_id,
+            channel_id=payload.channel_id,
+            channel_name=payload.channel_name,
+            author_name=payload.author_name,
+            raw_text=alert_text,
+            observed_at=payload.observed_at,
+            parsed=parsed_preview,
+            ingestion_result=ingestion_result,
+        )
+        bus_event = _publish_chrome_bridge_signal(
+            payload=payload,
+            alert_text=alert_text,
+            parsed=parsed_preview,
+            parser_metadata=parser_metadata,
+            ingestion_result=ingestion_result,
+            capture_path=capture_path,
+        )
+        audit_event = await _record_chrome_bridge_alert_audit(
+            payload=payload,
+            raw_text=alert_text,
+            parsed=parsed_preview,
+            parser_metadata=parser_metadata,
+            source_config=source_config,
+            source_override_matched=source_override_matched,
+            ingestion_result=ingestion_result,
+        )
+        return {
+            "status": "skipped",
+            "event_id": payload.event_id,
+            "source": payload.source,
+            "channel_id": payload.channel_id,
+            "channel_name": payload.channel_name,
+            "channel_url": payload.channel_url,
+            "bridge_target_id": payload.bridge_target_id,
+            "bridge_target_name": payload.bridge_target_name,
+            "url": payload.url,
+            "author_name": payload.author_name,
+            "raw_text": alert_text,
+            "parsed": parsed_preview,
+            "parser_metadata": parser_metadata,
+            "source_config": source_config,
+            "alert_inserted": False,
+            "trade_requested": False,
+            "skip_reason": preflight_skip_reason,
+            "capture_path": str(capture_path),
+            "bus_event_id": bus_event.event_id,
+            "audit_event_id": audit_event.get("id"),
+        }
+
     channel_ids = _chrome_bridge_channel_ids(settings, payload.channel_id)
 
     async def process_trade_adapter(alert, parsed):
@@ -383,30 +463,22 @@ async def ingest_chrome_bridge_message(
         parsed=result.parsed,
         ingestion_result=ingestion_result,
     )
-    bus_event = publish_event(
-        "signal.observed",
-        source_bot="chrome-discord-bridge",
-        payload={
-            "contract_version": "chrome.discord.message.v1",
-            "event_id": payload.event_id,
-            "source": payload.source,
-            "channel_id": payload.channel_id,
-            "channel_name": payload.channel_name,
-            "channel_url": payload.channel_url,
-            "url": payload.url,
-            "observed_at": payload.observed_at,
-            "bridge_target_id": payload.bridge_target_id,
-            "bridge_target_name": payload.bridge_target_name,
-            "author_id": payload.author_id,
-            "author_name": payload.author_name,
-            "raw_text": alert_text,
-            "parsed": result.parsed,
-            "ingestion_result": ingestion_result,
-            "capture_path": str(capture_path),
-        },
-        correlation_id=payload.event_id,
-        dedupe_key=f"chrome-discord:{payload.event_id}",
-        target_bots=["consolidation", "sentinel-edge", "simulation-engine"],
+    bus_event = _publish_chrome_bridge_signal(
+        payload=payload,
+        alert_text=alert_text,
+        parsed=result.parsed,
+        parser_metadata=parser_metadata,
+        ingestion_result=ingestion_result,
+        capture_path=capture_path,
+    )
+    audit_event = await _record_chrome_bridge_alert_audit(
+        payload=payload,
+        raw_text=alert_text,
+        parsed=result.parsed,
+        parser_metadata=parser_metadata,
+        source_config=source_config,
+        source_override_matched=source_override_matched,
+        ingestion_result=ingestion_result,
     )
 
     return {
@@ -422,11 +494,14 @@ async def ingest_chrome_bridge_message(
         "author_name": payload.author_name,
         "raw_text": alert_text,
         "parsed": result.parsed,
+        "parser_metadata": parser_metadata,
+        "source_config": source_config,
         "alert_inserted": result.alert_inserted,
         "trade_requested": result.trade_requested,
         "skip_reason": result.skip_reason,
         "capture_path": str(capture_path),
         "bus_event_id": bus_event.event_id,
+        "audit_event_id": audit_event.get("id"),
     }
 
 
@@ -452,6 +527,123 @@ def _ensure_local_chrome_bridge_request(request: Request) -> None:
     host = request.client.host if request.client else ""
     if host not in _LOCAL_CLIENT_HOSTS:
         raise HTTPException(status_code=403, detail="chrome bridge endpoint only accepts local requests")
+
+
+def _chrome_bridge_preflight_skip_reason(
+    *,
+    settings: Dict[str, Any],
+    parsed: Dict[str, Any] | None,
+    parser_metadata: Dict[str, Any],
+    source_config: Dict[str, Any],
+    source_override_matched: bool,
+    payload: ChromeBridgeMessage,
+) -> str | None:
+    if coerce_bool(settings.get("chrome_bridge_require_source_override"), default=True) and not source_override_matched:
+        return "source override required for chrome bridge"
+    if parser_metadata.get("ignored"):
+        return "ignored by alert pattern"
+    if not parsed:
+        return "unparsed"
+    return source_skip_reason(parsed, source_config) or source_metadata_skip_reason(
+        source_config,
+        channel_url=payload.channel_url,
+        author_id=payload.author_id,
+        parser_confidence=parser_metadata.get("confidence"),
+    )
+
+
+def _publish_chrome_bridge_signal(
+    *,
+    payload: ChromeBridgeMessage,
+    alert_text: str,
+    parsed: Dict[str, Any] | None,
+    parser_metadata: Dict[str, Any],
+    ingestion_result: Dict[str, Any],
+    capture_path: Any,
+):
+    return publish_event(
+        "signal.observed",
+        source_bot="chrome-discord-bridge",
+        payload={
+            "contract_version": "chrome.discord.message.v1",
+            "event_id": payload.event_id,
+            "source": payload.source,
+            "channel_id": payload.channel_id,
+            "channel_name": payload.channel_name,
+            "channel_url": payload.channel_url,
+            "url": payload.url,
+            "observed_at": payload.observed_at,
+            "bridge_target_id": payload.bridge_target_id,
+            "bridge_target_name": payload.bridge_target_name,
+            "author_id": payload.author_id,
+            "author_name": payload.author_name,
+            "raw_text": alert_text,
+            "parsed": parsed,
+            "parser_metadata": parser_metadata,
+            "ingestion_result": ingestion_result,
+            "capture_path": str(capture_path),
+        },
+        correlation_id=payload.event_id,
+        dedupe_key=f"chrome-discord:{payload.event_id}",
+        target_bots=["consolidation", "sentinel-edge", "simulation-engine"],
+    )
+
+
+async def _record_chrome_bridge_alert_audit(
+    *,
+    payload: ChromeBridgeMessage,
+    raw_text: str,
+    parsed: Dict[str, Any] | None,
+    parser_metadata: Dict[str, Any],
+    source_config: Dict[str, Any],
+    source_override_matched: bool,
+    ingestion_result: Dict[str, Any],
+) -> Dict[str, Any]:
+    if not db:
+        return {}
+    skipped = ingestion_result.get("status") == "skipped"
+    summary = (
+        f"Chrome bridge alert skipped: {ingestion_result.get('skip_reason')}"
+        if skipped
+        else "Chrome bridge alert accepted."
+    )
+    return await record_operator_event(
+        db,
+        "alert_ingestion",
+        "bridge_alert_decision",
+        summary,
+        severity="warning" if skipped else "info",
+        details={
+            "contract_version": "chrome.discord.message.v1",
+            "event_id": payload.event_id,
+            "channel": {
+                "id": payload.channel_id,
+                "name": payload.channel_name,
+                "url": payload.channel_url,
+                "message_url": payload.url,
+            },
+            "author": {
+                "id": payload.author_id,
+                "name": payload.author_name,
+            },
+            "bridge_target": {
+                "id": payload.bridge_target_id,
+                "name": payload.bridge_target_name,
+            },
+            "raw_text": raw_text,
+            "parsed": parsed,
+            "parser": parser_metadata,
+            "source": {
+                "key": source_config.get("key"),
+                "name": source_config.get("name"),
+                "override_matched": source_override_matched,
+                "paper_only": source_config.get("paper_only"),
+                "require_manual_confirm": source_config.get("require_manual_confirm"),
+                "min_parser_confidence": source_config.get("min_parser_confidence"),
+            },
+            "decision": ingestion_result,
+        },
+    )
 
 
 def _mark_chrome_bridge_seen(event_id: str) -> bool:

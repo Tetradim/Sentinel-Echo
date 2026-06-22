@@ -16,6 +16,8 @@ class FakeChromeBridgeDb:
     def __init__(self, settings):
         self.settings = settings
         self.alerts = []
+        self.operator_events = []
+        self.patterns = {}
 
     async def get_settings(self):
         return dict(self.settings)
@@ -23,6 +25,13 @@ class FakeChromeBridgeDb:
     async def insert_alert(self, alert):
         self.alerts.append(alert)
         return alert["id"]
+
+    async def get_discord_patterns(self):
+        return dict(self.patterns)
+
+    async def insert_operator_event(self, event):
+        self.operator_events.append(event)
+        return event["id"]
 
 
 class FakeRawChromeBridgeDb(FakeChromeBridgeDb):
@@ -96,7 +105,14 @@ class ChromeBridgeRouteTests(unittest.TestCase):
         from routes import discord as discord_route
         import bot_event_bus
 
-        fake_db = FakeChromeBridgeDb({"auto_trading_enabled": False, "source_overrides": {}})
+        fake_db = FakeChromeBridgeDb(
+            {
+                "auto_trading_enabled": False,
+                "source_overrides": {
+                    "chrome-alerts": {},
+                },
+            }
+        )
         discord_route.set_db(fake_db)
 
         request = types.SimpleNamespace(client=types.SimpleNamespace(host="127.0.0.1"))
@@ -140,11 +156,11 @@ class ChromeBridgeRouteTests(unittest.TestCase):
 
         result = asyncio.run(discord_route.ingest_chrome_bridge_message(payload, request))
 
-        self.assertEqual(result["status"], "accepted")
-        self.assertTrue(result["alert_inserted"])
+        self.assertEqual(result["status"], "skipped")
+        self.assertFalse(result["alert_inserted"])
         self.assertFalse(result["trade_requested"])
-        self.assertEqual(result["parsed"]["ticker"], "SPY")
-        self.assertEqual(fake_db.alerts[0]["ticker"], "SPY")
+        self.assertEqual(result["skip_reason"], "source override required for chrome bridge")
+        self.assertEqual(fake_db.alerts, [])
         self.assertTrue(pathlib.Path(result["capture_path"]).exists())
 
     def test_chrome_bridge_heartbeat_records_health(self):
@@ -198,7 +214,14 @@ class ChromeBridgeRouteTests(unittest.TestCase):
     def test_chrome_bridge_dedupes_replayed_dom_events(self):
         from routes import discord as discord_route
 
-        fake_db = FakeChromeBridgeDb({"auto_trading_enabled": False, "source_overrides": {}})
+        fake_db = FakeChromeBridgeDb(
+            {
+                "auto_trading_enabled": False,
+                "source_overrides": {
+                    "chrome-alerts": {},
+                },
+            }
+        )
         discord_route.set_db(fake_db)
 
         request = types.SimpleNamespace(client=types.SimpleNamespace(host="127.0.0.1"))
@@ -232,6 +255,109 @@ class ChromeBridgeRouteTests(unittest.TestCase):
             asyncio.run(discord_route.ingest_chrome_bridge_message(payload, request))
 
         self.assertEqual(caught.exception.status_code, 403)
+
+    def test_chrome_bridge_blocks_low_confidence_alert_before_insert_or_trade(self):
+        from routes import discord as discord_route
+
+        fake_db = FakeChromeBridgeDb(
+            {
+                "auto_trading_enabled": True,
+                "source_overrides": {
+                    "chrome-alerts": {
+                        "min_parser_confidence": "medium",
+                    }
+                },
+            }
+        )
+        discord_route.set_db(fake_db)
+
+        request = types.SimpleNamespace(client=types.SimpleNamespace(host="127.0.0.1"))
+        payload = discord_route.ChromeBridgeMessage(
+            event_id="chrome-low-confidence",
+            channel_id="chrome-alerts",
+            channel_name="chrome-alerts",
+            author_id="mike",
+            author_name="MikeInvesting",
+            content="SPY 500C 6/21 @ 1.25",
+        )
+
+        result = asyncio.run(discord_route.ingest_chrome_bridge_message(payload, request))
+
+        self.assertEqual(result["status"], "skipped")
+        self.assertFalse(result["alert_inserted"])
+        self.assertFalse(result["trade_requested"])
+        self.assertEqual(result["skip_reason"], "parser confidence low below required medium")
+        self.assertEqual(result["parser_metadata"]["confidence"], "low")
+        self.assertEqual(fake_db.alerts, [])
+        self.assertEqual(fake_db.operator_events[-1]["action"], "bridge_alert_decision")
+        self.assertEqual(fake_db.operator_events[-1]["severity"], "warning")
+        self.assertEqual(
+            fake_db.operator_events[-1]["details"]["decision"]["skip_reason"],
+            "parser confidence low below required medium",
+        )
+
+    def test_chrome_bridge_requires_source_override_when_strict_policy_is_enabled(self):
+        from routes import discord as discord_route
+
+        fake_db = FakeChromeBridgeDb(
+            {
+                "auto_trading_enabled": True,
+                "chrome_bridge_require_source_override": True,
+                "source_overrides": {},
+            }
+        )
+        discord_route.set_db(fake_db)
+
+        request = types.SimpleNamespace(client=types.SimpleNamespace(host="127.0.0.1"))
+        payload = discord_route.ChromeBridgeMessage(
+            event_id="chrome-missing-source-policy",
+            channel_id="chrome-alerts",
+            channel_name="chrome-alerts",
+            author_id="mike",
+            author_name="MikeInvesting",
+            content="BTO SPY 500C 6/21 @ 1.25",
+        )
+
+        result = asyncio.run(discord_route.ingest_chrome_bridge_message(payload, request))
+
+        self.assertEqual(result["status"], "skipped")
+        self.assertEqual(result["skip_reason"], "source override required for chrome bridge")
+        self.assertEqual(fake_db.alerts, [])
+        self.assertEqual(fake_db.operator_events[-1]["details"]["source"]["override_matched"], False)
+
+    def test_chrome_bridge_blocks_unapproved_channel_url_and_author(self):
+        from routes import discord as discord_route
+
+        fake_db = FakeChromeBridgeDb(
+            {
+                "auto_trading_enabled": True,
+                "source_overrides": {
+                    "chrome-alerts": {
+                        "allowed_channel_urls": ["https://discord.com/channels/1/approved"],
+                        "allowed_author_ids": ["mike"],
+                    }
+                },
+            }
+        )
+        discord_route.set_db(fake_db)
+
+        request = types.SimpleNamespace(client=types.SimpleNamespace(host="127.0.0.1"))
+        payload = discord_route.ChromeBridgeMessage(
+            event_id="chrome-unapproved-source-metadata",
+            channel_id="chrome-alerts",
+            channel_name="chrome-alerts",
+            channel_url="https://discord.com/channels/1/other",
+            author_id="other",
+            author_name="Other",
+            content="BTO SPY 500C 6/21 @ 1.25",
+        )
+
+        result = asyncio.run(discord_route.ingest_chrome_bridge_message(payload, request))
+
+        self.assertEqual(result["status"], "skipped")
+        self.assertEqual(result["skip_reason"], "channel URL not allowed for source")
+        self.assertEqual(fake_db.alerts, [])
+        self.assertEqual(fake_db.operator_events[-1]["details"]["source"]["key"], "chrome-alerts")
 
 
 if __name__ == "__main__":

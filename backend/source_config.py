@@ -17,9 +17,13 @@ DEFAULT_SOURCE_CONFIG = {
     "allowed_actions": [],
     "ticker_allowlist": [],
     "ticker_blocklist": [],
+    "allowed_channel_urls": [],
+    "allowed_author_ids": [],
+    "min_parser_confidence": "medium",
 }
 
 ALLOWED_ALERT_ACTIONS = {"buy", "sell", "trim", "close", "average_down"}
+PARSER_CONFIDENCE_LEVELS = {"none": 0, "low": 1, "medium": 2, "high": 3}
 ACTION_ALIASES = {
     "add": "average_down",
     "avg_down": "average_down",
@@ -138,6 +142,11 @@ def normalize_source_config(source_config: Dict[str, Any]) -> Dict[str, Any]:
         config.get("ticker_blocklist"),
         "ticker_blocklist",
     )
+    config["allowed_channel_urls"] = _normalize_strings(config.get("allowed_channel_urls"))
+    config["allowed_author_ids"] = _normalize_strings(config.get("allowed_author_ids"))
+    config["min_parser_confidence"] = _normalize_parser_confidence(
+        config.get("min_parser_confidence")
+    )
     return config
 
 
@@ -222,6 +231,32 @@ def source_skip_reason(parsed_alert: Dict[str, Any], source_config: Dict[str, An
     return None
 
 
+def source_metadata_skip_reason(
+    source_config: Dict[str, Any],
+    *,
+    channel_url: Any = None,
+    author_id: Any = None,
+    parser_confidence: Any = None,
+) -> Optional[str]:
+    """Return a skip reason for non-alert source metadata such as bridge origin."""
+    min_confidence = _normalize_parser_confidence(
+        source_config.get("min_parser_confidence", "medium")
+    )
+    observed_confidence = _normalize_parser_confidence(parser_confidence or "none")
+    if PARSER_CONFIDENCE_LEVELS[observed_confidence] < PARSER_CONFIDENCE_LEVELS[min_confidence]:
+        return f"parser confidence {observed_confidence} below required {min_confidence}"
+
+    allowed_channel_urls = set(source_config.get("allowed_channel_urls") or [])
+    if allowed_channel_urls and _normalize_url(channel_url) not in allowed_channel_urls:
+        return "channel URL not allowed for source"
+
+    allowed_author_ids = set(source_config.get("allowed_author_ids") or [])
+    if allowed_author_ids and str(author_id or "").strip() not in allowed_author_ids:
+        return "author not allowed for source"
+
+    return None
+
+
 def apply_source_quantity_limits(quantity: int, source_config: Dict[str, Any]) -> int:
     if int(quantity) <= 0:
         return 0
@@ -269,6 +304,27 @@ def _normalize_tickers(tickers: Any, field_name: str) -> list[str]:
         if ticker_key and ticker_key not in normalized:
             normalized.append(ticker_key)
     return normalized
+
+
+def _normalize_strings(values: Any) -> list[str]:
+    normalized = []
+    for value in _coerce_list(values):
+        item = str(value or "").strip()
+        item = _normalize_url(item) if item.startswith("http") else item
+        if item and item not in normalized:
+            normalized.append(item)
+    return normalized
+
+
+def _normalize_url(value: Any) -> str:
+    return str(value or "").strip().rstrip("/")
+
+
+def _normalize_parser_confidence(value: Any) -> str:
+    confidence = str(value or "medium").strip().lower()
+    if confidence not in PARSER_CONFIDENCE_LEVELS:
+        raise ValueError(f"unknown parser confidence: {value}")
+    return confidence
 
 
 def _normalize_ticker(ticker: Any) -> str:

@@ -51,6 +51,7 @@ def _default_settings() -> Dict[str, Any]:
         'discord_token': '',
         'discord_channel_ids': [],
         'source_overrides': {},
+        'chrome_bridge_require_source_override': True,
         'active_broker': 'ibkr',
         'broker_configs': {},
         'auto_trading_enabled': False,

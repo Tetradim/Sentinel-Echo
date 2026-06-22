@@ -130,6 +130,7 @@ def init_database():
                 'auto_trading_enabled': False,
                 'active_broker': 'alpaca',
                 'source_overrides': {},
+                'chrome_bridge_require_source_override': True,
                 'default_quantity': 1,
                 'simulation_mode': True,
                 'max_position_size': 1000.0,

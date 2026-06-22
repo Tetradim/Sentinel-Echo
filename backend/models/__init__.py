@@ -272,6 +272,7 @@ class Settings(BaseModel):
     discord_token: str = ""
     discord_channel_ids: List[str] = []
     source_overrides: Dict[str, dict] = {}
+    chrome_bridge_require_source_override: bool = True
     active_broker: BrokerType = BrokerType.IBKR
     broker_configs: Dict[str, BrokerConfig] = {}
     auto_trading_enabled: bool = False  # FIXED C2: was True — dangerous default
@@ -318,6 +319,7 @@ class SettingsUpdate(BaseModel):
     discord_token: Optional[str] = None
     discord_channel_ids: Optional[List[str]] = None
     source_overrides: Optional[Dict[str, dict]] = None
+    chrome_bridge_require_source_override: Optional[bool] = None
     active_broker: Optional[BrokerType] = None
     broker_configs: Optional[Dict[str, dict]] = None
     auto_trading_enabled: Optional[bool] = None

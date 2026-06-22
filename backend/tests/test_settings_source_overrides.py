@@ -1182,6 +1182,9 @@ class SourceOverrideRouteTests(unittest.TestCase):
                         "max_contracts": "3",
                         "require_manual_confirm": True,
                         "paper_shadow": True,
+                        "allowed_channel_urls": ["https://discord.com/channels/1/2/"],
+                        "allowed_author_ids": [" mike "],
+                        "min_parser_confidence": "HIGH",
                     }
                 }
             )
@@ -1201,6 +1204,9 @@ class SourceOverrideRouteTests(unittest.TestCase):
                     "allowed_actions": ["buy", "close"],
                     "ticker_allowlist": ["SPY", "QQQ"],
                     "ticker_blocklist": ["TSLA"],
+                    "allowed_channel_urls": ["https://discord.com/channels/1/2"],
+                    "allowed_author_ids": ["mike"],
+                    "min_parser_confidence": "high",
                     "max_contracts": 3,
                     "require_manual_confirm": True,
                     "paper_shadow": True,
