@@ -11,6 +11,8 @@ import os
 from pathlib import Path
 from typing import Mapping
 
+from settings_flags import coerce_bool
+
 
 _DISABLED_VALUES = {"0", "false", "no", "off"}
 
@@ -198,7 +200,7 @@ def _extract_discord_ids(data: dict) -> tuple[list[str], list[str]]:
 def _channel_enabled(channel_config) -> bool:
     if not isinstance(channel_config, dict):
         return True
-    return bool(channel_config.get("enabled", True))
+    return coerce_bool(channel_config.get("enabled", True), default=True)
 
 
 def _normalize_channel_ids(raw_ids: str | list[str]) -> list[str]:

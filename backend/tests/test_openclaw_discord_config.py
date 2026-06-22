@@ -49,6 +49,39 @@ class OpenClawDiscordConfigTests(unittest.TestCase):
         self.assertEqual(config.guild_ids, ["1508501048610914406"])
         self.assertEqual(config.source, "openclaw")
 
+    def test_openclaw_channel_enabled_parses_string_booleans(self):
+        from openclaw_discord_config import load_openclaw_discord_config
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            home = pathlib.Path(temp_dir)
+            (home / ".env").write_text(
+                "DISCORD_BOT_TOKEN=discord-super-secret-token\n",
+                encoding="utf-8",
+            )
+            (home / "openclaw.json").write_text(
+                """
+                {
+                  "channels": {
+                    "discord": {
+                      "guilds": {
+                        "1508501048610914406": {
+                          "channels": {
+                            "1508501050720653535": {"enabled": "true"},
+                            "1508501050720653536": {"enabled": "false"}
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+                """,
+                encoding="utf-8",
+            )
+
+            config = load_openclaw_discord_config(home)
+
+        self.assertEqual(config.channel_ids, ["1508501050720653535"])
+
     def test_public_summary_does_not_expose_openclaw_token(self):
         from openclaw_discord_config import load_openclaw_discord_config
 
