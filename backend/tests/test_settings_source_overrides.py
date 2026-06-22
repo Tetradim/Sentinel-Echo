@@ -221,6 +221,30 @@ class SourceOverrideRouteTests(unittest.TestCase):
 
         self.assertEqual(fake_db.operator_events[-1]["details"]["blocking_issues"], [])
 
+    def test_toggle_trading_treats_malformed_readiness_payload_as_blocked(self):
+        from fastapi import HTTPException
+        from unittest.mock import patch
+        from routes import settings as settings_route
+
+        fake_db = FakeSettingsDb(
+            {
+                "auto_trading_enabled": False,
+                "simulation_mode": False,
+                "active_broker": "alpaca",
+                "broker_configs": {},
+                "source_overrides": {},
+            }
+        )
+        settings_route.set_db(fake_db)
+
+        with patch("live_readiness.evaluate_live_readiness", return_value="readiness"):
+            with self.assertRaises(HTTPException) as raised:
+                asyncio.run(settings_route.toggle_trading())
+
+        self.assertEqual(raised.exception.status_code, 409)
+        self.assertEqual(fake_db.updated, [])
+        self.assertEqual(fake_db.operator_events[-1]["action"], "auto_trading_enable_blocked")
+
     def test_reset_loss_counters_blocks_live_reenable_when_readiness_fails(self):
         from fastapi import HTTPException
         from routes import settings as settings_route

@@ -39,6 +39,10 @@ def _list_or_empty(value: Any) -> list[Any]:
     return value if isinstance(value, list) else []
 
 
+def _dict_or_empty(value: Any) -> dict[str, Any]:
+    return value if isinstance(value, dict) else {}
+
+
 def _settings_response(settings: Dict[str, Any] | None) -> Dict[str, Any]:
     """Return settings safe for API clients: no plaintext broker credentials."""
     if not settings:
@@ -154,7 +158,7 @@ async def toggle_trading():
         candidate_settings = dict(settings or {})
         candidate_settings["auto_trading_enabled"] = True
         runtime = await db.get_runtime_state() if hasattr(db, "get_runtime_state") else {}
-        readiness = evaluate_live_readiness(candidate_settings, runtime, status=get_bot_status())
+        readiness = _dict_or_empty(evaluate_live_readiness(candidate_settings, runtime, status=get_bot_status()))
         if not readiness.get("ready_for_live", False):
             await record_operator_event(
                 db,
