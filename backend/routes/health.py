@@ -69,8 +69,7 @@ async def get_status():
     """Get current bot status, with trading flags derived from persisted settings."""
     status = get_bot_status()
     if db:
-        settings = await db.get_settings()
-        settings = settings or {}
+        settings = _dict_or_empty(await db.get_settings())
         active_broker = normalize_broker_id(
             settings.get("active_broker", status.get("active_broker", "ibkr")),
             default="ibkr",
@@ -83,7 +82,7 @@ async def get_status():
             }
         )
         if hasattr(db, "get_runtime_state"):
-            runtime = await db.get_runtime_state()
+            runtime = _dict_or_empty(await db.get_runtime_state())
             status["shutdown_triggered"] = bool(runtime.get("shutdown_triggered", False))
             status["shutdown_reason"] = runtime.get("shutdown_reason", "")
     return status

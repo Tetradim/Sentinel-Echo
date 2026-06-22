@@ -60,6 +60,25 @@ class SetupDiagnosticsTests(unittest.TestCase):
         self.assertTrue(result["auto_trading_enabled"])
         self.assertTrue(result["simulation_mode"])
 
+    def test_status_treats_malformed_db_state_as_empty(self):
+        from routes import health as health_route
+
+        health_route.set_db(FakeRawDiagnosticsDb("settings", "runtime"))
+        health_route.update_bot_status("active_broker", "ibkr")
+        health_route.update_bot_status("auto_trading_enabled", False)
+        health_route.update_bot_status("simulation_mode", True)
+
+        try:
+            result = asyncio.run(health_route.get_status())
+        except AttributeError as exc:
+            self.fail(f"status should treat malformed db state as empty instead of raising: {exc}")
+
+        self.assertEqual(result["active_broker"], "ibkr")
+        self.assertFalse(result["auto_trading_enabled"])
+        self.assertTrue(result["simulation_mode"])
+        self.assertFalse(result["shutdown_triggered"])
+        self.assertEqual(result["shutdown_reason"], "")
+
     def test_health_degrades_stale_discord_connected_without_config(self):
         from routes import health as health_route
 
