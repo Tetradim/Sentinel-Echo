@@ -264,6 +264,21 @@ class SourceOverrideRouteTests(unittest.TestCase):
             },
         )
 
+    def test_auto_shutdown_settings_treats_malformed_settings_as_defaults(self):
+        from routes import settings as settings_route
+
+        fake_db = FakeRawSettingsDb("settings")
+        settings_route.set_db(fake_db)
+
+        response = asyncio.run(settings_route.get_auto_shutdown_settings())
+
+        self.assertFalse(response["auto_shutdown_enabled"])
+        self.assertEqual(response["max_consecutive_losses"], 3)
+        self.assertEqual(response["max_daily_losses"], 5)
+        self.assertEqual(response["max_daily_loss_amount"], 500.0)
+        self.assertFalse(response["shutdown_triggered"])
+        self.assertEqual(response["shutdown_reason"], "")
+
     def test_toggle_trading_uses_persisted_setting_as_source_of_truth(self):
         from routes import settings as settings_route
         from routes.health import update_bot_status

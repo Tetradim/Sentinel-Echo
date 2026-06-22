@@ -379,9 +379,9 @@ async def toggle_auto_shutdown():
 @router.get("/auto-shutdown-settings")
 async def get_auto_shutdown_settings():
     """Get auto shutdown settings (config) merged with current runtime counters."""
-    settings = await db.get_settings()
+    settings = _dict_or_empty(await db.get_settings())
     # M6: live counters come from runtime_state, not the settings blob
-    runtime = await db.get_runtime_state()
+    runtime = _dict_or_empty(await db.get_runtime_state())
     return {
         "auto_shutdown_enabled": settings.get('auto_shutdown_enabled', False),
         "max_consecutive_losses": settings.get('max_consecutive_losses', 3),
