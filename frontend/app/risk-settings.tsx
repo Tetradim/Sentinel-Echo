@@ -20,33 +20,12 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { api } from '../utils/api';
 import { RiskDigest, summarizeRiskSettings } from '../utils/riskDigest';
+import { normalizeRiskSettingsState, type RiskSettingsState } from '../utils/riskSettingsState';
 import { BACKEND_URL } from '../constants/config';
 
 type TabType = 'position' | 'stoploss' | 'takeprofit' | 'trailing' | 'shutdown' | 'correlation';
 
-type RiskSettings = {
-  maxPositionSize: number;
-  defaultQuantity: number;
-  riskPerTrade: number;
-  stopLossEnabled: boolean;
-  stopLossPercentage: number;
-  stopLossOrderType: string;
-  takeProfitEnabled: boolean;
-  takeProfitPercentage: number;
-  multiLevelTakeProfit: boolean;
-  trailingStopEnabled: boolean;
-  trailingStopType: string;
-  trailingStopPercent: number;
-  trailingStopCents: number;
-  trailingHours: number;
-  autoShutdownEnabled: boolean;
-  maxConsecutiveLosses: number;
-  maxDailyLosses: number;
-  maxDailyLossAmount: number;
-  maxDrawdownPercent: number;
-  maxPositionsPerTicker: number;
-  maxPositionsPerSector: number;
-};
+type RiskSettings = RiskSettingsState;
 
 const TABS: { id: TabType; label: string }[] = [
   { id: 'position', label: 'Position' },
@@ -91,11 +70,6 @@ const DEFAULT_RISK_SETTINGS: RiskSettings = {
   maxPositionsPerTicker: 3,
   maxPositionsPerSector: 3,
 };
-
-function toNumber(value: unknown, fallback: number): number {
-  const numeric = Number(value);
-  return Number.isFinite(numeric) ? numeric : fallback;
-}
 
 function isPositive(value: number): boolean {
   return Number.isFinite(value) && value > 0;
@@ -223,29 +197,14 @@ export default function RiskSettingsScreen() {
       const shutdown = shutdownRes.data || {};
       const correlation = correlationRes.data || {};
 
-      setSettings({
-        maxPositionSize: toNumber(base.max_position_size, DEFAULT_RISK_SETTINGS.maxPositionSize),
-        defaultQuantity: toNumber(base.default_quantity, DEFAULT_RISK_SETTINGS.defaultQuantity),
-        riskPerTrade: toNumber(base.risk_per_trade, DEFAULT_RISK_SETTINGS.riskPerTrade),
-        stopLossEnabled: Boolean(risk.stop_loss_enabled),
-        stopLossPercentage: toNumber(risk.stop_loss_percentage, DEFAULT_RISK_SETTINGS.stopLossPercentage),
-        stopLossOrderType: String(risk.stop_loss_order_type || DEFAULT_RISK_SETTINGS.stopLossOrderType),
-        takeProfitEnabled: Boolean(risk.take_profit_enabled),
-        takeProfitPercentage: toNumber(risk.take_profit_percentage, DEFAULT_RISK_SETTINGS.takeProfitPercentage),
-        multiLevelTakeProfit: Boolean(risk.bracket_order_enabled),
-        trailingStopEnabled: Boolean(trailing.trailing_stop_enabled),
-        trailingStopType: String(trailing.trailing_stop_type || DEFAULT_RISK_SETTINGS.trailingStopType),
-        trailingStopPercent: toNumber(trailing.trailing_stop_percent, DEFAULT_RISK_SETTINGS.trailingStopPercent),
-        trailingStopCents: toNumber(trailing.trailing_stop_cents, DEFAULT_RISK_SETTINGS.trailingStopCents),
-        trailingHours: toNumber(base.trailing_hours, DEFAULT_RISK_SETTINGS.trailingHours),
-        autoShutdownEnabled: Boolean(shutdown.auto_shutdown_enabled),
-        maxConsecutiveLosses: toNumber(shutdown.max_consecutive_losses, DEFAULT_RISK_SETTINGS.maxConsecutiveLosses),
-        maxDailyLosses: toNumber(shutdown.max_daily_losses, DEFAULT_RISK_SETTINGS.maxDailyLosses),
-        maxDailyLossAmount: toNumber(shutdown.max_daily_loss_amount, DEFAULT_RISK_SETTINGS.maxDailyLossAmount),
-        maxDrawdownPercent: toNumber(base.max_drawdown_percent, DEFAULT_RISK_SETTINGS.maxDrawdownPercent),
-        maxPositionsPerTicker: toNumber(correlation.max_positions_per_ticker, DEFAULT_RISK_SETTINGS.maxPositionsPerTicker),
-        maxPositionsPerSector: toNumber(base.max_positions_per_sector, DEFAULT_RISK_SETTINGS.maxPositionsPerSector),
-      });
+      setSettings(normalizeRiskSettingsState({
+        defaults: DEFAULT_RISK_SETTINGS,
+        base,
+        risk,
+        trailing,
+        shutdown,
+        correlation,
+      }));
       setSettingsLoaded(true);
       setLoadError(null);
     } catch (error) {
