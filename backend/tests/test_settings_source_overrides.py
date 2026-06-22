@@ -182,6 +182,16 @@ class SourceOverrideRouteTests(unittest.TestCase):
         self.assertEqual(fake_db.updated, [{"auto_trading_enabled": False}])
         self.assertEqual(fake_db.runtime_updates, [{"auto_trading_enabled": False}])
 
+    def test_get_source_overrides_treats_malformed_settings_as_empty(self):
+        from routes import settings as settings_route
+
+        fake_db = FakeRawSettingsDb("settings")
+        settings_route.set_db(fake_db)
+
+        response = asyncio.run(settings_route.get_source_overrides())
+
+        self.assertEqual(response, {})
+
     def test_toggle_trading_blocks_malformed_settings(self):
         from fastapi import HTTPException
         from routes import settings as settings_route

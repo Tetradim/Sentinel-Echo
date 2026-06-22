@@ -106,7 +106,7 @@ async def update_settings(update: SettingsUpdate):
 @router.get("/source-overrides")
 async def get_source_overrides():
     """Get per-channel/per-analyst source overrides."""
-    settings = await db.get_settings()
+    settings = _dict_or_empty(await db.get_settings())
     try:
         return normalize_source_overrides(settings.get("source_overrides", {}))
     except ValueError as exc:
