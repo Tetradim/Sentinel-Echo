@@ -41,6 +41,8 @@ def get_bot_status():
 
 def update_bot_status(key: str, value):
     """Update bot status (thread-safe)"""
+    if key not in _VALID_STATUS_KEYS:
+        return
     with _status_lock:
         bot_status[key] = value
 

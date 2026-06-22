@@ -39,6 +39,13 @@ class SetupDiagnosticsTests(unittest.TestCase):
         health_route.update_bot_status("discord_connected", False)
         health_route.update_bot_status("broker_connected", False)
 
+    def test_update_bot_status_ignores_unknown_status_keys(self):
+        from routes import health as health_route
+
+        health_route.update_bot_status("live_trading_armed", True)
+
+        self.assertNotIn("live_trading_armed", health_route.get_bot_status())
+
     def test_status_derives_trading_state_from_settings(self):
         from routes import health as health_route
 
