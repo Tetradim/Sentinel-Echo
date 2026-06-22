@@ -92,6 +92,35 @@ test('flags live automation as an operator review even when guardrails are prese
   assert.deepEqual(digest.warningItems.map((item) => item.title), ['Live auto trading']);
 });
 
+test('treats string false settings flags as disabled', () => {
+  const digest = summarizeSettings({
+    ...guardedSettings,
+    auto_trading_enabled: 'false',
+    simulation_mode: 'false',
+    take_profit_enabled: 'false',
+    stop_loss_enabled: 'false',
+    auto_shutdown_enabled: 'false',
+    premium_buffer_enabled: 'false',
+    sms_enabled: 'false',
+    sms_phone_number: '555-111-2222',
+  }, guardedPatterns);
+
+  assert.equal(digest.primaryStatus.title, 'Guardrail Review');
+  assert.equal(digest.modeLabel, 'Manual');
+  assert.equal(digest.guardrailCount, 1);
+  assert.equal(digest.guardrailCoveragePercent, 17);
+  assert.equal(digest.notificationLabel, 'In-app only');
+  assert.deepEqual(
+    digest.warningItems.map((item) => item.title),
+    [
+      'Stop loss disabled',
+      'Take profit disabled',
+      'Auto shutdown disabled',
+      'Premium buffer disabled',
+    ]
+  );
+});
+
 test('uses pattern review when Discord is connected but parser coverage is thin', () => {
   const digest = summarizeSettings(guardedSettings, {
     ...guardedPatterns,

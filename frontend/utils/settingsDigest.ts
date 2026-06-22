@@ -1,17 +1,19 @@
 export type SettingsDigestTone = 'live' | 'attention' | 'idle';
 
+type BooleanLike = boolean | string | number | null | undefined;
+
 export interface DigestSettings {
   discord_token?: string | null;
   discord_channel_ids?: string[] | null;
   active_broker?: string | null;
-  auto_trading_enabled?: boolean | null;
-  simulation_mode?: boolean | null;
-  take_profit_enabled?: boolean | null;
-  stop_loss_enabled?: boolean | null;
-  trailing_stop_enabled?: boolean | null;
-  auto_shutdown_enabled?: boolean | null;
-  premium_buffer_enabled?: boolean | null;
-  sms_enabled?: boolean | null;
+  auto_trading_enabled?: BooleanLike;
+  simulation_mode?: BooleanLike;
+  take_profit_enabled?: BooleanLike;
+  stop_loss_enabled?: BooleanLike;
+  trailing_stop_enabled?: BooleanLike;
+  auto_shutdown_enabled?: BooleanLike;
+  premium_buffer_enabled?: BooleanLike;
+  sms_enabled?: BooleanLike;
   sms_phone_number?: string | null;
 }
 
@@ -76,6 +78,21 @@ function normalizeBroker(value: string | null | undefined): string {
   return broker ? broker.toUpperCase() : 'None';
 }
 
+function parseBooleanFlag(value: BooleanLike, fallback = false): boolean {
+  if (typeof value === 'boolean') return value;
+  if (typeof value === 'number') {
+    if (value === 1) return true;
+    if (value === 0) return false;
+    return fallback;
+  }
+  if (typeof value === 'string') {
+    const normalized = value.trim().toLowerCase();
+    if (['true', '1', 'yes', 'y', 'on'].includes(normalized)) return true;
+    if (['false', '0', 'no', 'n', 'off'].includes(normalized)) return false;
+  }
+  return fallback;
+}
+
 export function summarizeSettings(
   settings: DigestSettings,
   patterns: DigestAlertPatterns | null | undefined
@@ -85,6 +102,13 @@ export function summarizeSettings(
     : 0;
   const parserPatterns = patternCount(patterns);
   const hasIgnorePatterns = Boolean(patterns?.ignore_patterns?.length);
+  const autoTradingEnabled = parseBooleanFlag(settings.auto_trading_enabled);
+  const simulationMode = parseBooleanFlag(settings.simulation_mode);
+  const stopLossEnabled = parseBooleanFlag(settings.stop_loss_enabled);
+  const takeProfitEnabled = parseBooleanFlag(settings.take_profit_enabled);
+  const autoShutdownEnabled = parseBooleanFlag(settings.auto_shutdown_enabled);
+  const premiumBufferEnabled = parseBooleanFlag(settings.premium_buffer_enabled);
+  const smsEnabled = parseBooleanFlag(settings.sms_enabled);
 
   const discordWarnings: SettingsDigestWarning[] = [];
   if (!hasText(settings.discord_token)) {
@@ -112,30 +136,30 @@ export function summarizeSettings(
   }
 
   const guardrailWarnings: SettingsDigestWarning[] = [];
-  if (!settings.stop_loss_enabled) {
+  if (!stopLossEnabled) {
     guardrailWarnings.push({ title: 'Stop loss disabled', detail: 'Positions do not have a fixed downside exit.' });
   }
-  if (!settings.take_profit_enabled) {
+  if (!takeProfitEnabled) {
     guardrailWarnings.push({ title: 'Take profit disabled', detail: 'Winning positions do not have a default profit target.' });
   }
-  if (!settings.auto_shutdown_enabled) {
+  if (!autoShutdownEnabled) {
     guardrailWarnings.push({ title: 'Auto shutdown disabled', detail: 'Daily loss guardrails will not stop new entries.' });
   }
-  if (!settings.premium_buffer_enabled) {
+  if (!premiumBufferEnabled) {
     guardrailWarnings.push({ title: 'Premium buffer disabled', detail: 'Alert prices can be submitted without a limit margin.' });
   }
 
   const liveWarnings: SettingsDigestWarning[] = [];
-  if (settings.auto_trading_enabled && !settings.simulation_mode) {
+  if (autoTradingEnabled && !simulationMode) {
     liveWarnings.push({ title: 'Live auto trading', detail: 'Real broker orders can be placed automatically.' });
   }
 
   const guardrailChecks = [
-    Boolean(settings.simulation_mode),
-    Boolean(settings.stop_loss_enabled),
-    Boolean(settings.take_profit_enabled),
-    Boolean(settings.auto_shutdown_enabled),
-    Boolean(settings.premium_buffer_enabled),
+    simulationMode,
+    stopLossEnabled,
+    takeProfitEnabled,
+    autoShutdownEnabled,
+    premiumBufferEnabled,
     hasIgnorePatterns,
   ];
   const guardrailCount = guardrailChecks.filter(Boolean).length;
@@ -168,11 +192,11 @@ export function summarizeSettings(
     };
   } else {
     primaryStatus = {
-      title: settings.auto_trading_enabled ? 'Simulation Guarded' : 'Manual Guarded',
-      detail: settings.auto_trading_enabled
+      title: autoTradingEnabled ? 'Simulation Guarded' : 'Manual Guarded',
+      detail: autoTradingEnabled
         ? 'Discord alerts route to simulated execution with core safeguards on.'
         : 'Alerts require operator approval with core safeguards on.',
-      tone: settings.auto_trading_enabled ? 'live' : 'idle',
+      tone: autoTradingEnabled ? 'live' : 'idle',
     };
   }
 
@@ -183,10 +207,10 @@ export function summarizeSettings(
     guardrailCoveragePercent,
     channelLabel: countLabel(channelCount, 'channel', 'channels'),
     parserLabel: countLabel(parserPatterns, 'pattern', 'patterns'),
-    modeLabel: settings.auto_trading_enabled
-      ? (settings.simulation_mode ? 'Sim auto' : 'Live auto')
+    modeLabel: autoTradingEnabled
+      ? (simulationMode ? 'Sim auto' : 'Live auto')
       : 'Manual',
     brokerLabel: normalizeBroker(settings.active_broker),
-    notificationLabel: settings.sms_enabled && hasText(settings.sms_phone_number) ? 'SMS armed' : 'In-app only',
+    notificationLabel: smsEnabled && hasText(settings.sms_phone_number) ? 'SMS armed' : 'In-app only',
   };
 }
