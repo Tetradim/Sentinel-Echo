@@ -15,6 +15,11 @@ READY_SETTINGS = {
     "auto_trading_enabled": True,
     "simulation_mode": False,
     "max_position_size": 1000.0,
+    "take_profit_enabled": True,
+    "take_profit_percentage": 50.0,
+    "stop_loss_enabled": True,
+    "stop_loss_percentage": 25.0,
+    "bracket_order_enabled": True,
     "source_overrides": {
         "alerts": {
             "enabled": True,
@@ -628,6 +633,46 @@ class LiveReadinessTests(unittest.TestCase):
         self.assertIn("simulation_replay_acceptance_missing", result["blocking_codes"])
         self.assertFalse(result["ready_for_live"])
         self.assertEqual(result["checks"]["simulation_replay"]["acceptance_status"], "not_provided")
+
+    def test_live_readiness_blocks_missing_position_oco_exits(self):
+        from live_readiness import evaluate_live_readiness
+
+        settings = dict(READY_SETTINGS)
+        settings.update({"take_profit_enabled": True, "stop_loss_enabled": False})
+
+        result = evaluate_live_readiness(
+            settings,
+            {"shutdown_triggered": False},
+            status={**READY_REPLAY_STATUS, "broker_connected": True, "discord_connected": True},
+            env=READY_ENV,
+        )
+
+        self.assertIn("position_oco_exits_missing", result["blocking_codes"])
+        self.assertFalse(result["ready_for_live"])
+        self.assertFalse(result["checks"]["exit_automation"]["oco_exits_configured"])
+        self.assertTrue(result["checks"]["exit_automation"]["take_profit_enabled"])
+        self.assertFalse(result["checks"]["exit_automation"]["stop_loss_enabled"])
+
+    def test_live_readiness_blocks_broker_without_cancel_support_for_oco_exits(self):
+        from live_readiness import evaluate_live_readiness
+
+        settings = dict(READY_SETTINGS)
+        settings.update(
+            {
+                "active_broker": "ibkr",
+                "broker_configs": {"ibkr": {"gateway_url": "http://localhost", "account_id": "DU123456"}},
+            }
+        )
+
+        result = evaluate_live_readiness(
+            settings,
+            {"shutdown_triggered": False},
+            status={**READY_REPLAY_STATUS, "broker_connected": True, "discord_connected": True},
+            env=READY_ENV,
+        )
+
+        self.assertIn("broker_cancel_unsupported", result["blocking_codes"])
+        self.assertFalse(result["checks"]["exit_automation"]["broker_cancel_supported"])
 
 
 if __name__ == "__main__":

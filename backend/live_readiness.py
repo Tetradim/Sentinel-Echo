@@ -144,6 +144,11 @@ def evaluate_live_readiness(
     source_error = str(source_policy.get("error") or "")
     auto_trading_enabled = coerce_bool(settings.get("auto_trading_enabled"), default=False)
     simulation_mode = coerce_bool(settings.get("simulation_mode"), default=True)
+    take_profit_enabled = coerce_bool(settings.get("take_profit_enabled"), default=False)
+    stop_loss_enabled = coerce_bool(settings.get("stop_loss_enabled"), default=False)
+    trailing_stop_enabled = coerce_bool(settings.get("trailing_stop_enabled"), default=False)
+    bracket_order_enabled = coerce_bool(settings.get("bracket_order_enabled"), default=False)
+    oco_exits_configured = take_profit_enabled and stop_loss_enabled
     shutdown_triggered = coerce_bool(runtime_state.get("shutdown_triggered"), default=False)
     live_trading_armed = coerce_bool(runtime_state.get("live_trading_armed"), default=False)
     reconciliation_unresolved_count = _nonnegative_int(status.get("reconciliation_unresolved_count"))
@@ -200,6 +205,8 @@ def evaluate_live_readiness(
         blocking.append(_issue("broker_options_unsupported", "Active broker does not support options trading."))
     if not capabilities.get("supports_order_status"):
         blocking.append(_issue("broker_order_status_unsupported", "Active broker lacks fill status polling."))
+    if not capabilities.get("supports_cancel_order"):
+        blocking.append(_issue("broker_cancel_unsupported", "Active broker lacks cancellation support required for OCO exits."))
     broker_connected = optional_status_flag(status, "broker_connected")
     if broker_connected is False:
         blocking.append(_issue("broker_not_connected", "Broker connection is not healthy."))
@@ -217,6 +224,13 @@ def evaluate_live_readiness(
         blocking.append(_issue("source_policy_invalid", f"Source policy is invalid: {source_error}"))
     elif auto_live_sources <= 0:
         blocking.append(_issue("no_live_source", "No enabled source can submit live orders automatically."))
+    if not oco_exits_configured:
+        blocking.append(
+            _issue(
+                "position_oco_exits_missing",
+                "Take-profit and stop-loss guards must both be enabled before live trading.",
+            )
+        )
     if shutdown_triggered:
         blocking.append(_issue("runtime_shutdown_active", "Runtime shutdown is active."))
     if reconciliation_unresolved_count > 0:
@@ -276,6 +290,15 @@ def evaluate_live_readiness(
             "simulation_mode": simulation_mode,
             "max_position_size": settings.get("max_position_size"),
             "max_position_size_valid": max_position_size_valid,
+        },
+        "exit_automation": {
+            "take_profit_enabled": take_profit_enabled,
+            "stop_loss_enabled": stop_loss_enabled,
+            "trailing_stop_enabled": trailing_stop_enabled,
+            "bracket_order_enabled": bracket_order_enabled,
+            "oco_exits_configured": oco_exits_configured,
+            "broker_order_status_supported": bool(capabilities.get("supports_order_status")),
+            "broker_cancel_supported": bool(capabilities.get("supports_cancel_order")),
         },
         "runtime": {
             "shutdown_triggered": shutdown_triggered,
