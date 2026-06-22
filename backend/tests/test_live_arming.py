@@ -92,6 +92,16 @@ class LiveArmingTests(unittest.TestCase):
 
         self.assertFalse(is_live_trading_armed("runtime"))
 
+    def test_non_boolean_runtime_armed_flag_is_not_armed(self):
+        from live_arming import is_live_trading_armed
+
+        runtime = {
+            "live_trading_armed": "true",
+            "live_trading_armed_until": "2099-01-01T00:00:00+00:00",
+        }
+
+        self.assertFalse(is_live_trading_armed(runtime))
+
     def test_arm_live_trading_returns_requested_armed_state_when_update_response_is_malformed(self):
         from live_arming import arm_live_trading, is_live_trading_armed
 
