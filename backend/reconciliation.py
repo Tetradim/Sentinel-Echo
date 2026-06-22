@@ -114,12 +114,17 @@ async def build_alert_chain_report(db, *, limit: int = 100) -> Dict[str, Any]:
         details = _as_dict(event.get("details"))
         decision = _as_dict(details.get("decision"))
         parsed = _as_dict(details.get("parsed"))
+        channel = _as_dict(details.get("channel"))
+        author = _as_dict(details.get("author"))
+        parser = _as_dict(details.get("parser"))
+        source = _as_dict(details.get("source"))
         event_id = _clean_text(details.get("event_id") or event.get("id"))
         alert_id = _clean_text(decision.get("alert_id"))
         if alert_id:
             bridge_alert_ids.add(alert_id)
         reconciliation = reconciliation_by_alert.get(alert_id, {})
         skipped = _clean_text(decision.get("status")).lower() == "skipped"
+        source_override_matched = coerce_bool(source.get("override_matched"), default=False)
         decision_reason = _clean_text(decision.get("skip_reason")) or _clean_text(
             decision.get("trade_request_reason")
         )
@@ -129,6 +134,8 @@ async def build_alert_chain_report(db, *, limit: int = 100) -> Dict[str, Any]:
                 attention_reason = "accepted bridge alert missing alert id"
             elif not reconciliation:
                 attention_reason = "accepted bridge alert missing reconciliation row"
+            elif not source_override_matched:
+                attention_reason = "accepted bridge alert missing source policy proof"
             else:
                 attention_reason = _clean_text(reconciliation.get("attention_reason"))
         status, deterministic = _chain_status(
@@ -140,8 +147,17 @@ async def build_alert_chain_report(db, *, limit: int = 100) -> Dict[str, Any]:
             {
                 "chain_key": f"bridge:{event_id}",
                 "source": "chrome_bridge",
+                "contract_version": _clean_text(details.get("contract_version")),
                 "event_id": event_id,
                 "observed_at": _clean_text(event.get("timestamp")),
+                "channel_id": _clean_text(channel.get("id")),
+                "channel_url": _clean_text(channel.get("url")),
+                "author_id": _clean_text(author.get("id")),
+                "author_name": _clean_text(author.get("name")),
+                "source_key": _clean_text(source.get("key")),
+                "source_override_matched": source_override_matched,
+                "parser_confidence": _clean_text(parser.get("confidence")),
+                "min_parser_confidence": _clean_text(source.get("min_parser_confidence")),
                 "alert_id": alert_id,
                 "ticker": _clean_text(parsed.get("ticker") or reconciliation.get("ticker")),
                 "seen": True,

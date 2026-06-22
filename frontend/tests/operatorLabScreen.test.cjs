@@ -21,6 +21,7 @@ test('operator lab exposes safe backend action endpoints', () => {
   assert.match(source, /summarizeAlertChains/);
   assert.match(source, /bridgeAlerts\.stateLabel/);
   assert.match(source, /alertChains\.stateLabel/);
+  assert.match(source, /sourceEvidenceLabel/);
 });
 
 test('operator lab renders the expected action surface', () => {

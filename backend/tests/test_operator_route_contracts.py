@@ -251,6 +251,14 @@ class OperatorRouteContractTests(unittest.TestCase):
                         "trade_requested": True,
                         "trade_request_reason": "auto trading enabled",
                     },
+                    "channel": {"id": "chrome-alerts", "url": "https://discord.com/channels/1/chrome-alerts"},
+                    "author": {"id": "mike", "name": "MikeInvesting"},
+                    "parser": {"confidence": "medium"},
+                    "source": {
+                        "key": "chrome-alerts",
+                        "override_matched": True,
+                        "min_parser_confidence": "medium",
+                    },
                 },
             }
         )
@@ -263,6 +271,9 @@ class OperatorRouteContractTests(unittest.TestCase):
         self.assertEqual(response["rows"][0]["alert_id"], "alert-1")
         self.assertEqual(response["rows"][0]["trade_id"], "trade-1")
         self.assertEqual(response["rows"][0]["position_id"], "pos-1")
+        self.assertEqual(response["rows"][0]["channel_id"], "chrome-alerts")
+        self.assertTrue(response["rows"][0]["source_override_matched"])
+        self.assertEqual(response["rows"][0]["parser_confidence"], "medium")
 
     def test_operator_live_readiness_payload_injects_alert_chain_attention(self):
         from routes import operator as operator_route

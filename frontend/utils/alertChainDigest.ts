@@ -1,6 +1,14 @@
 export interface AlertChainReportRow {
   chain_key?: string;
   source?: string;
+  channel_id?: string;
+  channel_url?: string;
+  author_id?: string;
+  author_name?: string;
+  source_key?: string;
+  source_override_matched?: unknown;
+  parser_confidence?: string;
+  min_parser_confidence?: string;
   event_id?: string;
   observed_at?: string;
   alert_id?: string;
@@ -27,6 +35,7 @@ export interface AlertChainRowDigest {
   attentionReason: string;
   decisionReason: string;
   linkageLabel: string;
+  sourceEvidenceLabel: string;
   deterministic: boolean;
 }
 
@@ -82,6 +91,25 @@ function formatSource(value: unknown): string {
   return source || 'unknown source';
 }
 
+function buildSourceEvidenceLabel(row: AlertChainReportRow): string {
+  const channel = cleanString(row.channel_id) || cleanString(row.channel_url);
+  const author = cleanString(row.author_id) || cleanString(row.author_name);
+  const sourceKey = cleanString(row.source_key);
+  const parserConfidence = cleanString(row.parser_confidence);
+  const minParserConfidence = cleanString(row.min_parser_confidence);
+  const sourceProof = asBool(row.source_override_matched)
+    ? `source ${sourceKey || 'override'} verified`
+    : sourceKey
+      ? `source ${sourceKey} unverified`
+      : '';
+  const parserProof = parserConfidence && minParserConfidence
+    ? `parser ${parserConfidence}>=${minParserConfidence}`
+    : parserConfidence
+      ? `parser ${parserConfidence}`
+      : '';
+  return [channel, author, sourceProof, parserProof].filter(Boolean).join(' / ') || formatSource(row.source);
+}
+
 function buildRow(row: AlertChainReportRow): AlertChainRowDigest {
   const tradeId = cleanString(row.trade_id);
   const positionId = cleanString(row.position_id);
@@ -100,6 +128,7 @@ function buildRow(row: AlertChainReportRow): AlertChainRowDigest {
     attentionReason: cleanString(row.attention_reason),
     decisionReason: cleanString(row.decision_reason),
     linkageLabel: linkage || 'no linked trade or position',
+    sourceEvidenceLabel: buildSourceEvidenceLabel(row),
     deterministic: asBool(row.deterministic),
   };
 }

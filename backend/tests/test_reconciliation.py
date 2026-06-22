@@ -25,6 +25,11 @@ class FakeReconciliationDb:
                         "trade_requested": True,
                         "trade_request_reason": "auto trading enabled",
                     },
+                    "source": {
+                        "key": "chrome-alerts",
+                        "override_matched": True,
+                        "min_parser_confidence": "medium",
+                    },
                 },
             },
             {
@@ -123,6 +128,70 @@ class FakeSerializedDecisionDb:
         ]
 
 
+class FakeAcceptedBridgeMissingSourceProofDb:
+    async def get_alerts(self, limit=100):
+        return [
+            {
+                "id": "alert-accepted-without-source-proof",
+                "ticker": "SPY",
+                "alert_type": "buy",
+                "trade_executed": True,
+                "processed": True,
+            }
+        ]
+
+    async def get_trades(self, limit=100):
+        return [
+            {
+                "id": "trade-accepted-without-source-proof",
+                "alert_id": "alert-accepted-without-source-proof",
+                "ticker": "SPY",
+                "status": "filled",
+                "order_id": "order-accepted-without-source-proof",
+                "simulated": False,
+            }
+        ]
+
+    async def get_positions(self, status=None):
+        return [
+            {
+                "id": "position-accepted-without-source-proof",
+                "ticker": "SPY",
+                "status": "open",
+                "trade_ids": ["trade-accepted-without-source-proof"],
+                "simulated": False,
+            }
+        ]
+
+    async def get_operator_events(self, limit=100):
+        return [
+            {
+                "id": "event-accepted-without-source-proof",
+                "timestamp": "2026-06-22T14:30:00Z",
+                "action": "bridge_alert_decision",
+                "details": {
+                    "contract_version": "chrome.discord.message.v1",
+                    "event_id": "bridge-accepted-without-source-proof",
+                    "channel": {
+                        "id": "chrome-alerts",
+                        "url": "https://discord.com/channels/1/chrome-alerts",
+                    },
+                    "author": {
+                        "id": "mike",
+                        "name": "MikeInvesting",
+                    },
+                    "parsed": {"ticker": "SPY"},
+                    "decision": {
+                        "status": "accepted",
+                        "alert_inserted": True,
+                        "alert_id": "alert-accepted-without-source-proof",
+                        "trade_requested": True,
+                    },
+                },
+            }
+        ]
+
+
 class ReconciliationTests(unittest.TestCase):
     def test_reconciliation_links_alert_trade_and_position(self):
         from reconciliation import build_reconciliation_rows
@@ -190,6 +259,21 @@ class ReconciliationTests(unittest.TestCase):
         self.assertFalse(row["trade_requested"])
         self.assertEqual(report["summary"]["alert_inserted_count"], 0)
         self.assertEqual(report["summary"]["trade_requested_count"], 0)
+
+    def test_alert_chain_report_flags_accepted_bridge_alert_without_source_policy_proof(self):
+        from reconciliation import build_alert_chain_report
+
+        report = asyncio.run(build_alert_chain_report(FakeAcceptedBridgeMissingSourceProofDb()))
+        row = report["rows"][0]
+
+        self.assertEqual(row["status"], "attention")
+        self.assertEqual(row["attention_reason"], "accepted bridge alert missing source policy proof")
+        self.assertFalse(row["deterministic"])
+        self.assertEqual(row["channel_id"], "chrome-alerts")
+        self.assertEqual(row["channel_url"], "https://discord.com/channels/1/chrome-alerts")
+        self.assertEqual(row["author_id"], "mike")
+        self.assertFalse(row["source_override_matched"])
+        self.assertEqual(report["summary"]["attention_reasons"], ["accepted bridge alert missing source policy proof"])
 
 
 if __name__ == "__main__":

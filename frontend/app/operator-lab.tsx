@@ -642,7 +642,7 @@ export default function OperatorLabScreen() {
                       <Text style={s.eventTime}>{row.status}</Text>
                     </View>
                     <Text style={s.eventSummary}>{row.attentionReason || row.decisionReason || row.linkageLabel}</Text>
-                    <Text style={s.eventCategory}>{row.sourceLabel} / {row.deterministic ? 'DETERMINISTIC' : 'REVIEW'}</Text>
+                    <Text style={s.eventCategory}>{row.sourceEvidenceLabel} / {row.deterministic ? 'DETERMINISTIC' : 'REVIEW'}</Text>
                   </View>
                 </View>
               );

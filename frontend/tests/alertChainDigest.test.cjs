@@ -34,6 +34,13 @@ test('alert chain digest summarizes deterministic proof stages', () => {
       {
         chain_key: 'bridge:accepted',
         source: 'chrome_bridge',
+        channel_id: 'chrome-alerts',
+        channel_url: 'https://discord.com/channels/1/chrome-alerts',
+        author_id: 'mike',
+        source_key: 'chrome-alerts',
+        source_override_matched: true,
+        parser_confidence: 'medium',
+        min_parser_confidence: 'medium',
         ticker: 'SPY',
         alert_id: 'alert-1',
         trade_id: 'trade-1',
@@ -60,6 +67,7 @@ test('alert chain digest summarizes deterministic proof stages', () => {
   assert.equal(digest.stageCounts.placed, 1);
   assert.equal(digest.stageCounts.reconciled, 1);
   assert.equal(digest.rows[0].tickerLabel, 'SPY');
+  assert.equal(digest.rows[0].sourceEvidenceLabel, 'chrome-alerts / mike / source chrome-alerts verified / parser medium>=medium');
   assert.equal(digest.rows[1].deterministic, false);
   assert.equal(digest.rows[1].attentionReason, 'accepted bridge alert missing alert id');
 });
