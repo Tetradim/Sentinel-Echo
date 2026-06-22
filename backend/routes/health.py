@@ -22,6 +22,8 @@ _status_lock = threading.Lock()  # FIXED C20: thread-safe bot_status
 
 bot_status = {
     "discord_connected": False,
+    "discord_token_configured": False,
+    "discord_channel_count": 0,
     "broker_connected": False,
     "active_broker": "ibkr",
     "auto_trading_enabled": False,  # FIXED C2b: was True

@@ -1,7 +1,9 @@
 import pathlib
+import asyncio
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 
 
 BACKEND_DIR = pathlib.Path(__file__).resolve().parents[1]
@@ -202,6 +204,41 @@ class OpenClawDiscordConfigTests(unittest.TestCase):
         self.assertEqual(config.source, "openclaw")
         self.assertEqual(config.token, "openclaw-secret")
         self.assertEqual(config.channel_ids, ["1508501050720653535"])
+
+    def test_init_discord_bot_records_runtime_config_status_without_exposing_token(self):
+        import server
+        from routes import health as health_route
+
+        class FakeThread:
+            def __init__(self, *, target, args, daemon, name):
+                self.target = target
+                self.args = args
+                self.daemon = daemon
+                self.name = name
+                self.started = False
+
+            def start(self):
+                self.started = True
+
+            def is_alive(self):
+                return self.started
+
+        server.discord_bot_thread = None
+        server.discord_bot = None
+        health_route.update_bot_status("discord_connected", False)
+        health_route.update_bot_status("discord_token_configured", False)
+        health_route.update_bot_status("discord_channel_count", 0)
+
+        with patch("server.threading.Thread", FakeThread):
+            thread = asyncio.run(server.init_discord_bot("runtime-secret-token", ["111", "222"]))
+
+        status = health_route.get_bot_status()
+
+        self.assertIsInstance(thread, FakeThread)
+        self.assertTrue(thread.started)
+        self.assertTrue(status["discord_token_configured"])
+        self.assertEqual(status["discord_channel_count"], 2)
+        self.assertNotIn("runtime-secret-token", str(status))
 
 
 if __name__ == "__main__":

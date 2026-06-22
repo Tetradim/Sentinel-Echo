@@ -39,6 +39,8 @@ class SetupDiagnosticsTests(unittest.TestCase):
         import bridge_health
 
         health_route.update_bot_status("discord_connected", False)
+        health_route.update_bot_status("discord_token_configured", False)
+        health_route.update_bot_status("discord_channel_count", 0)
         health_route.update_bot_status("broker_connected", False)
         bridge_health._last_heartbeat = None
         bridge_health._last_attention_key = None
@@ -49,6 +51,17 @@ class SetupDiagnosticsTests(unittest.TestCase):
         health_route.update_bot_status("live_trading_armed", True)
 
         self.assertNotIn("live_trading_armed", health_route.get_bot_status())
+
+    def test_update_bot_status_accepts_runtime_discord_config_keys(self):
+        from routes import health as health_route
+
+        health_route.update_bot_status("discord_token_configured", True)
+        health_route.update_bot_status("discord_channel_count", 2)
+
+        status = health_route.get_bot_status()
+
+        self.assertTrue(status["discord_token_configured"])
+        self.assertEqual(status["discord_channel_count"], 2)
 
     def test_readiness_warning_merge_ignores_malformed_issues(self):
         from routes import health as health_route
@@ -402,6 +415,55 @@ class SetupDiagnosticsTests(unittest.TestCase):
         self.assertFalse(result["discord"]["connected"])
         self.assertEqual(result["discord"]["channel_count"], 0)
         self.assertIn("no_live_ingestion", result["readiness"]["blocking_codes"])
+
+    def test_setup_diagnostics_counts_runtime_discord_config_snapshot(self):
+        from routes import health as health_route
+
+        health_route.set_db(
+            FakeDiagnosticsDb(
+                {
+                    "discord_token": "",
+                    "discord_channel_ids": [],
+                    "active_broker": "alpaca",
+                    "broker_configs": {
+                        "alpaca": {
+                            "api_key": "broker-secret-key",
+                            "api_secret": "broker-secret-secret",
+                        }
+                    },
+                    "source_overrides": {
+                        "alerts": {
+                            "paper_only": False,
+                            "require_manual_confirm": False,
+                        }
+                    },
+                    "auto_trading_enabled": True,
+                    "simulation_mode": False,
+                    "max_position_size": 1000.0,
+                    "shutdown_triggered": False,
+                }
+            )
+        )
+        health_route.update_bot_status("discord_connected", True)
+        health_route.update_bot_status("discord_token_configured", True)
+        health_route.update_bot_status("discord_channel_count", 1)
+
+        with patch.dict(
+            "os.environ",
+            {
+                "API_KEY": "api-key",
+                "CREDENTIAL_KEY": "0" * 64,
+                "DISCORD_BOT_TOKEN": "",
+                "DISCORD_CHANNEL_IDS": "",
+            },
+        ):
+            result = asyncio.run(health_route.setup_diagnostics())
+
+        self.assertTrue(result["discord"]["token_configured"])
+        self.assertTrue(result["discord"]["connected"])
+        self.assertEqual(result["discord"]["channel_count"], 1)
+        self.assertNotIn("no_live_ingestion", result["readiness"]["blocking_codes"])
+        self.assertNotIn("broker-secret-key", str(result))
 
     def test_setup_diagnostics_reports_environment_discord_configuration(self):
         from routes import health as health_route

@@ -90,6 +90,12 @@ def _load_settings_sync() -> dict:
     return settings_doc if settings_doc else {}
 
 
+def _record_discord_runtime_config(token: str, channel_ids: List[str] | str) -> None:
+    channels = _normalize_channel_ids(channel_ids)
+    update_bot_status("discord_token_configured", bool(str(token or "").strip()))
+    update_bot_status("discord_channel_count", len(channels))
+
+
 # Discord Bot Factory
 def create_discord_bot(token: str, channel_ids: List[str]):
     """Create and configure the Discord bot"""
@@ -616,6 +622,7 @@ def run_discord_bot(token: str, channel_ids: List[str]):
     global discord_bot, discord_bot_thread
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
+    _record_discord_runtime_config(token, channel_ids)
     discord_bot = create_discord_bot(token, channel_ids)
     if discord_bot_thread is None or not discord_bot_thread.is_alive():
         discord_bot_thread = threading.current_thread()
@@ -641,12 +648,15 @@ async def init_discord_bot(token: str, channel_ids: List[str] | str):
     channels = _normalize_channel_ids(channel_ids)
     if not token or not channels:
         logger.warning("Discord bot not configured - set token and channel ids")
+        _record_discord_runtime_config(token, channels)
         return None
 
     if discord_bot_thread and discord_bot_thread.is_alive():
         logger.info("Discord bot already running")
+        _record_discord_runtime_config(token, channels)
         return discord_bot_thread
 
+    _record_discord_runtime_config(token, channels)
     discord_bot_thread = threading.Thread(
         target=run_discord_bot,
         args=(token, channels),
