@@ -556,8 +556,17 @@ class SetupDiagnosticsTests(unittest.TestCase):
         self.assertFalse(result["broker"]["configured"])
         self.assertFalse(result["broker"]["connected"])
         self.assertFalse(result["broker"]["order_status_supported"])
+        self.assertEqual(result["broker"]["missing_required_fields"], ["api_secret"])
+        self.assertEqual(
+            result["readiness"]["checks"]["broker"]["missing_required_fields"],
+            ["api_secret"],
+        )
         self.assertIn("active_broker_not_configured", result["readiness"]["blocking_codes"])
-        self.assertIn("Active broker is not configured.", result["warnings"])
+        self.assertIn(
+            "Active broker config is missing required fields: api_secret.",
+            result["warnings"],
+        )
+        self.assertNotIn("broker-secret-key", str(result))
 
     def test_setup_diagnostics_reports_malformed_source_overrides(self):
         from routes import health as health_route

@@ -163,6 +163,17 @@ def missing_broker_config_fields(config: Any, broker_id: Any = None) -> tuple[st
     )
 
 
+def broker_config_has_saved_value(config: Any) -> bool:
+    """Return true when a broker config has any saved non-empty value."""
+    config_data = _dict_config(config)
+    relevant = {
+        key: value
+        for key, value in config_data.items()
+        if key not in {"broker_type", "configured_fields"}
+    }
+    return any(_has_config_value(value) for value in relevant.values())
+
+
 def broker_config_is_usable(config: Any, broker_id: Any = None) -> bool:
     """Return true when a broker config has the broker's required values."""
     config_data = _dict_config(config)

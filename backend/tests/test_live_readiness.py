@@ -225,6 +225,15 @@ class LiveReadinessTests(unittest.TestCase):
 
         self.assertIn("active_broker_not_configured", result["blocking_codes"])
         self.assertFalse(result["checks"]["broker"]["configured"])
+        self.assertEqual(result["checks"]["broker"]["missing_required_fields"], ["api_secret"])
+        self.assertTrue(
+            any(
+                issue["code"] == "active_broker_not_configured"
+                and "api_secret" in issue["summary"]
+                for issue in result["blocking_issues"]
+            )
+        )
+        self.assertNotIn("key", str(result["blocking_issues"]))
         self.assertFalse(result["ready_for_live"])
 
     def test_malformed_source_overrides_report_invalid_policy_without_crashing(self):

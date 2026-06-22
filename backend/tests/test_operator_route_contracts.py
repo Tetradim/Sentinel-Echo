@@ -397,14 +397,16 @@ class OperatorRouteContractTests(unittest.TestCase):
         from fastapi import HTTPException
         from routes import brokers as brokers_route
 
-        fake_db = FakeRawBrokerDb({"broker_configs": {"alpaca": {"api_key": "key"}}})
+        fake_db = FakeRawBrokerDb({"broker_configs": {"alpaca": {"api_key": "stored-api-key-value"}}})
         brokers_route.set_db(fake_db)
 
         with self.assertRaises(HTTPException) as raised:
             asyncio.run(brokers_route.set_active_broker("alpaca"))
 
         self.assertEqual(raised.exception.status_code, 400)
-        self.assertIn("has no saved configuration", raised.exception.detail)
+        self.assertIn("missing required fields", raised.exception.detail)
+        self.assertIn("api_secret", raised.exception.detail)
+        self.assertNotIn("stored-api-key-value", raised.exception.detail)
         self.assertEqual(fake_db.updated, [])
         self.assertEqual(fake_db.events, [])
 
@@ -471,7 +473,7 @@ class OperatorRouteContractTests(unittest.TestCase):
         from routes import brokers as brokers_route
 
         brokers_route.set_db(
-            FakeRawBrokerDb({"broker_configs": {"alpaca": {"api_key": "key"}}})
+            FakeRawBrokerDb({"broker_configs": {"alpaca": {"api_key": "stored-api-key-value"}}})
         )
 
         with patch("order_execution.get_configured_broker_client") as get_client:
@@ -479,7 +481,9 @@ class OperatorRouteContractTests(unittest.TestCase):
 
         self.assertFalse(response["connected"])
         self.assertEqual(response["broker"], "alpaca")
-        self.assertIn("has no saved configuration", response["message"])
+        self.assertIn("missing required fields", response["message"])
+        self.assertEqual(response["missing_required_fields"], ["api_secret"])
+        self.assertNotIn("stored-api-key-value", str(response))
         get_client.assert_not_called()
 
     def test_trade_close_endpoint_updates_status_and_realized_pnl(self):

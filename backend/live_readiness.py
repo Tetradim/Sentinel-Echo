@@ -5,7 +5,13 @@ import os
 import math
 from typing import Any, Dict, Iterable, List
 
-from broker_capabilities import get_broker_capabilities, is_broker_configured, normalize_broker_id
+from broker_capabilities import (
+    broker_config_has_saved_value,
+    get_broker_capabilities,
+    is_broker_configured,
+    missing_broker_config_fields,
+    normalize_broker_id,
+)
 from source_config import normalize_source_overrides
 
 
@@ -127,7 +133,11 @@ def evaluate_live_readiness(
 
     active_broker = normalize_broker_id(settings.get("active_broker"), default="ibkr")
     broker_configs = _dict_or_empty(settings.get("broker_configs"))
+    active_broker_config = broker_configs.get(active_broker)
     broker_configured = is_broker_configured(broker_configs, active_broker)
+    missing_broker_fields = []
+    if not broker_configured and broker_config_has_saved_value(active_broker_config):
+        missing_broker_fields = list(missing_broker_config_fields(active_broker_config, active_broker))
     capabilities = get_broker_capabilities(active_broker)
     auto_live_sources, source_config_valid, source_error = _auto_live_source_count(
         settings.get("source_overrides") or {}
@@ -145,7 +155,16 @@ def evaluate_live_readiness(
     if not max_position_size_valid:
         blocking.append(_issue("max_position_size_invalid", "Max position size must be greater than zero."))
     if not broker_configured:
-        blocking.append(_issue("active_broker_not_configured", "Active broker has no saved configuration."))
+        if missing_broker_fields:
+            fields = ", ".join(missing_broker_fields)
+            blocking.append(
+                _issue(
+                    "active_broker_not_configured",
+                    f"Active broker config is missing required fields: {fields}.",
+                )
+            )
+        else:
+            blocking.append(_issue("active_broker_not_configured", "Active broker has no saved configuration."))
     if not capabilities.get("supports_live_trading"):
         blocking.append(_issue("broker_live_unsupported", "Active broker is not enabled for automated live trading."))
     if not capabilities.get("supports_options"):
@@ -177,6 +196,7 @@ def evaluate_live_readiness(
         "broker": {
             "active_broker": active_broker,
             "configured": broker_configured,
+            "missing_required_fields": missing_broker_fields,
             "connected": status.get("broker_connected"),
             "capabilities": capabilities,
         },

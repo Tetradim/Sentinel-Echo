@@ -2,7 +2,13 @@
 Broker management endpoints
 """
 from fastapi import APIRouter, HTTPException
-from broker_capabilities import get_broker_capabilities, is_broker_configured, normalize_broker_id
+from broker_capabilities import (
+    broker_config_has_saved_value,
+    get_broker_capabilities,
+    is_broker_configured,
+    missing_broker_config_fields,
+    normalize_broker_id,
+)
 from models import BrokerType, BrokerInfo
 from operator_audit import record_operator_event
 
@@ -32,10 +38,26 @@ def _active_broker_id(settings):
 
 
 def _broker_config(settings, broker_id):
+    config, _ = _broker_config_status(settings, broker_id)
+    return config
+
+
+def _broker_config_status(settings, broker_id):
     broker_configs = _dict_or_empty(_dict_or_empty(settings).get("broker_configs", {}))
     normalized_broker_id = normalize_broker_id(broker_id)
     config = broker_configs.get(normalized_broker_id)
-    return config if is_broker_configured(broker_configs, normalized_broker_id) else None
+    if is_broker_configured(broker_configs, normalized_broker_id):
+        return config, []
+    if broker_config_has_saved_value(config):
+        return None, list(missing_broker_config_fields(config, normalized_broker_id))
+    return None, []
+
+
+def _broker_config_message(broker_id, missing_fields):
+    if missing_fields:
+        fields = ", ".join(missing_fields)
+        return f"Broker '{broker_id}' config is missing required fields: {fields}."
+    return f"Broker '{broker_id}' has no saved configuration."
 
 
 # Broker info for frontend
@@ -105,10 +127,11 @@ async def set_active_broker(broker_id: str):
     except ValueError:
         raise HTTPException(status_code=400, detail=f"Invalid broker: {broker_id}")
     settings = _dict_or_empty(await db.get_settings())
-    if _broker_config(settings, broker_id) is None:
+    config, missing_fields = _broker_config_status(settings, broker_id)
+    if config is None:
         raise HTTPException(
             status_code=400,
-            detail=f"Broker '{broker_id}' has no saved configuration. Configure it first."
+            detail=_broker_config_message(broker_id, missing_fields)
         )
     await db.update_settings({"active_broker": broker_id})
     update_bot_status("active_broker", broker_type)
@@ -141,13 +164,17 @@ async def check_broker_alias(broker_id: str):
         raise HTTPException(status_code=400, detail=f"Invalid broker: {broker_id}")
 
     settings = _dict_or_empty(await db.get_settings())
-    if _broker_config(settings, broker_id) is None:
-        return {
+    config, missing_fields = _broker_config_status(settings, broker_id)
+    if config is None:
+        response = {
             "connected": False,
             "broker": broker_id,
             "capabilities": get_broker_capabilities(broker_id),
-            "message": f"Broker '{broker_id}' has no saved configuration.",
+            "message": _broker_config_message(broker_id, missing_fields),
         }
+        if missing_fields:
+            response["missing_required_fields"] = missing_fields
+        return response
 
     broker_client = None
     try:

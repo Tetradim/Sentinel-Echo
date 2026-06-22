@@ -5,7 +5,13 @@ FIXED C2b, C20, M28, M29
 from fastapi import APIRouter
 import os
 import threading
-from broker_capabilities import get_broker_capabilities, is_broker_configured, normalize_broker_id
+from broker_capabilities import (
+    broker_config_has_saved_value,
+    get_broker_capabilities,
+    is_broker_configured,
+    missing_broker_config_fields,
+    normalize_broker_id,
+)
 from live_readiness import evaluate_live_readiness
 from source_config import normalize_source_overrides
 
@@ -119,7 +125,11 @@ async def setup_diagnostics():
 
     active_broker = normalize_broker_id(settings.get("active_broker"), default="ibkr")
     broker_configs = _dict_or_empty(settings.get("broker_configs"))
+    active_broker_config = broker_configs.get(active_broker)
     broker_configured = is_broker_configured(broker_configs, active_broker)
+    missing_broker_fields = []
+    if not broker_configured and broker_config_has_saved_value(active_broker_config):
+        missing_broker_fields = list(missing_broker_config_fields(active_broker_config, active_broker))
     broker_connected = broker_configured and bool(status.get("broker_connected", False))
     broker_capabilities = get_broker_capabilities(active_broker)
     order_status_supported = broker_configured and bool(
@@ -152,6 +162,7 @@ async def setup_diagnostics():
         source_config_valid=source_config_valid,
         source_error=source_error,
         broker_configured=broker_configured,
+        missing_broker_fields=missing_broker_fields,
         order_status_supported=order_status_supported,
         auto_trading_enabled=auto_trading_enabled,
         simulation_mode=simulation_mode,
@@ -187,6 +198,7 @@ async def setup_diagnostics():
         "broker": {
             "active_broker": active_broker,
             "configured": broker_configured,
+            "missing_required_fields": missing_broker_fields,
             "connected": broker_connected,
             "order_status_supported": order_status_supported,
             "capabilities": broker_capabilities,
@@ -223,6 +235,7 @@ def _setup_warnings(
     source_config_valid: bool,
     source_error: str,
     broker_configured: bool,
+    missing_broker_fields: list[str],
     order_status_supported: bool,
     auto_trading_enabled: bool,
     simulation_mode: bool,
@@ -237,7 +250,9 @@ def _setup_warnings(
         warnings.append("No source override can submit live orders automatically.")
     if not source_config_valid:
         warnings.append(f"Source overrides are invalid: {source_error}")
-    if not broker_configured:
+    if missing_broker_fields:
+        warnings.append(f"Active broker config is missing required fields: {', '.join(missing_broker_fields)}.")
+    elif not broker_configured:
         warnings.append("Active broker is not configured.")
     elif not order_status_supported:
         warnings.append("Active broker does not support live fill status polling.")
