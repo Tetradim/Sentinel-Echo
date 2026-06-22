@@ -5,6 +5,7 @@ const DEFAULTS = {
   apiKey: "",
   targets: [],
   forwardExistingOnEnable: false,
+  autoRestartEnabled: true,
   lastForwardStatus: "",
   lastForwardAt: "",
   lastForwardEventId: "",
@@ -12,10 +13,13 @@ const DEFAULTS = {
   lastHeartbeatStatus: "",
   lastHeartbeatAt: "",
   lastHeartbeatTargets: [],
+  lastRestartStatus: "",
+  nextRestartAt: "",
 };
 
 const enabled = document.getElementById("enabled");
 const forwardExistingOnEnable = document.getElementById("forwardExistingOnEnable");
+const autoRestartEnabled = document.getElementById("autoRestartEnabled");
 const targetUrl = document.getElementById("targetUrl");
 const heartbeatUrl = document.getElementById("heartbeatUrl");
 const apiKey = document.getElementById("apiKey");
@@ -27,6 +31,7 @@ chrome.storage.local.get(DEFAULTS, (settings) => {
   const firstTarget = targets[0] || normalizeBridgeTargets(DEFAULTS)[0];
   enabled.checked = Boolean(settings.enabled);
   forwardExistingOnEnable.checked = Boolean(settings.forwardExistingOnEnable);
+  autoRestartEnabled.checked = settings.autoRestartEnabled !== false;
   targetUrl.value = firstTarget.messageUrl;
   heartbeatUrl.value = firstTarget.heartbeatUrl || heartbeatUrlFor(firstTarget.messageUrl);
   apiKey.value = firstTarget.apiKey || "";
@@ -64,6 +69,7 @@ document.getElementById("save").addEventListener("click", () => {
     {
       enabled: enabled.checked,
       forwardExistingOnEnable: forwardExistingOnEnable.checked,
+      autoRestartEnabled: autoRestartEnabled.checked,
       targetUrl: targets[0].messageUrl,
       heartbeatUrl: targets[0].heartbeatUrl || heartbeatUrlFor(targets[0].messageUrl),
       apiKey: targets[0].apiKey || "",
@@ -82,6 +88,12 @@ enabled.addEventListener("change", () => {
   });
 });
 
+autoRestartEnabled.addEventListener("change", () => {
+  chrome.storage.local.set({ autoRestartEnabled: autoRestartEnabled.checked }, () => {
+    status.textContent = autoRestartEnabled.checked ? "Auto-restart enabled." : "Auto-restart disabled.";
+  });
+});
+
 function renderStatus(settings) {
   if (!settings.lastForwardAt) {
     status.textContent = settings.enabled ? "Enabled. Waiting for Discord messages." : "Disabled.";
@@ -93,5 +105,8 @@ function renderStatus(settings) {
   }
   if (settings.lastHeartbeatAt) {
     status.textContent += `; health ${settings.lastHeartbeatStatus} at ${new Date(settings.lastHeartbeatAt).toLocaleTimeString()}`;
+  }
+  if (settings.nextRestartAt) {
+    status.textContent += `; retry ${new Date(settings.nextRestartAt).toLocaleTimeString()}`;
   }
 }

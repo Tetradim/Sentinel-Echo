@@ -98,7 +98,7 @@ Notes:
 - Every accepted visible Discord message is also appended to the Cross Bot Event Bus as `signal.observed`.
 - Alert captures are permanently appended to market-day `.txt` files under `backend/data/alert-capture` by default.
 - The extension sends page heartbeats every 30 seconds and service-worker heartbeats every minute. Consolidation records `bridge.health` events and emits `openclaw.attention.requested` when the bridge goes stale or reports forwarding errors.
-- The service worker supervises matching open Discord tabs every minute. When forwarding, heartbeat, or content-script health checks fail, it re-injects the bridge content script and retries with exponential backoff from 5 seconds up to 5 minutes.
+- The service worker supervises matching open Discord tabs every minute. Auto-restart is enabled by default in the popup. When forwarding, heartbeat, or content-script health checks fail, it re-injects the bridge content script and retries with exponential backoff from 5 seconds up to 5 minutes.
 - Chrome cannot let an extension restart itself after the user disables/uninstalls it or closes all matching Discord tabs. In those cases the supervisor records a disabled/no-tab/no-matching-tab heartbeat once the extension is running again.
 - Source policy still applies in each bot. In Consolidation, use `chrome_bridge_channel_ids` or source overrides keyed by the observed Discord channel id/name when needed.
 

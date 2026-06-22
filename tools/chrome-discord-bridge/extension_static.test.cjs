@@ -20,5 +20,7 @@ assert.match(content, /discord-bridge:bridge-heartbeat/);
 assert.match(content, /discord-bridge:discord-message/);
 assert.match(popup, /bridge_config\.js/);
 assert.match(popup, /targetsJson/);
+assert.match(popup, /autoRestartEnabled/);
+assert.match(serviceWorker, /autoRestartEnabled/);
 
 console.log("ok - chrome bridge extension static wiring");
