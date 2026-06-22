@@ -323,6 +323,30 @@ class OperatorRouteContractTests(unittest.TestCase):
         self.assertEqual(response["checks"]["simulation_replay"]["acceptance_status"], "failed")
         self.assertEqual(response["checks"]["simulation_replay"]["failed_count"], 1)
 
+    def test_operator_live_readiness_payload_blocks_unprotected_open_live_position(self):
+        from routes import operator as operator_route
+
+        fake_db = FakeTradingDb()
+        fake_db.position.update(
+            {
+                "id": "pos-live-unprotected",
+                "status": "open",
+                "remaining_quantity": 1,
+                "simulated": False,
+                "broker": "alpaca",
+            }
+        )
+        operator_route.set_db(fake_db)
+
+        response = asyncio.run(operator_route._live_readiness_payload())
+
+        self.assertIn("position_oco_unprotected", response["blocking_codes"])
+        self.assertEqual(response["checks"]["exit_automation"]["unprotected_open_position_count"], 1)
+        self.assertEqual(
+            response["checks"]["exit_automation"]["unprotected_open_position_ids"],
+            ["pos-live-unprotected"],
+        )
+
     def test_operator_live_arm_block_audit_normalizes_malformed_blocking_issues(self):
         from fastapi import HTTPException
         from routes import operator as operator_route

@@ -674,6 +674,27 @@ class LiveReadinessTests(unittest.TestCase):
         self.assertIn("broker_cancel_unsupported", result["blocking_codes"])
         self.assertFalse(result["checks"]["exit_automation"]["broker_cancel_supported"])
 
+    def test_live_readiness_blocks_open_live_positions_without_position_oco_proof(self):
+        from live_readiness import evaluate_live_readiness
+
+        result = evaluate_live_readiness(
+            READY_SETTINGS,
+            {"shutdown_triggered": False},
+            status={
+                **READY_REPLAY_STATUS,
+                "broker_connected": True,
+                "discord_connected": True,
+                "position_oco_unprotected_count": 1,
+                "position_oco_unprotected_ids": ["pos-live-1"],
+            },
+            env=READY_ENV,
+        )
+
+        self.assertIn("position_oco_unprotected", result["blocking_codes"])
+        self.assertFalse(result["ready_for_live"])
+        self.assertEqual(result["checks"]["exit_automation"]["unprotected_open_position_count"], 1)
+        self.assertEqual(result["checks"]["exit_automation"]["unprotected_open_position_ids"], ["pos-live-1"])
+
 
 if __name__ == "__main__":
     unittest.main()

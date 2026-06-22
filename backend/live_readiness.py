@@ -155,6 +155,8 @@ def evaluate_live_readiness(
     reconciliation_unresolved_reasons = _list_of_strings(status.get("reconciliation_unresolved_reasons"))
     alert_chain_attention_count = _nonnegative_int(status.get("alert_chain_attention_count"))
     alert_chain_attention_reasons = _list_of_strings(status.get("alert_chain_attention_reasons"))
+    position_oco_unprotected_count = _nonnegative_int(status.get("position_oco_unprotected_count"))
+    position_oco_unprotected_ids = _list_of_strings(status.get("position_oco_unprotected_ids"))
     replay_acceptance_status = str(
         _status_or_runtime(status, runtime_state, "simulation_replay_acceptance_status", "not_provided")
         or "not_provided"
@@ -231,6 +233,13 @@ def evaluate_live_readiness(
                 "Take-profit and stop-loss guards must both be enabled before live trading.",
             )
         )
+    if position_oco_unprotected_count > 0:
+        blocking.append(
+            _issue(
+                "position_oco_unprotected",
+                "Open live positions are missing position-level OCO exit protection.",
+            )
+        )
     if shutdown_triggered:
         blocking.append(_issue("runtime_shutdown_active", "Runtime shutdown is active."))
     if reconciliation_unresolved_count > 0:
@@ -299,6 +308,8 @@ def evaluate_live_readiness(
             "oco_exits_configured": oco_exits_configured,
             "broker_order_status_supported": bool(capabilities.get("supports_order_status")),
             "broker_cancel_supported": bool(capabilities.get("supports_cancel_order")),
+            "unprotected_open_position_count": position_oco_unprotected_count,
+            "unprotected_open_position_ids": position_oco_unprotected_ids,
         },
         "runtime": {
             "shutdown_triggered": shutdown_triggered,

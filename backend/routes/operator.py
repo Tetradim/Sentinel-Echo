@@ -31,6 +31,77 @@ def _dict_or_empty(value: Any) -> dict[str, Any]:
     return value if isinstance(value, dict) else {}
 
 
+def _clean_text(value: Any) -> str:
+    return str(value or "").strip()
+
+
+def _positive_int(value: Any) -> int:
+    if isinstance(value, bool):
+        return 0
+    try:
+        return max(int(value or 0), 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _is_live_open_position(position: dict[str, Any]) -> bool:
+    status = _clean_text(position.get("status") or "open").lower()
+    broker = _clean_text(position.get("broker")).lower()
+    if status not in {"open", "partial"}:
+        return False
+    if _positive_int(position.get("remaining_quantity") or position.get("quantity")) <= 0:
+        return False
+    if coerce_bool(position.get("simulated"), default=False):
+        return False
+    return not broker.endswith(":paper_shadow")
+
+
+def _extract_order_id(value: Any) -> str:
+    if isinstance(value, dict):
+        for key in ("order_id", "id", "client_order_id"):
+            order_id = _clean_text(value.get(key))
+            if order_id:
+                return order_id
+        return ""
+    return _clean_text(value)
+
+
+def _position_has_oco_exit_proof(position: dict[str, Any]) -> bool:
+    if coerce_bool(position.get("oco_exit_protected"), default=False):
+        return True
+    plan = _dict_or_empty(position.get("oco_exit_plan") or position.get("exit_plan"))
+    plan_status = _clean_text(plan.get("status")).lower()
+    if plan_status and plan_status not in {"active", "armed", "protected", "submitted"}:
+        return False
+
+    take_profit_order_id = (
+        _extract_order_id(plan.get("take_profit"))
+        or _extract_order_id(plan.get("take_profit_order"))
+        or _clean_text(plan.get("take_profit_order_id"))
+        or _clean_text(position.get("take_profit_order_id"))
+    )
+    stop_loss_order_id = (
+        _extract_order_id(plan.get("stop_loss"))
+        or _extract_order_id(plan.get("stop_loss_order"))
+        or _clean_text(plan.get("stop_loss_order_id"))
+        or _clean_text(position.get("stop_loss_order_id"))
+    )
+    return bool(take_profit_order_id and stop_loss_order_id)
+
+
+def _summarize_position_oco_protection(positions: list[dict[str, Any]]) -> dict[str, Any]:
+    unprotected_ids = [
+        _clean_text(position.get("id")) or _clean_text(position.get("_id"))
+        for position in positions
+        if _is_live_open_position(position) and not _position_has_oco_exit_proof(position)
+    ]
+    unprotected_ids = [position_id for position_id in unprotected_ids if position_id]
+    return {
+        "position_oco_unprotected_count": len(unprotected_ids),
+        "position_oco_unprotected_ids": unprotected_ids,
+    }
+
+
 class OperatorSimulateExitRequest(BaseModel):
     position_id: Optional[str] = None
     sell_percentage: float = Field(default=50, ge=1, le=100)
@@ -54,10 +125,12 @@ async def _live_readiness_payload():
     reconciliation = summarize_reconciliation_rows(await build_reconciliation_rows(db, limit=500))
     alert_chains = await build_alert_chain_report(db, limit=500)
     alert_chain_summary = _dict_or_empty(alert_chains.get("summary"))
+    position_oco = _summarize_position_oco_protection(await db.get_positions())
     status["reconciliation_unresolved_count"] = reconciliation["unresolved_count"]
     status["reconciliation_unresolved_reasons"] = reconciliation["unresolved_reasons"]
     status["alert_chain_attention_count"] = alert_chain_summary.get("attention_count", 0)
     status["alert_chain_attention_reasons"] = alert_chain_summary.get("attention_reasons", [])
+    status.update(position_oco)
     return evaluate_live_readiness(settings, runtime, status=status)
 
 
