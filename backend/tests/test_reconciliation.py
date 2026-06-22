@@ -30,6 +30,9 @@ class FakeReconciliationDb:
                         "override_matched": True,
                         "min_parser_confidence": "medium",
                     },
+                    "parser": {
+                        "confidence": "medium",
+                    },
                 },
             },
             {
@@ -232,6 +235,71 @@ class FakeTradeRequestedMissingTradeDb:
                         "override_matched": True,
                         "min_parser_confidence": "medium",
                     },
+                    "parser": {
+                        "confidence": "medium",
+                    },
+                },
+            }
+        ]
+
+
+class FakeAcceptedBridgeMissingParserProofDb:
+    async def get_alerts(self, limit=100):
+        return [
+            {
+                "id": "alert-accepted-without-parser-proof",
+                "ticker": "SPY",
+                "alert_type": "buy",
+                "trade_executed": True,
+                "processed": True,
+            }
+        ]
+
+    async def get_trades(self, limit=100):
+        return [
+            {
+                "id": "trade-accepted-without-parser-proof",
+                "alert_id": "alert-accepted-without-parser-proof",
+                "ticker": "SPY",
+                "status": "filled",
+                "order_id": "order-accepted-without-parser-proof",
+                "simulated": False,
+            }
+        ]
+
+    async def get_positions(self, status=None):
+        return [
+            {
+                "id": "position-accepted-without-parser-proof",
+                "ticker": "SPY",
+                "status": "open",
+                "trade_ids": ["trade-accepted-without-parser-proof"],
+                "simulated": False,
+            }
+        ]
+
+    async def get_operator_events(self, limit=100):
+        return [
+            {
+                "id": "event-accepted-without-parser-proof",
+                "timestamp": "2026-06-22T14:40:00Z",
+                "action": "bridge_alert_decision",
+                "details": {
+                    "contract_version": "chrome.discord.message.v1",
+                    "event_id": "bridge-accepted-without-parser-proof",
+                    "parsed": {"ticker": "SPY"},
+                    "decision": {
+                        "status": "accepted",
+                        "alert_inserted": True,
+                        "alert_id": "alert-accepted-without-parser-proof",
+                        "trade_requested": True,
+                        "trade_request_reason": "auto trading enabled",
+                    },
+                    "source": {
+                        "key": "chrome-alerts",
+                        "override_matched": True,
+                        "min_parser_confidence": "medium",
+                    },
                 },
             }
         ]
@@ -332,6 +400,21 @@ class ReconciliationTests(unittest.TestCase):
         self.assertEqual(row["attention_reason"], "trade requested but no linked trade")
         self.assertFalse(row["deterministic"])
         self.assertEqual(report["summary"]["attention_reasons"], ["trade requested but no linked trade"])
+
+    def test_alert_chain_report_flags_accepted_bridge_alert_without_parser_confidence_proof(self):
+        from reconciliation import build_alert_chain_report
+
+        report = asyncio.run(build_alert_chain_report(FakeAcceptedBridgeMissingParserProofDb()))
+        row = report["rows"][0]
+
+        self.assertEqual(row["status"], "attention")
+        self.assertEqual(row["attention_reason"], "accepted bridge alert missing parser confidence proof")
+        self.assertEqual(row["parser_confidence"], "")
+        self.assertFalse(row["deterministic"])
+        self.assertEqual(
+            report["summary"]["attention_reasons"],
+            ["accepted bridge alert missing parser confidence proof"],
+        )
 
 
 if __name__ == "__main__":

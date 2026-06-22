@@ -42,6 +42,10 @@ def _chain_status(*, skipped: bool, attention_reason: str, deterministic_reason:
     return "reconciled", True
 
 
+def _has_parser_confidence_proof(parser: dict[str, Any]) -> bool:
+    return _clean_text(parser.get("confidence")).lower() in {"low", "medium", "high"}
+
+
 def summarize_reconciliation_rows(rows: List[Dict[str, Any]]) -> Dict[str, Any]:
     """Summarize unresolved alert/trade/position chains for readiness checks."""
     unresolved_reasons: list[str] = []
@@ -137,6 +141,8 @@ async def build_alert_chain_report(db, *, limit: int = 100) -> Dict[str, Any]:
                 attention_reason = "accepted bridge alert missing reconciliation row"
             elif not source_override_matched:
                 attention_reason = "accepted bridge alert missing source policy proof"
+            elif not _has_parser_confidence_proof(parser):
+                attention_reason = "accepted bridge alert missing parser confidence proof"
             elif trade_requested and not _clean_text(reconciliation.get("trade_id")):
                 attention_reason = "trade requested but no linked trade"
             else:
