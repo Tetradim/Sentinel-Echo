@@ -127,7 +127,7 @@ async def update_source_overrides(source_overrides: Dict[str, Dict[str, Any]] = 
 @router.get("/correlation-settings")
 async def get_correlation_settings():
     """Get per-ticker position concentration limit."""
-    settings = await db.get_settings()
+    settings = _dict_or_empty(await db.get_settings())
     return {
         "max_positions_per_ticker": settings.get("max_positions_per_ticker", 3),
     }
