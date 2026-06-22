@@ -149,16 +149,18 @@ async def panic_stop():
     active_broker = normalize_broker_id(settings.get("active_broker"), default="ibkr")
     capabilities = get_broker_capabilities(active_broker)
 
-    updated_settings = await db.update_settings({"auto_trading_enabled": False})
-    runtime = await db.update_runtime_state(
-        {
-            "auto_trading_enabled": False,
-            "live_trading_armed": False,
-            "live_trading_armed_until": "",
-            "shutdown_triggered": True,
-            "shutdown_reason": "panic stop triggered by operator",
-        }
-    )
+    settings_updates = {"auto_trading_enabled": False}
+    runtime_updates = {
+        "auto_trading_enabled": False,
+        "live_trading_armed": False,
+        "live_trading_armed_until": "",
+        "shutdown_triggered": True,
+        "shutdown_reason": "panic stop triggered by operator",
+    }
+    updated_settings = await db.update_settings(settings_updates)
+    updated_settings = updated_settings if isinstance(updated_settings, dict) else settings_updates
+    runtime = await db.update_runtime_state(runtime_updates)
+    runtime = runtime if isinstance(runtime, dict) else runtime_updates
     update_bot_status("auto_trading_enabled", False)
 
     warnings = []
