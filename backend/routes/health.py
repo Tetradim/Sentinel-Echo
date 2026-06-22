@@ -253,6 +253,7 @@ def _setup_warnings(
 def _merge_readiness_warnings(warnings: list[str], readiness: dict) -> list[str]:
     merged = list(warnings)
     seen = set(merged)
+    readiness = readiness if isinstance(readiness, dict) else {}
     for issue in readiness.get("blocking_issues", []) or []:
         if not isinstance(issue, dict):
             continue

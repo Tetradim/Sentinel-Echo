@@ -66,6 +66,13 @@ class SetupDiagnosticsTests(unittest.TestCase):
 
         self.assertEqual(result, ["Existing warning", "Valid readiness warning"])
 
+    def test_readiness_warning_merge_treats_malformed_readiness_as_empty(self):
+        from routes import health as health_route
+
+        result = health_route._merge_readiness_warnings(["Existing warning"], "readiness")
+
+        self.assertEqual(result, ["Existing warning"])
+
     def test_status_derives_trading_state_from_settings(self):
         from routes import health as health_route
 
