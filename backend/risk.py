@@ -5,9 +5,8 @@ Covers three gaps vs a professional system:
 
 1. Risk-based position sizing
    Instead of always using default_quantity, compute the maximum number of
-   contracts that fits within max_position_size.  The result is clamped to
-   [1, default_quantity] so you can never accidentally size up beyond the
-   configured default.
+   contracts that fits within max_position_size. If one contract would exceed
+   the cap, sizing returns 0 so the trade can be blocked instead of forced.
 
 2. Correlation / concentration check
    Before entering a new position, count how many open positions exist for
@@ -33,7 +32,7 @@ logger = logging.getLogger(__name__)
 DUPLICATE_WINDOW_SECS = 60   # suppress identical alert within this window
 
 # In-memory store: { fingerprint: datetime_of_first_seen }
-# This resets on restart which is fine — the window is short enough that
+# This resets on restart which is fine; the window is short enough that
 # a restart during normal operation causes at most one extra trade.
 _seen_fingerprints: dict[str, datetime] = {}
 
@@ -101,21 +100,22 @@ def calculate_position_size(
         cost_per_contract = entry_price * 100
 
     We adjust default_quantity by risk_multiplier, then take the floor of
-    (max_position_size / cost_per_contract) and clamp to the lower limit.
+    (max_position_size / cost_per_contract) and cap to the adjusted default.
+    If one contract would exceed max_position_size, return 0.
 
     Examples
     --------
     entry_price=2.50, default_quantity=10, max_position_size=1000
-        → floor(1000 / 250) = 4  → 4 contracts (not 10)
+        -> floor(1000 / 250) = 4 -> 4 contracts (not 10)
 
     entry_price=0.30, default_quantity=5, max_position_size=1000
-        → floor(1000 / 30) = 33  → clamped to 5 (default cap)
+        -> floor(1000 / 30) = 33 -> clamped to 5 (default cap)
 
     entry_price=15.00, default_quantity=5, max_position_size=1000
-        → floor(1000 / 1500) = 0 → clamped to 1 (minimum)
+        -> floor(1000 / 1500) = 0 -> 0 contracts (blocked)
     """
     if entry_price <= 0:
-        logger.warning("[risk] entry_price ≤ 0 — defaulting to 1 contract")
+        logger.warning("[risk] entry_price <= 0 - defaulting to 1 contract")
         return 1
 
     cost_per_contract = entry_price * 100.0
@@ -130,15 +130,16 @@ def calculate_position_size(
     adjusted_default_quantity = max(1, int(default_quantity * multiplier))
 
     if max_position_size <= 0:
-        return 1
+        logger.warning("[risk] max_position_size <= 0 - blocking trade")
+        return 0
 
     risk_qty = int(max_position_size / cost_per_contract)
-    quantity = max(1, min(risk_qty, adjusted_default_quantity))
+    quantity = min(risk_qty, adjusted_default_quantity)
 
     logger.info(
         f"[risk] sizing: entry=${entry_price:.2f} cost/contract=${cost_per_contract:.0f} "
         f"max_size=${max_position_size:.0f} risk_qty={risk_qty} "
-        f"default_qty={default_quantity} → final={quantity}"
+        f"default_qty={default_quantity} -> final={quantity}"
     )
     return quantity
 
@@ -159,8 +160,8 @@ async def check_correlation(
     Returns
     -------
     (allowed: bool, reason: str)
-        allowed=True  → proceed with the trade
-        allowed=False → block the trade; reason explains why
+        allowed=True  -> proceed with the trade
+        allowed=False -> block the trade; reason explains why
     """
     max_per_ticker = int(
         settings.get("max_positions_per_ticker", DEFAULT_MAX_POSITIONS_PER_TICKER)
@@ -174,7 +175,7 @@ async def check_correlation(
         open_positions = await db.get_positions("open")
     except Exception as e:
         logger.error(f"[risk] correlation check db error: {e}")
-        # Fail open — don't block the trade due to a db hiccup
+        # Fail open; don't block the trade due to a db hiccup
         return True, ""
 
     same_ticker = [

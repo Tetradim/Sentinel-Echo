@@ -147,6 +147,7 @@ class SourceConfigTests(unittest.TestCase):
         self.assertEqual(config["max_contracts"], 2)
         self.assertEqual(apply_source_quantity_limits(5, config), 2)
         self.assertEqual(apply_source_quantity_limits(1, config), 1)
+        self.assertEqual(apply_source_quantity_limits(0, config), 0)
 
     def test_normalize_source_overrides_rejects_invalid_max_contracts(self):
         from source_config import normalize_source_overrides

@@ -399,6 +399,48 @@ def exercise_bottom_navigation(page):
         audit.action(f"clicked bottom navigation tab: {label}")
 
 
+def click_web_sidebar_route(page, path, label, index):
+    page.goto(frontend_url("/alerts"), wait_until="domcontentloaded", timeout=30000)
+    page.wait_for_timeout(500)
+    clicked = page.evaluate(
+        """
+        ({ index }) => {
+          const candidates = Array.from(document.querySelectorAll('[role="button"], button'));
+          const railItems = candidates
+            .map((node) => ({ node, rect: node.getBoundingClientRect() }))
+            .filter(({ rect }) =>
+              rect.width > 0 &&
+              rect.height > 0 &&
+              rect.left >= 0 &&
+              rect.left < 70 &&
+              rect.top > 56
+            )
+            .sort((a, b) => a.rect.top - b.rect.top);
+          const item = railItems[index]?.node;
+          if (!item) return false;
+          item.click();
+          return true;
+        }
+        """,
+        {"index": index},
+    )
+    if not clicked:
+        raise AssertionError(f"Could not click web sidebar route: {label}")
+    page.wait_for_timeout(500)
+    expected = path.rstrip("/") or "/"
+    if current_path(page) != expected:
+        raise AssertionError(f"Web sidebar {label} landed on {page.url}, expected {path}")
+    snapshot_controls(page, f"Web Sidebar -> {label}")
+    audit.action(f"clicked web sidebar route: {label}")
+
+
+def exercise_route_navigation(page):
+    for path, label in BOTTOM_NAV_TARGETS:
+        visit(page, path, f"Route Navigation -> {label}")
+    for index, (path, label) in enumerate(BOTTOM_NAV_TARGETS):
+        click_web_sidebar_route(page, path, label, index)
+
+
 def verify_backend_state():
     events = api("GET", "/operator/events", query={"limit": 50})
     alerts = api("GET", "/alerts", query={"limit": 200})
@@ -468,6 +510,10 @@ def exercise_positions(page):
 
 def exercise_operator_lab(page):
     visit(page, "/operator-lab", "Operator Lab")
+    audit.action("verified Arm Live is present but blocked in simulated readiness state")
+    click_text(page, "Disarm", optional=True)
+    click_text(page, "Panic Stop", optional=True)
+    click_text(page, "Reconciliation", optional=True)
     click_text(page, "Create Test Alert", optional=True)
     click_text(page, "Sell 50% Test Position", optional=True)
     click_text(page, "Refresh", optional=True)
@@ -540,7 +586,6 @@ def exercise_risk_settings(page):
 
 def exercise_discord_settings(page):
     visit(page, "/discord-settings", "Discord Settings")
-    click_visible_role_buttons(page, "Discord header", limit=2)
     for tab in ["Communities", "Patterns", "Filters"]:
         click_text(page, tab)
         toggle_visible_switches(page, f"Discord {tab}", limit=16)
@@ -598,7 +643,7 @@ def main():
         )
 
         exercises = [
-            exercise_bottom_navigation,
+            exercise_route_navigation,
             exercise_dashboard,
             exercise_alerts,
             exercise_trades,

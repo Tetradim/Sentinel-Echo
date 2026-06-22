@@ -103,6 +103,22 @@ class ChromeBridgeRouteTests(unittest.TestCase):
         self.assertEqual(result["status"], "healthy")
         self.assertEqual(result["issues"], [])
 
+    def test_chrome_bridge_disabled_heartbeat_is_unhealthy(self):
+        from routes import discord as discord_route
+
+        request = types.SimpleNamespace(client=types.SimpleNamespace(host="127.0.0.1"))
+        payload = discord_route.ChromeBridgeHeartbeat(
+            status="ok",
+            bridge_enabled=False,
+            channel_id="chrome-extension-service-worker",
+            observed_at=datetime.now(timezone.utc).isoformat(),
+        )
+
+        result = asyncio.run(discord_route.ingest_chrome_bridge_heartbeat(payload, request))
+
+        self.assertEqual(result["status"], "unhealthy")
+        self.assertIn("chrome bridge is disabled", result["issues"])
+
     def test_chrome_bridge_dedupes_replayed_dom_events(self):
         from routes import discord as discord_route
 

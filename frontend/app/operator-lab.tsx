@@ -11,11 +11,23 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { api } from '../utils/api';
-import { BACKEND_URL, DEMO_MODE } from '../constants/config';
+import { DEMO_MODE } from '../constants/config';
 import { formatDate, getPnLColor } from '../utils/format';
+import {
+  armLiveTrading,
+  createOperatorTestAlert,
+  disarmLiveTrading,
+  getLiveReadiness,
+  getOperatorEvents,
+  getPositions,
+  getReconciliation,
+  panicStop,
+  simulateOperatorExit,
+} from '../utils/apiClient';
+import { summarizeLiveSafety } from '../utils/liveSafetyDigest';
+import { summarizeReconciliation } from '../utils/reconciliationDigest';
 
-type RunningAction = 'test-alert' | 'simulate-exit' | null;
+type RunningAction = 'test-alert' | 'simulate-exit' | 'arm-live' | 'disarm-live' | 'panic-stop' | 'reconciliation' | null;
 
 interface OperatorEvent {
   id: string;
@@ -42,6 +54,24 @@ interface Position {
   realized_pnl?: number;
   unrealized_pnl?: number;
   simulated?: boolean;
+}
+
+interface LiveReadiness {
+  ready_for_live?: boolean;
+  blocking_issues?: { code: string; summary: string }[];
+  checks?: Record<string, any>;
+}
+
+interface ReconciliationRow {
+  alert_id?: string;
+  ticker?: string;
+  trade_id?: string;
+  trade_status?: string;
+  order_id?: string;
+  position_id?: string;
+  position_status?: string;
+  simulated?: boolean;
+  attention_reason?: string;
 }
 
 const DEMO_EVENTS: OperatorEvent[] = [
@@ -80,6 +110,29 @@ const DEMO_POSITIONS: Position[] = [
     broker: 'ibkr',
     unrealized_pnl: 55,
     simulated: true,
+  },
+];
+
+const DEMO_READINESS: LiveReadiness = {
+  ready_for_live: false,
+  blocking_issues: [{ code: 'simulation_mode_enabled', summary: 'Simulation mode is enabled.' }],
+  checks: {
+    runtime: { live_trading_armed: false, live_trading_armed_until: '' },
+    trading: { simulation_mode: true, auto_trading_enabled: false },
+    broker: { active_broker: 'ibkr', connected: true },
+  },
+};
+
+const DEMO_RECONCILIATION: ReconciliationRow[] = [
+  {
+    alert_id: 'demo-alert',
+    ticker: 'SPY',
+    trade_id: 'demo-trade',
+    trade_status: 'simulated',
+    position_id: 'demo-position-1',
+    position_status: 'open',
+    simulated: true,
+    attention_reason: '',
   },
 ];
 
@@ -156,6 +209,8 @@ function LabButton({
 export default function OperatorLabScreen() {
   const [events, setEvents] = useState<OperatorEvent[]>([]);
   const [positions, setPositions] = useState<Position[]>([]);
+  const [liveReadiness, setLiveReadiness] = useState<LiveReadiness | null>(null);
+  const [reconciliationRows, setReconciliationRows] = useState<ReconciliationRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [runningAction, setRunningAction] = useState<RunningAction>(null);
@@ -165,6 +220,8 @@ export default function OperatorLabScreen() {
     if (DEMO_MODE) {
       setEvents(DEMO_EVENTS);
       setPositions(DEMO_POSITIONS);
+      setLiveReadiness(DEMO_READINESS);
+      setReconciliationRows(DEMO_RECONCILIATION);
       setLoadError(null);
       setLoading(false);
       setRefreshing(false);
@@ -172,12 +229,16 @@ export default function OperatorLabScreen() {
     }
 
     try {
-      const [eventsResult, positionsResult] = await Promise.all([
-        api.get(`${BACKEND_URL}/api/operator/events?limit=80`),
-        api.get(`${BACKEND_URL}/api/positions`),
+      const [eventsResult, positionsResult, readinessResult, reconciliationResult] = await Promise.all([
+        getOperatorEvents(80),
+        getPositions(),
+        getLiveReadiness(),
+        getReconciliation(80),
       ]);
       setEvents(eventsResult.data || []);
       setPositions(positionsResult.data || []);
+      setLiveReadiness(readinessResult.data || null);
+      setReconciliationRows(reconciliationResult.data || []);
       setLoadError(null);
     } catch (error) {
       console.error(error);
@@ -230,7 +291,7 @@ export default function OperatorLabScreen() {
         return;
       }
 
-      await api.post(`${BACKEND_URL}/api/operator/test-alert`);
+      await createOperatorTestAlert();
       await refreshLab();
       Alert.alert('Test alert created', 'Operator event logged.');
     } catch (error: any) {
@@ -260,7 +321,7 @@ export default function OperatorLabScreen() {
         return;
       }
 
-      await api.post(`${BACKEND_URL}/api/operator/simulate-exit`, {
+      await simulateOperatorExit({
         sell_percentage: 50,
         exit_price: 1.8,
       });
@@ -273,7 +334,83 @@ export default function OperatorLabScreen() {
     }
   }, [refreshLab]);
 
+  const runArmLive = useCallback(async () => {
+    setRunningAction('arm-live');
+    try {
+      if (DEMO_MODE) {
+        Alert.alert('Live arm blocked', 'Simulation mode is enabled in demo mode.');
+        return;
+      }
+      await armLiveTrading({
+        duration_minutes: 60,
+        confirmation: 'ARM LIVE TRADING',
+        reason: 'operator lab arm request',
+      });
+      await refreshLab();
+      Alert.alert('Live trading armed', 'Live trading is armed for 60 minutes.');
+    } catch (error: any) {
+      const detail = error.response?.data?.detail;
+      const message = Array.isArray(detail?.blocking_issues)
+        ? detail.blocking_issues[0]?.summary
+        : detail || 'Live readiness blocked arming.';
+      Alert.alert('Arm blocked', String(message));
+    } finally {
+      setRunningAction(null);
+    }
+  }, [refreshLab]);
+
+  const runDisarmLive = useCallback(async () => {
+    setRunningAction('disarm-live');
+    try {
+      if (!DEMO_MODE) {
+        await disarmLiveTrading();
+        await refreshLab();
+      }
+      Alert.alert('Live trading disarmed', 'Runtime live arming is cleared.');
+    } catch (error: any) {
+      Alert.alert('Action failed', error.response?.data?.detail || 'Could not disarm live trading.');
+    } finally {
+      setRunningAction(null);
+    }
+  }, [refreshLab]);
+
+  const runPanicStop = useCallback(async () => {
+    setRunningAction('panic-stop');
+    try {
+      if (!DEMO_MODE) {
+        await panicStop();
+        await refreshLab();
+      }
+      Alert.alert('Panic stop applied', 'Auto trading is disabled and live trading is disarmed.');
+    } catch (error: any) {
+      Alert.alert('Action failed', error.response?.data?.detail || 'Could not apply panic stop.');
+    } finally {
+      setRunningAction(null);
+    }
+  }, [refreshLab]);
+
+  const refreshReconciliation = useCallback(async () => {
+    setRunningAction('reconciliation');
+    try {
+      if (DEMO_MODE) {
+        setReconciliationRows(DEMO_RECONCILIATION);
+        return;
+      }
+      const response = await getReconciliation(80);
+      setReconciliationRows(response.data || []);
+    } catch (error: any) {
+      Alert.alert('Refresh failed', error.response?.data?.detail || 'Could not load reconciliation.');
+    } finally {
+      setRunningAction(null);
+    }
+  }, []);
+
   const latestEvent = events[0];
+  const liveSafety = useMemo(() => summarizeLiveSafety(liveReadiness), [liveReadiness]);
+  const reconciliation = useMemo(
+    () => summarizeReconciliation(reconciliationRows),
+    [reconciliationRows]
+  );
 
   return (
     <SafeAreaView style={s.container}>
@@ -324,6 +461,97 @@ export default function OperatorLabScreen() {
           <StatTile label="Open Positions" value={String(openPositions.length)} tone="#22c55e" />
           <StatTile label="Simulated" value={String(simulatedPositions.length)} tone="#a78bfa" />
           <StatTile label="Unrealized" value={formatMoney(totalUnrealized)} tone={getPnLColor(totalUnrealized)} />
+        </View>
+
+        <View style={s.panel}>
+          <View style={s.panelHeader}>
+            <View>
+              <Text style={s.panelTitle}>Live Safety</Text>
+              <Text style={s.panelSub}>{liveSafety.detail}</Text>
+            </View>
+            <View style={[s.panelPill, liveSafety.tone === 'blocked' ? s.panelPillBlocked : null]}>
+              <Ionicons
+                name={liveSafety.isArmed ? 'radio-button-on-outline' : 'shield-checkmark-outline'}
+                size={13}
+                color={liveSafety.tone === 'blocked' ? '#ef4444' : '#22c55e'}
+              />
+              <Text style={[s.panelPillText, liveSafety.tone === 'blocked' ? s.panelPillTextBlocked : null]}>
+                {liveSafety.title}
+              </Text>
+            </View>
+          </View>
+
+          <View style={s.actionStack}>
+            <LabButton
+              icon="radio-outline"
+              label="Arm Live"
+              subLabel={liveSafety.canArm ? 'Arm for 60 minutes' : `${liveSafety.blockerCount} blocker(s)`}
+              tone="#ef4444"
+              busy={runningAction === 'arm-live'}
+              disabled={runningAction !== null || !liveSafety.canArm}
+              onPress={runArmLive}
+            />
+            <LabButton
+              icon="radio-button-off-outline"
+              label="Disarm"
+              subLabel={liveSafety.isArmed ? `Armed until ${liveSafety.armedUntilLabel}` : 'Runtime is not armed'}
+              tone="#38bdf8"
+              busy={runningAction === 'disarm-live'}
+              disabled={runningAction !== null}
+              onPress={runDisarmLive}
+            />
+            <LabButton
+              icon="stop-circle-outline"
+              label="Panic Stop"
+              subLabel="Disable automation and set shutdown state"
+              tone="#f43f5e"
+              busy={runningAction === 'panic-stop'}
+              disabled={runningAction !== null}
+              onPress={runPanicStop}
+            />
+          </View>
+        </View>
+
+        <View style={s.panel}>
+          <View style={s.panelHeader}>
+            <View>
+              <Text style={s.panelTitle}>Reconciliation</Text>
+              <Text style={s.panelSub}>{reconciliation.detail}</Text>
+            </View>
+            <TouchableOpacity
+              style={s.refreshButton}
+              onPress={refreshReconciliation}
+              disabled={runningAction !== null}
+              accessibilityRole="button"
+            >
+              {runningAction === 'reconciliation' ? (
+                <ActivityIndicator size="small" color="#fb7185" />
+              ) : (
+                <Ionicons name="git-compare-outline" size={16} color="#fb7185" />
+              )}
+              <Text style={s.refreshText}>Reconciliation</Text>
+            </TouchableOpacity>
+          </View>
+          <View style={s.statsGrid}>
+            <StatTile label="Chains" value={String(reconciliation.total)} tone="#38bdf8" />
+            <StatTile label="Attention" value={String(reconciliation.attentionCount)} tone={reconciliation.attentionCount > 0 ? '#f59e0b' : '#22c55e'} />
+            <StatTile label="Pending" value={String(reconciliation.pendingCount)} tone="#a78bfa" />
+          </View>
+          {reconciliationRows.slice(0, 4).map((row) => (
+            <View key={`${row.alert_id}-${row.trade_id || 'none'}`} style={s.eventRow}>
+              <View style={[s.eventIcon, { backgroundColor: (row.attention_reason ? '#f59e0b' : '#22c55e') + '1f' }]}>
+                <Ionicons name={row.attention_reason ? 'warning-outline' : 'checkmark-circle-outline'} size={16} color={row.attention_reason ? '#f59e0b' : '#22c55e'} />
+              </View>
+              <View style={s.eventBody}>
+                <View style={s.eventTopLine}>
+                  <Text style={s.eventAction}>{row.ticker || 'Unknown'} chain</Text>
+                  <Text style={s.eventTime}>{row.trade_status || 'no trade'}</Text>
+                </View>
+                <Text style={s.eventSummary}>{row.attention_reason || `Trade ${row.trade_id || 'none'} linked to position ${row.position_id || 'none'}.`}</Text>
+                <Text style={s.eventCategory}>{row.simulated === false ? 'LIVE' : 'SIMULATED'}</Text>
+              </View>
+            </View>
+          ))}
         </View>
 
         <View style={s.panel}>
@@ -465,9 +693,12 @@ const s = StyleSheet.create({
   panel: { backgroundColor: 'rgba(16, 9, 28, 0.82)', borderRadius: 12, borderWidth: 1, borderColor: '#29213a', padding: 14, marginBottom: 10 },
   panelHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 },
   panelTitle: { fontSize: 16, color: '#edf3ff', fontWeight: '900' },
+  panelSub: { marginTop: 3, fontSize: 11, lineHeight: 16, color: '#aec0e5', fontWeight: '700', maxWidth: 520 },
   panelMeta: { fontSize: 11, color: '#68779b', fontWeight: '800' },
   panelPill: { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: '#10251d', borderRadius: 999, paddingHorizontal: 8, paddingVertical: 4 },
+  panelPillBlocked: { backgroundColor: '#2a1014' },
   panelPillText: { fontSize: 10, color: '#22c55e', fontWeight: '900' },
+  panelPillTextBlocked: { color: '#ef4444' },
 
   actionStack: { gap: 9 },
   labButton: { minHeight: 68, flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: '#0a1522', borderWidth: 1, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 10 },

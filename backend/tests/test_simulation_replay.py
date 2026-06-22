@@ -48,6 +48,53 @@ class SimulationReplayTests(unittest.TestCase):
         self.assertTrue(preview["results"][0]["would_insert_alert"])
         self.assertTrue(preview["results"][0]["market_context"]["price_drift"]["price_drift_alert"])
 
+    def test_preview_blocks_trade_request_when_risk_sizing_returns_zero(self):
+        from simulation_replay import build_replay_preview
+
+        replay = {
+            "contract_version": "simulation.consolidation.replay.v1",
+            "events": [
+                {
+                    "event_id": "discord_alert:m-risk",
+                    "type": "discord_alert",
+                    "timestamp": "2026-06-11T14:30:00+00:00",
+                    "channel_id": "123",
+                    "payload": {
+                        "message": {
+                            "channel_id": "123",
+                            "channel_name": "alerts",
+                            "content": "$SPY\n$740 CALLS\nEXPIRATION 6/12/2026\n$1.1 Entry",
+                        },
+                        "alert": {
+                            "raw_text": "$SPY\n$740 CALLS\nEXPIRATION 6/12/2026\n$1.1 Entry",
+                        },
+                    },
+                }
+            ],
+        }
+
+        preview = build_replay_preview(
+            replay,
+            {
+                "auto_trading_enabled": True,
+                "simulation_mode": True,
+                "default_quantity": 1,
+                "max_position_size": 100.0,
+            },
+        )
+
+        self.assertEqual(preview["parsed_count"], 1)
+        self.assertEqual(preview["would_request_trade_count"], 0)
+        result = preview["results"][0]
+        self.assertTrue(result["would_insert_alert"])
+        self.assertFalse(result["would_request_trade"])
+        self.assertEqual(
+            result["execution_preview"]["reason"],
+            "position size exceeds max_position_size",
+        )
+        self.assertEqual(result["execution_preview"]["quantity"], 0)
+        self.assertFalse(result["execution_preview"]["would_request_trade"])
+
     def test_normalize_replay_url_accepts_engine_root_or_full_endpoint(self):
         from simulation_replay import normalize_replay_url
 

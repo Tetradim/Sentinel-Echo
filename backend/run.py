@@ -11,7 +11,7 @@ Environment variables:
     IBKR_GATEWAY_URL     - IBKR Gateway URL (default: https://localhost:5000)
     IBKR_ACCOUNT_ID     - IBKR account ID
     API_SECRET_KEY      - Secret key for API authentication
-    HOST                - Host to bind to (default: 0.0.0.0)
+    HOST                - Host to bind to (default: 127.0.0.1)
     PORT                - Port to bind to (default: 8000)
     LOG_LEVEL           - Logging level (default: INFO)
 """
@@ -86,7 +86,7 @@ def main():
     # Configure uvicorn
     config = uvicorn.Config(
         "backend.server:app",
-        host=os.environ.get('HOST', '0.0.0.0'),
+        host=os.environ.get('HOST', '127.0.0.1'),
         port=int(os.environ.get('PORT', 8000)),
         reload=os.environ.get('RELOAD', 'false').lower() == 'true',
         log_level=os.environ.get('LOG_LEVEL', 'info').lower(),

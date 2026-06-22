@@ -44,6 +44,10 @@ EXPIRATION_RE = re.compile(r"\b(?P<expiration>\d{1,2}/\d{1,2}(?:/\d{2,4})?)\b")
 PRICE_PATTERNS = (
     re.compile(r"@\s*\$?(?P<price>\d+(?:\.\d+)?)", re.IGNORECASE),
     re.compile(r"\b(?:ENTRY|PRICE|AT|FILL)\s*:?\s*\$?(?P<price>\d+(?:\.\d+)?)", re.IGNORECASE),
+    re.compile(
+        r"\$(?P<price>\d+(?:\.\d+)?)\s*(?:ENTRY|ENTRIES|FILL|FILLS|AVG|AVERAGE)\b",
+        re.IGNORECASE,
+    ),
     re.compile(r"\$\.(?P<cents>\d{1,2})\b", re.IGNORECASE),
 )
 ACTION_TICKER_RE = re.compile(
@@ -51,6 +55,40 @@ ACTION_TICKER_RE = re.compile(
     re.IGNORECASE,
 )
 CASH_TICKER_RE = re.compile(r"\$(?P<ticker>[A-Z]{1,6})\b")
+TICKER_OPTION_SIDE_RE = re.compile(
+    r"\b(?:ON\s+)?\$?(?P<ticker>[A-Z]{1,6})\s+(?P<kind>CALLS?|PUTS?)\b",
+    re.IGNORECASE,
+)
+EXIT_START_RE = re.compile(
+    r"^\s*(?:STC|SELL(?:\s+TO\s+CLOSE)?|SELLING|SOLD|TRIM(?:MING)?|"
+    r"CLOSE|CLOSING|EXIT|EXITING|OUT|STOPPED\s+OUT)\b",
+    re.IGNORECASE,
+)
+EXIT_ACTION_RE = re.compile(
+    r"\b(?:STC|SELL\s+TO\s+CLOSE|TRIM(?:MING)?|SELL\s+(?:HALF|MAJORITY|\d{1,3}%))\b",
+    re.IGNORECASE,
+)
+TICKER_STOPWORDS = {
+    *(keyword.upper() for keyword in BUY_KEYWORDS + SELL_KEYWORDS + AVG_DOWN_KEYWORDS),
+    "AT",
+    "BE",
+    "DCA",
+    "FINAL",
+    "FULLY",
+    "HERE",
+    "INITIALS",
+    "MAJORITY",
+    "MOST",
+    "OF",
+    "OFF",
+    "ON",
+    "OUT",
+    "POSITION",
+    "SECURED",
+    "THOSE",
+    "WATCH",
+    "ZONE",
+}
 
 
 def parse_alert(message: str) -> Optional[dict]:
@@ -61,7 +99,7 @@ def parse_alert(message: str) -> Optional[dict]:
         if _contains_keyword(text, AVG_DOWN_KEYWORDS):
             return _parse_contract_alert(text, "average_down", require_price=False)
 
-        if _contains_keyword(text, SELL_KEYWORDS):
+        if _contains_keyword(text, SELL_KEYWORDS) and _looks_like_exit_alert(text):
             return _parse_sell_alert(text)
 
         if _contains_keyword(text, BUY_KEYWORDS):
@@ -96,6 +134,8 @@ def _parse_contract_alert(
 ) -> Optional[dict]:
     ticker = _extract_ticker(message)
     strike, option_type = _extract_option_contract(message)
+    if option_type is None and alert_type in {"sell", "trim", "close"}:
+        option_type = _extract_option_side_without_strike(message)
     expiration = _extract_expiration(message)
     price = _extract_price(message)
 
@@ -120,21 +160,29 @@ def _parse_contract_alert(
 def _extract_ticker(message: str) -> Optional[str]:
     cash_match = CASH_TICKER_RE.search(message)
     if cash_match:
-        return cash_match.group("ticker").upper()
+        ticker = _normalize_ticker(cash_match.group("ticker"))
+        if ticker:
+            return ticker
+
+    option_side_match = _first_valid_ticker_option_side(message)
+    if option_side_match:
+        return option_side_match
 
     action_match = ACTION_TICKER_RE.search(message)
     if action_match:
-        return action_match.group("ticker").upper()
+        ticker = _normalize_ticker(action_match.group("ticker"))
+        if ticker:
+            return ticker
 
     # Fallback: use the token before the first option contract.
     option_match = OPTION_RE.search(message)
     if option_match:
         prefix = message[: option_match.start()].strip()
         tokens = re.findall(r"\b[A-Z]{1,6}\b", prefix.upper())
-        ignored = set(BUY_KEYWORDS + SELL_KEYWORDS + AVG_DOWN_KEYWORDS)
         for token in reversed(tokens):
-            if token not in ignored:
-                return token
+            ticker = _normalize_ticker(token)
+            if ticker:
+                return ticker
     return None
 
 
@@ -147,6 +195,14 @@ def _extract_option_contract(message: str) -> tuple[Optional[float], Optional[st
     kind = match.group("kind") or match.group("kind_word")
     option_type = "CALL" if kind.upper().startswith("C") else "PUT"
     return float(strike), option_type
+
+
+def _extract_option_side_without_strike(message: str) -> Optional[str]:
+    match = TICKER_OPTION_SIDE_RE.search(message)
+    if not match or not _normalize_ticker(match.group("ticker")):
+        return None
+    kind = match.group("kind")
+    return "CALL" if kind.upper().startswith("C") else "PUT"
 
 
 def _extract_expiration(message: str) -> Optional[str]:
@@ -167,10 +223,16 @@ def _extract_price(message: str) -> Optional[float]:
 
 def _extract_sell_percentage(message: str) -> float:
     upper = message.upper()
-    if _contains_keyword(message, ("ALL", "CLOSE", "CLOSING", "EXIT", "EXITING")):
-        return 100.0
 
-    match = re.search(r"\b(?:SELL|TRIM|STC)?\s*(\d{1,3})\s*%", upper)
+    match = re.search(
+        r"\b(?:SELL|TRIM|STC|SCALE|OUT|EXIT|CLOSE)\s*(?:OUT\s*)?(\d{1,3})\s*%",
+        upper,
+    )
+    if not match:
+        match = re.search(
+            r"\b(\d{1,3})\s*%\s*(?:POSITION\s+)?(?:SOLD|SECURED|OUT|TRIM|CLOSED|EXITED)\b",
+            upper,
+        )
     if match:
         return min(100.0, max(1.0, float(match.group(1))))
 
@@ -182,7 +244,38 @@ def _extract_sell_percentage(message: str) -> float:
     if _contains_keyword(message, quarter_terms):
         return 25.0
 
+    if _contains_keyword(message, ("MAJORITY", "MOST")):
+        return 75.0
+
+    if _contains_keyword(message, ("TRIM", "TRIMMING", "PARTIAL", "INITIALS")):
+        return 50.0
+
+    if _contains_keyword(message, ("ALL", "CLOSE", "CLOSING", "EXIT", "EXITING", "FULLY")):
+        return 100.0
+
     return 100.0
+
+
+def _looks_like_exit_alert(message: str) -> bool:
+    """Return True only for actionable exit language, not market commentary."""
+    return bool(EXIT_START_RE.search(message) or EXIT_ACTION_RE.search(message))
+
+
+def _first_valid_ticker_option_side(message: str) -> Optional[str]:
+    for match in TICKER_OPTION_SIDE_RE.finditer(message):
+        ticker = _normalize_ticker(match.group("ticker"))
+        if ticker:
+            return ticker
+    return None
+
+
+def _normalize_ticker(value: str) -> Optional[str]:
+    ticker = str(value or "").strip().upper().lstrip("$")
+    if not re.fullmatch(r"[A-Z]{1,6}", ticker):
+        return None
+    if ticker in TICKER_STOPWORDS:
+        return None
+    return ticker
 
 
 def _contains_keyword(message: str, keywords: tuple[str, ...]) -> bool:

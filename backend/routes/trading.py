@@ -8,6 +8,7 @@ from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from models import Trade, Position
+from operator_audit import record_operator_event
 from datetime import datetime, timezone
 
 router = APIRouter(tags=["Trading"])
@@ -162,6 +163,21 @@ async def _sell_position_at_price(
         result["shutdown_triggered"] = True
         result["shutdown_reason"] = shutdown_reason
 
+    await record_operator_event(
+        db,
+        "position",
+        "position_sold",
+        f"Sold {sell_qty} contract(s) from position {position_id}.",
+        severity="warning",
+        details={
+            "position_id": position_id,
+            "sold_quantity": sell_qty,
+            "sell_percentage": percentage,
+            "exit_price": resolved_exit_price,
+            "realized_pnl": realized_pnl,
+        },
+    )
+
     return result
 
 
@@ -278,6 +294,14 @@ async def close_trade(trade_id: str, request: CloseTradeRequest):
         "closed_at": datetime.now(timezone.utc).isoformat(),
     }
     await db.update_trade(trade_id, updates)
+    await record_operator_event(
+        db,
+        "trade",
+        "trade_closed",
+        f"Trade {trade_id} closed.",
+        severity="warning",
+        details={"trade_id": trade_id, "exit_price": request.exit_price, "realized_pnl": realized_pnl},
+    )
 
     return {
         "trade_id": trade_id,
@@ -308,6 +332,13 @@ async def update_trade_price(trade_id: str, request: UpdateTradePriceRequest):
             "current_price": request.current_price,
             "unrealized_pnl": unrealized_pnl,
         },
+    )
+    await record_operator_event(
+        db,
+        "trade",
+        "trade_price_updated",
+        f"Trade {trade_id} price updated.",
+        details={"trade_id": trade_id, "current_price": request.current_price, "unrealized_pnl": unrealized_pnl},
     )
 
     return {

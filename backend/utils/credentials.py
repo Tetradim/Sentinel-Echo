@@ -23,11 +23,12 @@ from typing import Any, Dict
 
 logger = logging.getLogger(__name__)
 
-_SENSITIVE_FIELDS = {
+SENSITIVE_FIELDS = {
     'api_key', 'api_secret', 'refresh_token', 'access_token',
     'trade_token', 'password', 'mfa_code', 'ts_client_secret',
     'tos_refresh_token', 'ws_password',
 }
+MASKED_SECRET = '********'
 
 _PREFIX = 'enc:'
 _fernet = None
@@ -86,7 +87,7 @@ def decrypt_value(value: str) -> str:
 def encrypt_broker_config(config: Dict[str, Any]) -> Dict[str, Any]:
     """Return a copy of a broker config dict with sensitive fields encrypted."""
     result = dict(config)
-    for field in _SENSITIVE_FIELDS:
+    for field in SENSITIVE_FIELDS:
         if field in result and isinstance(result[field], str) and result[field]:
             result[field] = encrypt_value(result[field])
     return result
@@ -95,7 +96,7 @@ def encrypt_broker_config(config: Dict[str, Any]) -> Dict[str, Any]:
 def decrypt_broker_config(config: Dict[str, Any]) -> Dict[str, Any]:
     """Return a copy of a broker config dict with sensitive fields decrypted."""
     result = dict(config)
-    for field in _SENSITIVE_FIELDS:
+    for field in SENSITIVE_FIELDS:
         if field in result and isinstance(result[field], str):
             result[field] = decrypt_value(result[field])
     return result
@@ -109,3 +110,28 @@ def encrypt_broker_configs(configs: Dict[str, Dict[str, Any]]) -> Dict[str, Dict
 def decrypt_broker_configs(configs: Dict[str, Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
     """Decrypt all broker configs in the broker_configs dict."""
     return {broker_id: decrypt_broker_config(cfg) for broker_id, cfg in configs.items()}
+
+
+def is_masked_secret(value: Any) -> bool:
+    """Return True when a frontend payload is preserving an already configured secret."""
+    return isinstance(value, str) and value.strip() == MASKED_SECRET
+
+
+def mask_broker_config(config: Dict[str, Any]) -> Dict[str, Any]:
+    """Return a broker config safe for API responses without plaintext credentials."""
+    result = dict(config)
+    configured_fields: Dict[str, bool] = {}
+    for field in SENSITIVE_FIELDS:
+        if field not in result:
+            continue
+        configured = bool(result[field])
+        configured_fields[field] = configured
+        result[field] = MASKED_SECRET if configured else ''
+    if configured_fields:
+        result['configured_fields'] = configured_fields
+    return result
+
+
+def mask_broker_configs(configs: Dict[str, Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
+    """Mask all broker credentials for API responses."""
+    return {broker_id: mask_broker_config(cfg) for broker_id, cfg in configs.items()}

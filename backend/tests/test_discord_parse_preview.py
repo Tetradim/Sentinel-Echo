@@ -78,6 +78,38 @@ class DiscordParsePreviewTests(unittest.TestCase):
         self.assertEqual(fake_db.updated_settings, [])
         self.assertEqual(fake_db.updated_patterns, [])
 
+    def test_parse_preview_does_not_break_entry_price_label_patterns(self):
+        from routes import discord as discord_route
+
+        fake_db = FakePreviewDb(
+            {
+                "auto_trading_enabled": True,
+                "simulation_mode": True,
+                "default_quantity": 1,
+                "max_position_size": 1000.0,
+                "source_overrides": {},
+            },
+            patterns={
+                "buy_patterns": ["ENTRY"],
+                "case_sensitive": False,
+            },
+        )
+        discord_route.set_db(fake_db)
+
+        result = asyncio.run(
+            discord_route.preview_discord_alert(
+                {
+                    "raw_text": "$SPY\n$740 CALLS\n EXPIRATION 6/12/2026\n$1.1 Entry",
+                    "source_key": "alerts",
+                }
+            )
+        )
+
+        self.assertEqual(result["parsed"]["ticker"], "SPY")
+        self.assertEqual(result["parsed"]["strike"], 740.0)
+        self.assertEqual(result["parsed"]["entry_price"], 1.10)
+        self.assertTrue(result["execution_preview"]["would_request_trade"])
+
     def test_parse_preview_reports_source_policy_skip(self):
         from routes import discord as discord_route
 

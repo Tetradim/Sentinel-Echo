@@ -44,6 +44,31 @@ class RiskSizingTests(unittest.TestCase):
 
         self.assertEqual(quantity, 2)
 
+    def test_trade_is_blocked_when_one_contract_exceeds_max_position_size(self):
+        from risk import calculate_position_size
+
+        quantity = calculate_position_size(
+            entry_price=15.00,
+            default_quantity=5,
+            max_position_size=1000.0,
+            risk_multiplier=1.0,
+        )
+
+        self.assertEqual(quantity, 0)
+
+    def test_position_sizing_log_is_windows_console_safe(self):
+        from risk import calculate_position_size
+
+        with self.assertLogs("risk", level="INFO") as logs:
+            calculate_position_size(
+                entry_price=1.00,
+                default_quantity=2,
+                max_position_size=1000.0,
+            )
+
+        for line in logs.output:
+            line.encode("cp1252")
+
 
 if __name__ == "__main__":
     unittest.main()

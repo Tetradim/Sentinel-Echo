@@ -2,6 +2,7 @@ import asyncio
 import pathlib
 import sys
 import unittest
+from unittest.mock import patch
 
 
 BACKEND_DIR = pathlib.Path(__file__).resolve().parents[1]
@@ -15,8 +16,215 @@ class FakeDiagnosticsDb:
     async def get_settings(self):
         return dict(self.settings)
 
+    async def get_runtime_state(self):
+        return {"shutdown_triggered": False, "shutdown_reason": ""}
+
 
 class SetupDiagnosticsTests(unittest.TestCase):
+    def setUp(self):
+        from routes import health as health_route
+
+        health_route.update_bot_status("discord_connected", False)
+        health_route.update_bot_status("broker_connected", False)
+
+    def test_status_derives_trading_state_from_settings(self):
+        from routes import health as health_route
+
+        health_route.set_db(
+            FakeDiagnosticsDb(
+                {
+                    "active_broker": "tradier",
+                    "auto_trading_enabled": True,
+                    "simulation_mode": True,
+                }
+            )
+        )
+        health_route.update_bot_status("auto_trading_enabled", False)
+        health_route.update_bot_status("simulation_mode", False)
+
+        result = asyncio.run(health_route.get_status())
+
+        self.assertEqual(result["active_broker"], "tradier")
+        self.assertTrue(result["auto_trading_enabled"])
+        self.assertTrue(result["simulation_mode"])
+
+    def test_health_degrades_stale_discord_connected_without_config(self):
+        from routes import health as health_route
+
+        health_route.set_db(
+            FakeDiagnosticsDb(
+                {
+                    "discord_token": "",
+                    "discord_channel_ids": [],
+                    "active_broker": "alpaca",
+                    "broker_configs": {"alpaca": {"api_key": "broker-secret-key"}},
+                    "source_overrides": {},
+                }
+            )
+        )
+        health_route.update_bot_status("discord_connected", True)
+        health_route.update_bot_status("broker_connected", True)
+
+        with patch.dict(
+            "os.environ",
+            {"DISCORD_BOT_TOKEN": "", "DISCORD_CHANNEL_IDS": ""},
+        ):
+            result = asyncio.run(health_route.health())
+
+        self.assertEqual(result["status"], "degraded")
+        self.assertFalse(result["discord_connected"])
+        self.assertTrue(result["broker_connected"])
+
+    def test_setup_diagnostics_ready_for_live_uses_shared_readiness_result(self):
+        from routes import health as health_route
+
+        health_route.set_db(
+            FakeDiagnosticsDb(
+                {
+                    "discord_token": "discord-secret-token",
+                    "discord_channel_ids": ["123", "456"],
+                    "active_broker": "alpaca",
+                    "broker_configs": {"alpaca": {"api_key": "broker-secret-key"}},
+                    "source_overrides": {
+                        "alerts": {
+                            "paper_only": False,
+                            "require_manual_confirm": False,
+                        }
+                    },
+                    "auto_trading_enabled": True,
+                    "simulation_mode": False,
+                    "max_position_size": 1000.0,
+                    "shutdown_triggered": False,
+                }
+            )
+        )
+
+        result = asyncio.run(health_route.setup_diagnostics())
+
+        self.assertFalse(result["readiness"]["ready_for_live"])
+        self.assertFalse(result["ready_for_live"])
+        self.assertIn("credential_key_missing", result["readiness"]["blocking_codes"])
+
+    def test_setup_diagnostics_warnings_include_shared_readiness_blockers(self):
+        from routes import health as health_route
+
+        health_route.set_db(
+            FakeDiagnosticsDb(
+                {
+                    "discord_token": "discord-secret-token",
+                    "discord_channel_ids": ["123"],
+                    "active_broker": "alpaca",
+                    "broker_configs": {"alpaca": {"api_key": "broker-secret-key"}},
+                    "source_overrides": {
+                        "alerts": {
+                            "paper_only": False,
+                            "require_manual_confirm": False,
+                        }
+                    },
+                    "auto_trading_enabled": True,
+                    "simulation_mode": False,
+                    "max_position_size": 1000.0,
+                    "shutdown_triggered": False,
+                }
+            )
+        )
+        health_route.update_bot_status("discord_connected", True)
+        health_route.update_bot_status("broker_connected", False)
+
+        result = asyncio.run(health_route.setup_diagnostics())
+
+        self.assertIn(
+            "CREDENTIAL_KEY is required so broker secrets are encrypted.",
+            result["warnings"],
+        )
+        self.assertIn("Broker connection is not healthy.", result["warnings"])
+
+    def test_setup_diagnostics_does_not_report_stale_discord_connected_without_config(self):
+        from routes import health as health_route
+
+        health_route.set_db(
+            FakeDiagnosticsDb(
+                {
+                    "discord_token": "",
+                    "discord_channel_ids": [],
+                    "active_broker": "alpaca",
+                    "broker_configs": {"alpaca": {"api_key": "broker-secret-key"}},
+                    "source_overrides": {
+                        "alerts": {
+                            "paper_only": False,
+                            "require_manual_confirm": False,
+                        }
+                    },
+                    "auto_trading_enabled": True,
+                    "simulation_mode": False,
+                    "max_position_size": 1000.0,
+                    "shutdown_triggered": False,
+                }
+            )
+        )
+        health_route.update_bot_status("discord_connected", True)
+        health_route.update_bot_status("broker_connected", True)
+
+        with patch.dict(
+            "os.environ",
+            {"DISCORD_BOT_TOKEN": "", "DISCORD_CHANNEL_IDS": ""},
+        ):
+            result = asyncio.run(health_route.setup_diagnostics())
+
+        self.assertFalse(result["discord"]["token_configured"])
+        self.assertFalse(result["discord"]["connected"])
+        self.assertEqual(result["discord"]["channel_count"], 0)
+        self.assertIn("no_live_ingestion", result["readiness"]["blocking_codes"])
+
+    def test_setup_diagnostics_reports_environment_discord_configuration(self):
+        from routes import health as health_route
+
+        health_route.set_db(
+            FakeDiagnosticsDb(
+                {
+                    "discord_token": "",
+                    "discord_channel_ids": [],
+                    "active_broker": "alpaca",
+                    "broker_configs": {
+                        "alpaca": {
+                            "api_key": "broker-secret-key",
+                            "api_secret": "broker-secret-secret",
+                        }
+                    },
+                    "source_overrides": {
+                        "alerts": {
+                            "paper_only": False,
+                            "require_manual_confirm": False,
+                        }
+                    },
+                    "auto_trading_enabled": True,
+                    "simulation_mode": False,
+                    "max_position_size": 1000.0,
+                    "shutdown_triggered": False,
+                }
+            )
+        )
+        health_route.update_bot_status("discord_connected", True)
+        health_route.update_bot_status("broker_connected", True)
+
+        with patch.dict(
+            "os.environ",
+            {
+                "API_KEY": "api-key",
+                "CREDENTIAL_KEY": "0" * 64,
+                "DISCORD_BOT_TOKEN": "environment-discord-secret",
+                "DISCORD_CHANNEL_IDS": "123,456",
+                "HOST": "0.0.0.0",
+                "USE_SQLITE": "false",
+            },
+        ):
+            result = asyncio.run(health_route.setup_diagnostics())
+
+        self.assertTrue(result["discord"]["token_configured"])
+        self.assertTrue(result["discord"]["connected"])
+        self.assertEqual(result["discord"]["channel_count"], 2)
+        self.assertNotIn("environment-discord-secret", str(result))
+
     def test_setup_diagnostics_reports_live_ready_without_exposing_secrets(self):
         from routes import health as health_route
 
@@ -41,12 +249,24 @@ class SetupDiagnosticsTests(unittest.TestCase):
                     },
                     "auto_trading_enabled": True,
                     "simulation_mode": False,
+                    "max_position_size": 1000.0,
                     "shutdown_triggered": False,
                 }
             )
         )
+        health_route.update_bot_status("discord_connected", True)
+        health_route.update_bot_status("broker_connected", True)
 
-        result = asyncio.run(health_route.setup_diagnostics())
+        with patch.dict(
+            "os.environ",
+            {
+                "API_KEY": "api-key",
+                "CREDENTIAL_KEY": "0" * 64,
+                "HOST": "0.0.0.0",
+                "USE_SQLITE": "false",
+            },
+        ):
+            result = asyncio.run(health_route.setup_diagnostics())
 
         self.assertTrue(result["ready_for_live"])
         self.assertTrue(result["discord"]["token_configured"])

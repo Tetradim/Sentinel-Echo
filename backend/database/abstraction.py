@@ -35,6 +35,10 @@ def _default_runtime_state() -> Dict[str, Any]:
         'shutdown_triggered': False,
         'shutdown_reason': '',
         'auto_trading_enabled': False,
+        'live_trading_armed': False,
+        'live_trading_armed_until': '',
+        'live_trading_armed_by': '',
+        'live_trading_arm_reason': '',
     }
 
 
@@ -197,7 +201,7 @@ class MongoDBDatabase(DatabaseInterface):
 
     async def get_runtime_state(self) -> Dict[str, Any]:
         doc = await self.db.runtime_state.find_one({'id': 'runtime'}, {'_id': 0})
-        return doc or _default_runtime_state()
+        return {**_default_runtime_state(), **(doc or {})}
 
     async def update_runtime_state(self, updates: Dict[str, Any]) -> Dict[str, Any]:
         if updates:
@@ -388,6 +392,11 @@ CREATE TABLE IF NOT EXISTS runtime_state (
     shutdown_triggered   INTEGER NOT NULL DEFAULT 0,
     shutdown_reason      TEXT    NOT NULL DEFAULT '',
     auto_trading_enabled INTEGER NOT NULL DEFAULT 0
+    ,
+    live_trading_armed INTEGER NOT NULL DEFAULT 0,
+    live_trading_armed_until TEXT NOT NULL DEFAULT '',
+    live_trading_armed_by TEXT NOT NULL DEFAULT '',
+    live_trading_arm_reason TEXT NOT NULL DEFAULT ''
 );
 
 CREATE TABLE IF NOT EXISTS alerts (
@@ -479,7 +488,22 @@ class SQLiteDatabase(DatabaseInterface):
                     await conn.execute(
                         "INSERT INTO runtime_state (id) VALUES (?)", ('runtime',)
                     )
+            await self._ensure_runtime_columns(conn)
             await conn.commit()
+
+    async def _ensure_runtime_columns(self, conn):
+        async with conn.execute('PRAGMA table_info(runtime_state)') as cur:
+            rows = await cur.fetchall()
+        existing = {row[1] for row in rows}
+        additions = {
+            'live_trading_armed': "ALTER TABLE runtime_state ADD COLUMN live_trading_armed INTEGER NOT NULL DEFAULT 0",
+            'live_trading_armed_until': "ALTER TABLE runtime_state ADD COLUMN live_trading_armed_until TEXT NOT NULL DEFAULT ''",
+            'live_trading_armed_by': "ALTER TABLE runtime_state ADD COLUMN live_trading_armed_by TEXT NOT NULL DEFAULT ''",
+            'live_trading_arm_reason': "ALTER TABLE runtime_state ADD COLUMN live_trading_arm_reason TEXT NOT NULL DEFAULT ''",
+        }
+        for column, statement in additions.items():
+            if column not in existing:
+                await conn.execute(statement)
 
     # -- Settings -----------------------------------------------------------
 
@@ -516,15 +540,18 @@ class SQLiteDatabase(DatabaseInterface):
     # -- Runtime state (M6) ------------------------------------------------
 
     def _row_to_runtime(self, row) -> Dict[str, Any]:
-        return {
-            'consecutive_losses': row['consecutive_losses'],
-            'daily_losses': row['daily_losses'],
-            'daily_loss_amount': row['daily_loss_amount'],
-            'last_loss_reset_date': row['last_loss_reset_date'],
-            'shutdown_triggered': bool(row['shutdown_triggered']),
-            'shutdown_reason': row['shutdown_reason'],
-            'auto_trading_enabled': bool(row['auto_trading_enabled']),
-        }
+        runtime = _default_runtime_state()
+        row_keys = set(row.keys())
+        for key in runtime:
+            if key in row_keys:
+                runtime[key] = row[key]
+        for key in (
+            'shutdown_triggered',
+            'auto_trading_enabled',
+            'live_trading_armed',
+        ):
+            runtime[key] = bool(runtime.get(key, False))
+        return runtime
 
     async def get_runtime_state(self) -> Dict[str, Any]:
         await self._ensure_ready()
@@ -543,7 +570,9 @@ class SQLiteDatabase(DatabaseInterface):
         allowed = {
             'consecutive_losses', 'daily_losses', 'daily_loss_amount',
             'last_loss_reset_date', 'shutdown_triggered', 'shutdown_reason',
-            'auto_trading_enabled',
+            'auto_trading_enabled', 'live_trading_armed',
+            'live_trading_armed_until', 'live_trading_armed_by',
+            'live_trading_arm_reason',
         }
         cols = {k: v for k, v in updates.items() if k in allowed}
         if not cols:

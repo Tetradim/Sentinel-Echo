@@ -12,6 +12,8 @@ class FakeSettingsDb:
     def __init__(self, settings=None):
         self.settings = settings or {}
         self.updated = []
+        self.runtime_updates = []
+        self.loss_counters_reset = 0
 
     async def get_settings(self):
         return dict(self.settings)
@@ -20,6 +22,20 @@ class FakeSettingsDb:
         self.updated.append(update)
         self.settings.update(update)
         return dict(self.settings)
+
+    async def update_runtime_state(self, update):
+        self.runtime_updates.append(update)
+        return dict(update)
+
+    async def get_runtime_state(self):
+        return {
+            "shutdown_triggered": False,
+            "live_trading_armed": False,
+            "live_trading_armed_until": "",
+        }
+
+    async def reset_loss_counters(self):
+        self.loss_counters_reset += 1
 
 
 class SourceOverrideRouteTests(unittest.TestCase):
@@ -75,7 +91,11 @@ class SourceOverrideRouteTests(unittest.TestCase):
             response["broker_configs"],
             {
                 "ibkr": {"gateway_url": "https://localhost:5000", "account_id": "DU123"},
-                "alpaca": {"api_key": "new-key", "account_id": "paper-2"},
+                "alpaca": {
+                    "api_key": "********",
+                    "account_id": "paper-2",
+                    "configured_fields": {"api_key": True},
+                },
             },
         )
         self.assertEqual(
@@ -83,6 +103,43 @@ class SourceOverrideRouteTests(unittest.TestCase):
             {
                 "ibkr": {"gateway_url": "https://localhost:5000", "account_id": "DU123"},
                 "alpaca": {"api_key": "new-key", "account_id": "paper-2"},
+            },
+        )
+
+    def test_update_settings_preserves_masked_existing_broker_secret(self):
+        from models import SettingsUpdate
+        from routes import settings as settings_route
+
+        fake_db = FakeSettingsDb(
+            {
+                "broker_configs": {
+                    "alpaca": {"api_key": "old-key", "api_secret": "old-secret", "account_id": "paper-1"},
+                }
+            }
+        )
+        settings_route.set_db(fake_db)
+
+        response = asyncio.run(
+            settings_route.update_settings(
+                SettingsUpdate(
+                    broker_configs={
+                        "alpaca": {"api_key": "********", "account_id": "paper-2"}
+                    }
+                )
+            )
+        )
+
+        self.assertEqual(
+            fake_db.updated[0]["broker_configs"]["alpaca"],
+            {"api_key": "old-key", "api_secret": "old-secret", "account_id": "paper-2"},
+        )
+        self.assertEqual(
+            response["broker_configs"]["alpaca"],
+            {
+                "api_key": "********",
+                "api_secret": "********",
+                "account_id": "paper-2",
+                "configured_fields": {"api_key": True, "api_secret": True},
             },
         )
 
@@ -98,6 +155,64 @@ class SourceOverrideRouteTests(unittest.TestCase):
         self.assertEqual(current, {"max_positions_per_ticker": 2})
         self.assertEqual(updated, {"max_positions_per_ticker": 4})
         self.assertEqual(fake_db.updated, [{"max_positions_per_ticker": 4}])
+
+    def test_toggle_trading_uses_persisted_setting_as_source_of_truth(self):
+        from routes import settings as settings_route
+        from routes.health import update_bot_status
+
+        fake_db = FakeSettingsDb({"auto_trading_enabled": True})
+        settings_route.set_db(fake_db)
+        update_bot_status("auto_trading_enabled", False)
+
+        response = asyncio.run(settings_route.toggle_trading())
+
+        self.assertEqual(response, {"auto_trading_enabled": False})
+        self.assertEqual(fake_db.updated, [{"auto_trading_enabled": False}])
+        self.assertEqual(fake_db.runtime_updates, [{"auto_trading_enabled": False}])
+
+    def test_toggle_trading_blocks_live_enable_when_readiness_fails(self):
+        from fastapi import HTTPException
+        from routes import settings as settings_route
+
+        fake_db = FakeSettingsDb(
+            {
+                "auto_trading_enabled": False,
+                "simulation_mode": False,
+                "active_broker": "alpaca",
+                "broker_configs": {},
+                "source_overrides": {},
+            }
+        )
+        settings_route.set_db(fake_db)
+
+        with self.assertRaises(HTTPException) as raised:
+            asyncio.run(settings_route.toggle_trading())
+
+        self.assertEqual(raised.exception.status_code, 409)
+        self.assertEqual(fake_db.updated, [])
+
+    def test_reset_loss_counters_blocks_live_reenable_when_readiness_fails(self):
+        from fastapi import HTTPException
+        from routes import settings as settings_route
+
+        fake_db = FakeSettingsDb(
+            {
+                "auto_trading_enabled": False,
+                "simulation_mode": False,
+                "active_broker": "alpaca",
+                "broker_configs": {},
+                "source_overrides": {},
+            }
+        )
+        settings_route.set_db(fake_db)
+
+        with self.assertRaises(HTTPException) as raised:
+            asyncio.run(settings_route.reset_loss_counters())
+
+        self.assertEqual(raised.exception.status_code, 409)
+        self.assertEqual(fake_db.loss_counters_reset, 0)
+        self.assertEqual(fake_db.updated, [])
+        self.assertEqual(fake_db.runtime_updates, [])
 
     def test_settings_update_rejects_invalid_risk_numbers(self):
         from pydantic import ValidationError

@@ -176,6 +176,20 @@ async def process_trade(alert: Alert, parsed: dict):
             risk_multiplier=source_config.get("risk_multiplier", 1.0),
         )
         quantity = apply_source_quantity_limits(quantity, source_config)
+        if quantity <= 0:
+            logger.warning(
+                "[process_trade] trade BLOCKED: one contract for %s exceeds max_position_size",
+                alert.ticker,
+            )
+            if USE_SQLITE:
+                from database_sqlite import update_alert
+                update_alert(alert.id, {'processed': True, 'trade_executed': False})
+            else:
+                sync_mongo_db.alerts.update_one(
+                    {'id': alert.id},
+                    {'$set': {'processed': True, 'trade_executed': False}}
+                )
+            return
 
         # ── 2. Correlation / concentration check ─────────────────────────────
         # We need the async db abstraction here.  In the SQLite path we use
@@ -280,6 +294,32 @@ async def process_trade(alert: Alert, parsed: dict):
 
         else:
             # Real order — place with broker, store as "pending", start fill monitor
+            try:
+                from live_arming import is_live_trading_armed
+
+                runtime_state = await get_db().get_runtime_state()
+                if not is_live_trading_armed(runtime_state):
+                    logger.warning("[process_trade] live BUY blocked because live trading is not armed")
+                    if USE_SQLITE:
+                        from database_sqlite import update_alert
+                        update_alert(alert.id, {'processed': True, 'trade_executed': False})
+                    else:
+                        sync_mongo_db.alerts.update_one(
+                            {'id': alert.id},
+                            {'$set': {'processed': True, 'trade_executed': False}}
+                        )
+                    return
+            except Exception as exc:
+                logger.error("[process_trade] live BUY blocked while checking arming state: %s", exc)
+                if USE_SQLITE:
+                    from database_sqlite import update_alert
+                    update_alert(alert.id, {'processed': True, 'trade_executed': False})
+                else:
+                    sync_mongo_db.alerts.update_one(
+                        {'id': alert.id},
+                        {'$set': {'processed': True, 'trade_executed': False}}
+                    )
+                return
             trade.status = "pending"
             order_id = None
             
@@ -287,8 +327,8 @@ async def process_trade(alert: Alert, parsed: dict):
             limit_price = alert.entry_price
             buffer_applied = 0.0
             if settings.premium_buffer_enabled:
-                buffer_pct = settings.premium_buffer_amount / 100  # Convert cents to decimal
-                limit_price = round(alert.entry_price * (1 - buffer_pct), 2)
+                buffer_dollars = max(0.0, settings.premium_buffer_amount) / 100
+                limit_price = max(0.01, round(alert.entry_price - buffer_dollars, 2))
                 buffer_applied = alert.entry_price - limit_price
                 logger.info(f"[process_trade] applying buffer: ${buffer_applied:.2f} (limit: ${limit_price})")
             
@@ -496,6 +536,17 @@ async def process_exit_alert(
             continue
 
         try:
+            from live_arming import is_live_trading_armed
+
+            runtime_state = await db_obj.get_runtime_state()
+            if not is_live_trading_armed(runtime_state):
+                logger.warning("[process_exit_alert] live SELL blocked because live trading is not armed")
+                continue
+        except Exception as exc:
+            logger.error("[process_exit_alert] live SELL blocked while checking arming state: %s", exc)
+            continue
+
+        try:
             from order_execution import get_configured_broker_client
 
             broker_client = get_configured_broker_client(
@@ -661,13 +712,24 @@ app = FastAPI(title="Trading Bot API", lifespan=lifespan)
 # Set API_KEY env var to a secret string. All requests must include:
 #   X-API-Key: <your-secret>
 # /api/health is exempt so uptime monitors work without a key.
-# If API_KEY is not set, auth is disabled (dev mode) with a warning.
+# If API_KEY is not set, auth is disabled only for explicit localhost desktop mode.
 _API_KEY = os.environ.get("API_KEY", "").strip()
+_BIND_HOST = os.environ.get("HOST", "127.0.0.1").strip().lower()
+_LOCAL_BIND_HOSTS = {"127.0.0.1", "localhost", "::1"}
+_AUTHLESS_DESKTOP_MODE = not _API_KEY and USE_SQLITE and _BIND_HOST in _LOCAL_BIND_HOSTS
 if not _API_KEY:
-    logger.warning(
-        "API_KEY environment variable is not set — authentication is DISABLED. "
-        "Set API_KEY to a strong random secret before exposing this server."
-    )
+    if _AUTHLESS_DESKTOP_MODE:
+        logger.warning(
+            "API_KEY environment variable is not set - authentication is disabled "
+            "for local desktop mode only because HOST=%s and USE_SQLITE=true.",
+            _BIND_HOST,
+        )
+    else:
+        logger.error(
+            "API_KEY environment variable is not set and HOST=%s is not an authless "
+            "desktop bind. Non-health API requests will be rejected.",
+            _BIND_HOST,
+        )
 
 _PUBLIC_PATHS = {"/api/health"}  # paths that never require a key
 
@@ -676,9 +738,22 @@ class APIKeyMiddleware(BaseHTTPMiddleware):
         # Always allow CORS preflight through
         if request.method == "OPTIONS":
             return await call_next(request)
-        # Skip auth on public paths or when no key is configured (dev mode)
-        if not _API_KEY or request.url.path in _PUBLIC_PATHS:
+        # Skip auth on public paths.
+        if request.url.path in _PUBLIC_PATHS:
             return await call_next(request)
+        # Allow keyless operation only for explicit local desktop mode.
+        if not _API_KEY and _AUTHLESS_DESKTOP_MODE:
+            return await call_next(request)
+        if not _API_KEY:
+            return JSONResponse(
+                status_code=503,
+                content={
+                    "detail": (
+                        "API_KEY is required unless HOST is 127.0.0.1/localhost "
+                        "with USE_SQLITE=true desktop mode."
+                    )
+                },
+            )
         provided = request.headers.get("X-API-Key", "")
         if provided != _API_KEY:
             return JSONResponse(
@@ -726,4 +801,4 @@ app.include_router(api_router)
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8001)
+    uvicorn.run(app, host=os.environ.get("HOST", "127.0.0.1"), port=8001)

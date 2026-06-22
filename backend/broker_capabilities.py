@@ -1,0 +1,124 @@
+"""Broker capability metadata used by readiness checks and operator UI."""
+from __future__ import annotations
+
+from copy import deepcopy
+from typing import Any, Dict
+
+
+_DEFAULT_CAPABILITIES: Dict[str, Any] = {
+    "id": "unknown",
+    "name": "Unknown",
+    "supports_options": False,
+    "supports_order_status": False,
+    "supports_cancel_order": False,
+    "supports_live_trading": False,
+    "supports_paper_trading": False,
+    "requires_gateway": False,
+    "auth_mode": "unknown",
+}
+
+
+_BROKER_CAPABILITIES: Dict[str, Dict[str, Any]] = {
+    "ibkr": {
+        **_DEFAULT_CAPABILITIES,
+        "id": "ibkr",
+        "name": "Interactive Brokers",
+        "supports_options": True,
+        "supports_live_trading": True,
+        "supports_paper_trading": True,
+        "requires_gateway": True,
+        "auth_mode": "gateway",
+    },
+    "alpaca": {
+        **_DEFAULT_CAPABILITIES,
+        "id": "alpaca",
+        "name": "Alpaca",
+        "supports_options": True,
+        "supports_order_status": True,
+        "supports_cancel_order": True,
+        "supports_live_trading": True,
+        "supports_paper_trading": True,
+        "auth_mode": "api_key",
+    },
+    "tradier": {
+        **_DEFAULT_CAPABILITIES,
+        "id": "tradier",
+        "name": "Tradier",
+        "supports_options": True,
+        "supports_order_status": True,
+        "supports_cancel_order": True,
+        "supports_live_trading": True,
+        "supports_paper_trading": True,
+        "auth_mode": "access_token",
+    },
+    "tradestation": {
+        **_DEFAULT_CAPABILITIES,
+        "id": "tradestation",
+        "name": "TradeStation",
+        "supports_options": True,
+        "supports_live_trading": True,
+        "supports_paper_trading": True,
+        "auth_mode": "oauth",
+    },
+    "thinkorswim": {
+        **_DEFAULT_CAPABILITIES,
+        "id": "thinkorswim",
+        "name": "Thinkorswim",
+        "supports_options": True,
+        "supports_live_trading": True,
+        "supports_paper_trading": False,
+        "auth_mode": "oauth",
+    },
+    "td_ameritrade": {
+        **_DEFAULT_CAPABILITIES,
+        "id": "td_ameritrade",
+        "name": "TD Ameritrade",
+        "supports_options": True,
+        "supports_live_trading": True,
+        "supports_paper_trading": False,
+        "auth_mode": "oauth",
+    },
+    "webull": {
+        **_DEFAULT_CAPABILITIES,
+        "id": "webull",
+        "name": "Webull",
+        "supports_options": True,
+        "supports_live_trading": False,
+        "supports_paper_trading": False,
+        "auth_mode": "interactive",
+    },
+    "robinhood": {
+        **_DEFAULT_CAPABILITIES,
+        "id": "robinhood",
+        "name": "Robinhood",
+        "supports_options": True,
+        "supports_live_trading": False,
+        "supports_paper_trading": False,
+        "auth_mode": "interactive",
+    },
+    "wealthsimple": {
+        **_DEFAULT_CAPABILITIES,
+        "id": "wealthsimple",
+        "name": "Wealthsimple",
+        "supports_options": False,
+        "supports_live_trading": False,
+        "supports_paper_trading": False,
+        "auth_mode": "interactive",
+    },
+}
+
+
+def get_broker_capabilities(broker_id: str | None) -> Dict[str, Any]:
+    """Return a copy of capability metadata for a broker id."""
+    normalized = str(broker_id or "").strip().lower()
+    capabilities = _BROKER_CAPABILITIES.get(normalized)
+    if not capabilities:
+        fallback = deepcopy(_DEFAULT_CAPABILITIES)
+        fallback["id"] = normalized or "unknown"
+        return fallback
+    return deepcopy(capabilities)
+
+
+def all_broker_capabilities() -> Dict[str, Dict[str, Any]]:
+    """Return capability metadata for all known brokers."""
+    return {broker_id: get_broker_capabilities(broker_id) for broker_id in _BROKER_CAPABILITIES}

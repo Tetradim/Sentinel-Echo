@@ -533,6 +533,7 @@ def _parse_alert_for_preview(
         )
         return None, metadata
 
+    raw_parsed = parse_alert(raw_text)
     canonical_text = raw_text
     for pattern_type, canonical_action in (
         ("average_down_patterns", "AVERAGE DOWN"),
@@ -551,15 +552,16 @@ def _parse_alert_for_preview(
             metadata["pattern_source"] = _pattern_source(patterns, pattern_type, match)
             metadata["explicit_action"] = True
             metadata["confidence"] = "high"
-            canonical_text = _canonicalize_pattern_action(
-                raw_text,
-                match,
-                canonical_action,
-                case_sensitive=case_sensitive,
-            )
+            if pattern_type != "buy_patterns" or raw_parsed is None:
+                canonical_text = _canonicalize_pattern_action(
+                    raw_text,
+                    match,
+                    canonical_action,
+                    case_sensitive=case_sensitive,
+                )
             break
 
-    parsed = parse_alert(canonical_text)
+    parsed = raw_parsed if canonical_text == raw_text else parse_alert(canonical_text)
     ticker_pattern = patterns.get("ticker_pattern")
     ticker_override = _extract_ticker_with_pattern(
         raw_text,
@@ -852,6 +854,8 @@ def _build_execution_preview(
             quantity = apply_source_quantity_limits(uncapped_quantity, source_config)
             estimated_premium_cost = round(entry_price * quantity * 100, 2)
             uncapped_premium_cost = round(entry_price * uncapped_quantity * 100, 2)
+            if quantity <= 0 and reason is None:
+                reason = "position size exceeds max_position_size"
 
     return {
         "would_insert_alert": bool(parsed and skip_reason is None),

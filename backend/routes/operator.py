@@ -1,10 +1,13 @@
-"""Operator lab and event log endpoints."""
+"""Operator lab, safety controls, reconciliation, and event log endpoints."""
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field
 
-from models import OperatorEvent
+from live_arming import arm_live_trading, disarm_live_trading
+from live_readiness import evaluate_live_readiness
+from operator_audit import record_operator_event
+from reconciliation import build_reconciliation_rows
 from routes.trading import create_test_alert_records
 
 router = APIRouter(tags=["Operator"])
@@ -24,16 +27,21 @@ class OperatorSimulateExitRequest(BaseModel):
     exit_price: float = Field(default=1.8, gt=0)
 
 
-async def _record_event(category: str, action: str, summary: str, *, severity: str = "info", details: Optional[dict] = None):
-    event = OperatorEvent(
-        category=category,
-        action=action,
-        summary=summary,
-        severity=severity,
-        details=details or {},
-    ).model_dump(mode="json")
-    await db.insert_operator_event(event)
-    return event
+class LiveArmRequest(BaseModel):
+    duration_minutes: int = Field(default=60, ge=1, le=480)
+    confirmation: str
+    reason: str = ""
+
+
+async def _live_readiness_payload():
+    from routes.health import get_bot_status
+    from bridge_health import evaluate_bridge_health
+
+    settings = await db.get_settings()
+    runtime = await db.get_runtime_state() if hasattr(db, "get_runtime_state") else {}
+    status = dict(get_bot_status())
+    status["chrome_bridge_healthy"] = bool(evaluate_bridge_health().get("healthy", False))
+    return evaluate_live_readiness(settings, runtime, status=status)
 
 
 @router.get("/operator/events")
@@ -46,7 +54,8 @@ async def get_operator_events(limit: int = Query(default=100, ge=1, le=500)):
 async def create_operator_test_alert():
     """Create a safe simulated alert/trade/position and log the action."""
     result = await create_test_alert_records(db, message="Operator test alert created")
-    event = await _record_event(
+    event = await record_operator_event(
+        db,
         "test_lab",
         "test_alert_created",
         "Created simulated SPY alert, trade, and position.",
@@ -79,10 +88,109 @@ async def simulate_exit(request: OperatorSimulateExitRequest):
         sell_percentage=request.sell_percentage,
         exit_price=request.exit_price,
     )
-    event = await _record_event(
+    event = await record_operator_event(
+        db,
         "test_lab",
         "simulated_exit",
         f"Sold {result.get('sold_quantity', 0)} contract(s) from a test position.",
         details=result,
     )
     return {**result, "event_id": event["id"]}
+
+
+@router.get("/operator/live-readiness")
+async def get_live_readiness():
+    """Return current live-trading readiness and runtime arming state."""
+    return await _live_readiness_payload()
+
+
+@router.post("/operator/live-arm")
+async def live_arm(request: LiveArmRequest):
+    """Arm live trading for a bounded runtime window after readiness passes."""
+    readiness = await _live_readiness_payload()
+    if not readiness.get("ready_for_live", False):
+        await record_operator_event(
+            db,
+            "live_safety",
+            "live_trading_arm_blocked",
+            "Live trading arm was blocked by readiness checks.",
+            severity="warning",
+            details={"blocking_issues": readiness.get("blocking_issues", [])},
+        )
+        raise HTTPException(status_code=409, detail=readiness)
+    try:
+        runtime = await arm_live_trading(
+            db,
+            duration_minutes=request.duration_minutes,
+            confirmation=request.confirmation,
+            readiness=readiness,
+            reason=request.reason,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"runtime": runtime, "readiness": readiness}
+
+
+@router.post("/operator/live-disarm")
+async def live_disarm():
+    """Disarm live trading immediately."""
+    runtime = await disarm_live_trading(db)
+    return {"runtime": runtime}
+
+
+@router.post("/operator/panic-stop")
+async def panic_stop():
+    """Disable automated live trading and set runtime shutdown state."""
+    from broker_capabilities import get_broker_capabilities
+    from routes.health import update_bot_status
+
+    settings = await db.get_settings()
+    active_broker = str(settings.get("active_broker", "ibkr")).lower()
+    capabilities = get_broker_capabilities(active_broker)
+
+    updated_settings = await db.update_settings({"auto_trading_enabled": False})
+    runtime = await db.update_runtime_state(
+        {
+            "auto_trading_enabled": False,
+            "live_trading_armed": False,
+            "live_trading_armed_until": "",
+            "shutdown_triggered": True,
+            "shutdown_reason": "panic stop triggered by operator",
+        }
+    )
+    update_bot_status("auto_trading_enabled", False)
+
+    warnings = []
+    cancellation_attempts = []
+    if not capabilities.get("supports_cancel_order"):
+        warnings.append(f"Broker '{active_broker}' does not advertise automated cancellation support.")
+    else:
+        warnings.append("No pending order registry is available; broker cancellations were not attempted.")
+
+    event = await record_operator_event(
+        db,
+        "live_safety",
+        "panic_stop",
+        "Panic stop disabled automated trading and disarmed live trading.",
+        severity="critical",
+        details={
+            "active_broker": active_broker,
+            "cancellation_attempts": cancellation_attempts,
+            "warnings": warnings,
+        },
+    )
+    return {
+        "auto_trading_enabled": bool(updated_settings.get("auto_trading_enabled", False)),
+        "live_trading_armed": bool(runtime.get("live_trading_armed", False)),
+        "shutdown_triggered": bool(runtime.get("shutdown_triggered", False)),
+        "shutdown_reason": runtime.get("shutdown_reason", ""),
+        "cancellation_attempts": cancellation_attempts,
+        "warnings": warnings,
+        "event_id": event["id"],
+    }
+
+
+@router.get("/operator/reconciliation")
+async def get_reconciliation(limit: int = Query(default=100, ge=1, le=500)):
+    """Return alert/trade/position reconciliation rows."""
+    return await build_reconciliation_rows(db, limit=limit)

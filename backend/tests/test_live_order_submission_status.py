@@ -35,6 +35,11 @@ class FakeRuntimeDb:
     def __init__(self):
         self.positions_by_status = {"open": [], "partial": []}
         self.inserted_trades = []
+        self.runtime_state = {
+            "live_trading_armed": True,
+            "live_trading_armed_until": "2099-01-01T00:00:00+00:00",
+            "shutdown_triggered": False,
+        }
 
     async def get_positions(self, status):
         return self.positions_by_status[status]
@@ -43,9 +48,15 @@ class FakeRuntimeDb:
         self.inserted_trades.append(trade)
         return trade["id"]
 
+    async def get_runtime_state(self):
+        return dict(self.runtime_state)
+
 
 class FakeBrokerClient:
+    orders = []
+
     async def place_order(self, **kwargs):
+        self.orders.append(kwargs)
         return {"order_id": "live-order-1"}
 
     async def get_order_status(self, order_id):
@@ -89,6 +100,7 @@ class LiveOrderSubmissionStatusTests(unittest.TestCase):
         server.check_correlation = allow_correlation
         server.monitor_fill = fake_monitor_fill
         server.notify_correlation_block = fake_notify_correlation_block
+        FakeBrokerClient.orders = []
         order_execution.get_configured_broker_client = lambda *args, **kwargs: FakeBrokerClient()
         return originals
 
@@ -136,11 +148,58 @@ class LiveOrderSubmissionStatusTests(unittest.TestCase):
             self.restore_server(server, originals)
 
         self.assertEqual(fake_mongo.trades.inserted[0]["status"], "pending")
+        self.assertEqual(FakeBrokerClient.orders[0]["price"], 1.25)
         self.assertEqual(
             fake_mongo.alerts.updated,
             [
                 (
                     {"id": "alert-buy"},
+                    {"$set": {"processed": True, "trade_executed": False}},
+                )
+            ],
+        )
+
+    def test_live_buy_is_blocked_when_runtime_is_not_armed(self):
+        from models import Alert
+        import server
+
+        settings = {
+            "id": "main_settings",
+            "active_broker": "alpaca",
+            "broker_configs": {"alpaca": {"broker_type": "alpaca"}},
+            "simulation_mode": False,
+            "default_quantity": 1,
+            "max_position_size": 1000.0,
+        }
+        fake_mongo = FakeSyncMongo(settings)
+        fake_db = FakeRuntimeDb()
+        fake_db.runtime_state["live_trading_armed"] = False
+        fake_db.runtime_state["live_trading_armed_until"] = ""
+        originals = self.patch_server(server, fake_sync_mongo=fake_mongo, fake_db=fake_db)
+        try:
+            asyncio.run(
+                server.process_trade(
+                    Alert(
+                        id="alert-unarmed",
+                        ticker="SPY",
+                        strike=500.0,
+                        option_type="CALL",
+                        expiration="6/21",
+                        entry_price=1.25,
+                    ),
+                    {"alert_type": "buy"},
+                )
+            )
+        finally:
+            self.restore_server(server, originals)
+
+        self.assertEqual(FakeBrokerClient.orders, [])
+        self.assertEqual(fake_mongo.trades.inserted, [])
+        self.assertEqual(
+            fake_mongo.alerts.updated,
+            [
+                (
+                    {"id": "alert-unarmed"},
                     {"$set": {"processed": True, "trade_executed": False}},
                 )
             ],
@@ -212,6 +271,42 @@ class LiveOrderSubmissionStatusTests(unittest.TestCase):
         self.assertFalse(processed)
         self.assertEqual(fake_db.inserted_trades[0]["status"], "pending")
         self.assertEqual(fake_db.inserted_trades[0]["order_id"], "live-order-1")
+
+    def test_live_buy_premium_buffer_is_applied_as_cents(self):
+        from models import Alert
+        import server
+
+        settings = {
+            "id": "main_settings",
+            "active_broker": "alpaca",
+            "broker_configs": {"alpaca": {"broker_type": "alpaca"}},
+            "simulation_mode": False,
+            "default_quantity": 1,
+            "max_position_size": 1000.0,
+            "premium_buffer_enabled": True,
+            "premium_buffer_amount": 10.0,
+        }
+        fake_mongo = FakeSyncMongo(settings)
+        fake_db = FakeRuntimeDb()
+        originals = self.patch_server(server, fake_sync_mongo=fake_mongo, fake_db=fake_db)
+        try:
+            asyncio.run(
+                server.process_trade(
+                    Alert(
+                        id="alert-buffer",
+                        ticker="SPY",
+                        strike=500.0,
+                        option_type="CALL",
+                        expiration="6/21",
+                        entry_price=5.00,
+                    ),
+                    {"alert_type": "buy"},
+                )
+            )
+        finally:
+            self.restore_server(server, originals)
+
+        self.assertEqual(FakeBrokerClient.orders[0]["price"], 4.90)
 
     def test_live_buy_blocks_when_correlation_check_fails(self):
         from models import Alert

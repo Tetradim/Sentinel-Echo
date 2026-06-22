@@ -31,6 +31,12 @@ def build_exit_plans(
     if not matched:
         return []
 
+    if len(matched) > 1 and _is_broad_exit_alert(parsed_alert):
+        raise ValueError(
+            f"ambiguous exit alert for {parsed_alert.get('ticker')}: "
+            f"{len(matched)} matching open positions require a more specific contract."
+        )
+
     plans = []
     for position in matched:
         quantity = _exit_quantity(
@@ -65,6 +71,14 @@ def _is_open_position(position: Dict[str, Any]) -> bool:
 def _is_simulated_position(position: Dict[str, Any]) -> bool:
     broker = str(position.get("broker") or "").lower()
     return bool(position.get("simulated")) or broker.endswith(":paper_shadow")
+
+
+def _is_broad_exit_alert(parsed_alert: Dict[str, Any]) -> bool:
+    return (
+        parsed_alert.get("strike") is None
+        or not parsed_alert.get("option_type")
+        or not parsed_alert.get("expiration")
+    )
 
 
 def _matches_alert(position: Dict[str, Any], parsed_alert: Dict[str, Any]) -> bool:

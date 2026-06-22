@@ -183,12 +183,12 @@ class SentinelEdgeClient:
     
     def _create_fallback_analysis(self, ticker: str, error: str) -> MarketAnalysis:
         """Create fallback analysis when Edge is unavailable"""
-        # Return neutral analysis when Edge is down
+        # Missing analyzer data must not look like a usable confidence signal.
         return MarketAnalysis(
             ticker=ticker,
             timestamp=datetime.now(),
-            overall_confidence=50.0,  # Neutral
-            confidence_level=ConfidenceLevel.MEDIUM,
+            overall_confidence=0.0,
+            confidence_level=ConfidenceLevel.NONE,
             recommendation="HOLD",
             reason=f"Edge unavailable: {error}",
         )

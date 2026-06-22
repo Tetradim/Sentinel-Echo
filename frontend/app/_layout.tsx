@@ -306,6 +306,7 @@ function WebOperatorShell({
                   style={[styles.navRailItem, isActive && { backgroundColor: hexToRgba(accent, 0.16) }]}
                   onPress={() => router.push(route as any)}
                   accessibilityRole="button"
+                  accessibilityLabel={OPERATOR_LABELS[tab.name] || tab.label}
                   activeOpacity={0.74}
                 >
                   {isActive ? <View style={[styles.navRailActiveBar, { backgroundColor: accent }]} /> : null}

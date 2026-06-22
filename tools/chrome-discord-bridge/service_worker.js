@@ -6,10 +6,25 @@ const DEFAULTS = {
   forwardExistingOnEnable: false,
 };
 
+const HEARTBEAT_ALARM_NAME = "consolidation-bridge-heartbeat";
+
 chrome.runtime.onInstalled.addListener(() => {
   chrome.storage.local.get(DEFAULTS, (settings) => {
-    chrome.storage.local.set({ ...DEFAULTS, ...settings });
+    chrome.storage.local.set({ ...DEFAULTS, ...settings }, () => {
+      ensureHeartbeatAlarm();
+      publishServiceWorkerHeartbeat("ok", { reason: "installed" });
+    });
   });
+});
+
+chrome.runtime.onStartup.addListener(() => {
+  ensureHeartbeatAlarm();
+  publishServiceWorkerHeartbeat("ok", { reason: "startup" });
+});
+
+chrome.alarms.onAlarm.addListener((alarm) => {
+  if (alarm.name !== HEARTBEAT_ALARM_NAME) return;
+  publishServiceWorkerHeartbeat("ok", { reason: "alarm" });
 });
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
@@ -33,6 +48,38 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   return false;
 });
+
+function ensureHeartbeatAlarm() {
+  chrome.alarms.create(HEARTBEAT_ALARM_NAME, { periodInMinutes: 1 });
+}
+
+async function publishServiceWorkerHeartbeat(status = "ok", details = {}) {
+  try {
+    const payload = await buildServiceWorkerHeartbeat(status, details);
+    return await forwardHeartbeat(payload);
+  } catch (error) {
+    await chrome.storage.local.set({
+      lastHeartbeatStatus: String(error && error.message ? error.message : error),
+      lastHeartbeatAt: new Date().toISOString(),
+    });
+    return null;
+  }
+}
+
+async function buildServiceWorkerHeartbeat(status, details) {
+  const settings = await getSettings();
+  return {
+    status,
+    bridge_enabled: Boolean(settings.enabled),
+    url: "chrome-extension://service-worker",
+    channel_id: "chrome-extension-service-worker",
+    channel_name: "Chrome Extension",
+    observed_at: new Date().toISOString(),
+    last_forward_at: settings.lastForwardAt || "",
+    last_forward_status: settings.lastForwardStatus || "",
+    details: { source: "service_worker", ...details },
+  };
+}
 
 async function forwardHeartbeat(payload) {
   const settings = await getSettings();

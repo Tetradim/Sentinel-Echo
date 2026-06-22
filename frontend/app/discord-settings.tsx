@@ -180,6 +180,7 @@ function ToggleRow({
       <Switch
         value={value}
         onValueChange={onValueChange}
+        accessibilityLabel={title}
         trackColor={{ false: '#29213a', true: '#164766' }}
         thumbColor={value ? '#f43f5e' : '#68779b'}
       />
@@ -277,7 +278,7 @@ export function DiscordSettingsPage() {
             <Text style={styles.eyebrow}>DISCORD INGESTION</Text>
             <Text style={styles.title}>Discord Configuration</Text>
           </View>
-          <TouchableOpacity style={styles.addIconButton} onPress={addCommunity} accessibilityRole="button">
+          <TouchableOpacity style={styles.addIconButton} onPress={addCommunity} accessibilityRole="button" accessibilityLabel="Add community">
             <Ionicons name="add" size={20} color="transparent" />
           </TouchableOpacity>
         </View>
@@ -316,6 +317,7 @@ export function DiscordSettingsPage() {
                     <Switch
                       value={community.enabled}
                       onValueChange={(value) => updateCommunity(community.id, 'enabled', value)}
+                      accessibilityLabel={`${community.name} enabled`}
                       trackColor={{ false: '#29213a', true: '#164766' }}
                       thumbColor={community.enabled ? '#f43f5e' : '#68779b'}
                     />
@@ -676,5 +678,5 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: 8,
   },
-  primaryActionText: { color: 'transparent', fontSize: 14, fontWeight: '900' },
+  primaryActionText: { color: '#070812', fontSize: 14, fontWeight: '900' },
 });

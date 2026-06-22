@@ -725,6 +725,7 @@ function ToggleLine({
         <Switch
           value={enabled}
           onValueChange={onToggle}
+          accessibilityLabel={label}
           trackColor={{ false: '#20283b', true: hexToRgba(accent, 0.65) }}
           thumbColor={enabled ? '#ffffff' : '#d8deea'}
         />

@@ -128,6 +128,32 @@ The launcher:
 7. Opens the browser unless `-NoBrowser` is used.
 8. Writes a local launcher log to the Desktop.
 
+## macOS Beta Installer
+
+MacBook beta testers can install the local source build with the bundled macOS installer script. It creates the backend virtual environment, installs frontend dependencies, uses local SQLite mode, and adds a double-click launcher to the Desktop.
+
+Prerequisites:
+
+- macOS with Python 3.11+ on `PATH`
+- Node.js with `npm`
+
+From the repository root:
+
+```bash
+chmod +x install-macos.sh
+./install-macos.sh
+```
+
+After installation, double-click `Consolidation Discord Bot.command` on the Desktop. The launcher starts the backend on `8003`, starts the Expo web frontend on `3003`, and opens the dashboard. Logs are written to `~/Desktop/Consolidation-Discord-Bot.log`.
+
+Manual launch options:
+
+```bash
+./install-macos.sh --launch
+./install-macos.sh --launch --install-deps
+./install-macos.sh --launch --backend-port 8003 --frontend-port 3003 --no-browser
+```
+
 ## Manual Local Start
 
 Backend:

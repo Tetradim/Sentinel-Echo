@@ -9,6 +9,26 @@ BACKEND_DIR = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(BACKEND_DIR))
 
 
+def collect_route_contracts(routes, prefix=""):
+    contracts = set()
+    for route in routes:
+        include_context = getattr(route, "include_context", None)
+        included_router = getattr(include_context, "included_router", None)
+        if included_router is not None:
+            nested_prefix = f"{prefix}{getattr(included_router, 'prefix', '')}"
+            contracts.update(collect_route_contracts(included_router.routes, nested_prefix))
+            continue
+
+        path = getattr(route, "path", None)
+        methods = getattr(route, "methods", None)
+        if not path or not methods:
+            continue
+        method = next(iter(methods - {"HEAD", "OPTIONS"}), "")
+        if method:
+            contracts.add((method, f"{prefix}{path}"))
+    return contracts
+
+
 class FakeTradingDb:
     def __init__(self):
         self.trade = {
@@ -109,11 +129,7 @@ class OperatorRouteContractTests(unittest.TestCase):
     def test_app_exposes_routes_used_by_operator_screens(self):
         from server import app
 
-        routes = {
-            (next(iter(route.methods - {"HEAD", "OPTIONS"}), ""), route.path)
-            for route in app.routes
-            if hasattr(route, "methods")
-        }
+        routes = collect_route_contracts(app.routes)
 
         self.assertIn(("POST", "/api/trades/{trade_id}/close"), routes)
         self.assertIn(("PUT", "/api/trades/{trade_id}/price"), routes)
@@ -124,6 +140,11 @@ class OperatorRouteContractTests(unittest.TestCase):
         self.assertIn(("GET", "/api/operator/events"), routes)
         self.assertIn(("POST", "/api/operator/test-alert"), routes)
         self.assertIn(("POST", "/api/operator/simulate-exit"), routes)
+        self.assertIn(("GET", "/api/operator/live-readiness"), routes)
+        self.assertIn(("POST", "/api/operator/live-arm"), routes)
+        self.assertIn(("POST", "/api/operator/live-disarm"), routes)
+        self.assertIn(("POST", "/api/operator/panic-stop"), routes)
+        self.assertIn(("GET", "/api/operator/reconciliation"), routes)
 
     def test_operator_test_alert_creates_records_and_event(self):
         from routes import operator as operator_route

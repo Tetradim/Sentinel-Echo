@@ -78,6 +78,48 @@ class TradeLifecycleTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             build_exit_plans(positions, alert)
 
+    def test_broad_exit_alert_blocks_when_multiple_positions_match(self):
+        from trade_lifecycle import build_exit_plans
+
+        positions = [
+            {
+                "id": "pos-1",
+                "ticker": "SPY",
+                "strike": 749.0,
+                "option_type": "PUT",
+                "expiration": "6/21",
+                "entry_price": 1.00,
+                "current_price": 1.20,
+                "remaining_quantity": 1,
+                "status": "open",
+            },
+            {
+                "id": "pos-2",
+                "ticker": "SPY",
+                "strike": 753.0,
+                "option_type": "PUT",
+                "expiration": "6/21",
+                "entry_price": 1.00,
+                "current_price": 1.30,
+                "remaining_quantity": 1,
+                "status": "open",
+            },
+        ]
+        alert = {
+            "alert_type": "trim",
+            "ticker": "SPY",
+            "strike": None,
+            "option_type": "PUT",
+            "expiration": None,
+            "sell_percentage": 75.0,
+            "entry_price": 1.25,
+        }
+
+        with self.assertRaises(ValueError) as caught:
+            build_exit_plans(positions, alert)
+
+        self.assertIn("ambiguous exit alert", str(caught.exception))
+
     def test_live_exit_plans_exclude_simulated_shadow_positions(self):
         from trade_lifecycle import build_exit_plans
 

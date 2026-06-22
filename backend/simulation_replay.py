@@ -3,7 +3,9 @@ from __future__ import annotations
 import os
 from typing import Any
 
+from risk import calculate_position_size
 from source_config import resolve_source_config, source_skip_reason
+from source_config import apply_source_quantity_limits
 from utils import parse_alert
 
 
@@ -89,13 +91,14 @@ def build_replay_preview(replay: dict[str, Any], settings: dict[str, Any] | None
         if price_drift.get("price_drift_alert"):
             drift_alert_count += 1
 
-        would_insert_alert = bool(parsed and not skip_reason)
-        would_request_trade = bool(
-            would_insert_alert
-            and settings.get("auto_trading_enabled", False)
-            and not settings.get("shutdown_triggered", False)
-            and not source_config.get("require_manual_confirm")
+        execution_preview = _build_execution_preview(
+            settings,
+            parsed,
+            source_config,
+            skip_reason,
         )
+        would_insert_alert = bool(execution_preview["would_insert_alert"])
+        would_request_trade = bool(execution_preview["would_request_trade"])
         if would_request_trade:
             would_request_trade_count += 1
 
@@ -110,6 +113,7 @@ def build_replay_preview(replay: dict[str, Any], settings: dict[str, Any] | None
                 "skip_reason": skip_reason,
                 "would_insert_alert": would_insert_alert,
                 "would_request_trade": would_request_trade,
+                "execution_preview": execution_preview,
                 "market_context": {
                     "snapshot": market_snapshot,
                     "price_drift": price_drift or None,
@@ -126,4 +130,68 @@ def build_replay_preview(replay: dict[str, Any], settings: dict[str, Any] | None
         "would_request_trade_count": would_request_trade_count,
         "drift_alert_count": drift_alert_count,
         "results": results,
+    }
+
+
+def _build_execution_preview(
+    settings: dict[str, Any],
+    parsed: dict[str, Any] | None,
+    source_config: dict[str, Any],
+    skip_reason: str | None,
+) -> dict[str, Any]:
+    auto_trading_enabled = bool(settings.get("auto_trading_enabled", False))
+    shutdown_triggered = bool(settings.get("shutdown_triggered", False))
+    simulation_mode = bool(settings.get("simulation_mode", True)) or bool(
+        source_config.get("paper_only", False)
+    )
+
+    reason = skip_reason
+    if reason is None and not auto_trading_enabled:
+        reason = "auto trading disabled"
+    if reason is None and shutdown_triggered:
+        reason = "shutdown triggered"
+    if reason is None and source_config.get("require_manual_confirm"):
+        reason = "manual confirmation required"
+
+    would_create_paper_shadow = bool(
+        parsed
+        and reason is None
+        and source_config.get("paper_shadow")
+        and not simulation_mode
+    )
+
+    quantity = None
+    uncapped_quantity = None
+    estimated_premium_cost = None
+    uncapped_premium_cost = None
+    if parsed and str(parsed.get("alert_type", "")).lower() in {"buy", "average_down"}:
+        entry_price = parsed.get("entry_price")
+        if entry_price:
+            entry_price = float(entry_price)
+            uncapped_quantity = calculate_position_size(
+                entry_price=entry_price,
+                default_quantity=int(settings.get("default_quantity", 1)),
+                max_position_size=float(settings.get("max_position_size", 1000.0)),
+                risk_multiplier=source_config.get("risk_multiplier", 1.0),
+            )
+            quantity = apply_source_quantity_limits(uncapped_quantity, source_config)
+            estimated_premium_cost = round(entry_price * quantity * 100, 2)
+            uncapped_premium_cost = round(entry_price * uncapped_quantity * 100, 2)
+            if quantity <= 0 and reason is None:
+                reason = "position size exceeds max_position_size"
+
+    return {
+        "would_insert_alert": bool(parsed and skip_reason is None),
+        "would_request_trade": bool(parsed and reason is None),
+        "would_create_paper_shadow": would_create_paper_shadow,
+        "reason": reason,
+        "auto_trading_enabled": auto_trading_enabled,
+        "simulation_mode": simulation_mode,
+        "quantity": quantity,
+        "uncapped_quantity": uncapped_quantity,
+        "estimated_premium_cost": estimated_premium_cost,
+        "uncapped_premium_cost": uncapped_premium_cost,
+        "risk_multiplier": source_config.get("risk_multiplier", 1.0),
+        "max_contracts": source_config.get("max_contracts"),
+        "parser_format": source_config.get("parser_format", "default"),
     }

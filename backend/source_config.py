@@ -141,6 +141,8 @@ def source_skip_reason(parsed_alert: Dict[str, Any], source_config: Dict[str, An
 
 
 def apply_source_quantity_limits(quantity: int, source_config: Dict[str, Any]) -> int:
+    if int(quantity) <= 0:
+        return 0
     max_contracts = source_config.get("max_contracts")
     if max_contracts is None:
         return max(1, int(quantity))

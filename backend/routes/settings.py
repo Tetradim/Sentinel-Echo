@@ -11,9 +11,16 @@ from datetime import datetime, timezone
 import logging
 import os
 from typing import Any, Dict, Optional
+from operator_audit import record_operator_event
 from source_config import normalize_source_overrides
 # C4: credential encryption at rest
-from utils.credentials import encrypt_broker_configs, decrypt_broker_configs
+from utils.credentials import (
+    SENSITIVE_FIELDS,
+    decrypt_broker_configs,
+    encrypt_broker_configs,
+    is_masked_secret,
+    mask_broker_configs,
+)
 
 router = APIRouter(tags=["Settings"])
 logger = logging.getLogger(__name__)
@@ -28,16 +35,43 @@ def set_db(database):
     db = database
 
 
+def _settings_response(settings: Dict[str, Any] | None) -> Dict[str, Any]:
+    """Return settings safe for API clients: no plaintext broker credentials."""
+    if not settings:
+        settings = Settings().model_dump()
+    response = dict(settings)
+    if response.get("broker_configs"):
+        decrypted = decrypt_broker_configs(response["broker_configs"])
+        response["broker_configs"] = mask_broker_configs(decrypted)
+    return response
+
+
+def _merge_broker_configs(
+    existing_configs: Dict[str, Dict[str, Any]],
+    incoming_configs: Dict[str, Dict[str, Any]],
+) -> Dict[str, Dict[str, Any]]:
+    """Merge partial broker updates while preserving masked existing secrets."""
+    merged_configs = dict(existing_configs)
+    for broker_id, config in incoming_configs.items():
+        clean_config = {
+            key: value
+            for key, value in (config or {}).items()
+            if key != "configured_fields"
+        }
+        merged = dict(existing_configs.get(broker_id, {}))
+        for key, value in clean_config.items():
+            if key in SENSITIVE_FIELDS and is_masked_secret(value):
+                continue
+            merged[key] = value
+        merged_configs[broker_id] = merged
+    return merged_configs
+
+
 @router.get("/settings")
 async def get_settings():
-    """Get all settings -- broker_configs returned with credentials decrypted."""
+    """Get all settings with broker credentials masked for client safety."""
     settings = await db.get_settings()
-    if not settings:
-        return Settings().model_dump()
-    # C4: decrypt broker credentials before returning to the frontend
-    if settings.get('broker_configs'):
-        settings['broker_configs'] = decrypt_broker_configs(settings['broker_configs'])
-    return settings
+    return _settings_response(settings)
 
 
 @router.put("/settings")
@@ -46,20 +80,19 @@ async def update_settings(update: SettingsUpdate):
     update_dict = {k: v for k, v in update.model_dump().items() if v is not None}
     # C4: broker screens save one config at a time, so merge before encryption.
     if 'broker_configs' in update_dict:
-        existing_settings = await db.get_settings()
+        existing_settings = await db.get_settings() or {}
         existing_configs = decrypt_broker_configs(existing_settings.get('broker_configs', {}))
-        merged_configs = dict(existing_configs)
-        for broker_id, config in update_dict['broker_configs'].items():
-            merged_configs[broker_id] = {
-                **existing_configs.get(broker_id, {}),
-                **(config or {}),
-            }
+        merged_configs = _merge_broker_configs(existing_configs, update_dict['broker_configs'])
         update_dict['broker_configs'] = encrypt_broker_configs(merged_configs)
     settings = await db.update_settings(update_dict)
-    # Decrypt for the response so the frontend sees plaintext
-    if settings.get('broker_configs'):
-        settings['broker_configs'] = decrypt_broker_configs(settings['broker_configs'])
-    return settings
+    await record_operator_event(
+        db,
+        "settings",
+        "settings_updated",
+        "Settings updated.",
+        details={"fields": sorted(update_dict.keys()), "updates": update_dict},
+    )
+    return _settings_response(settings)
 
 
 @router.get("/source-overrides")
@@ -105,12 +138,41 @@ async def update_correlation_settings(max_positions_per_ticker: int):
 @router.post("/toggle-trading")
 async def toggle_trading():
     """Toggle auto trading on/off"""
-    # FIXED C15: write DB first, update memory second
-    from routes.health import bot_status, update_bot_status
-    current = bot_status.get("auto_trading_enabled", False)
+    # Persisted settings are the source of truth for Discord ingestion.
+    from routes.health import update_bot_status
+    settings = await db.get_settings()
+    current = bool((settings or {}).get("auto_trading_enabled", False))
     new_state = not current
+    if new_state and not bool((settings or {}).get("simulation_mode", True)):
+        from live_readiness import evaluate_live_readiness
+        from routes.health import get_bot_status
+
+        candidate_settings = dict(settings or {})
+        candidate_settings["auto_trading_enabled"] = True
+        runtime = await db.get_runtime_state() if hasattr(db, "get_runtime_state") else {}
+        readiness = evaluate_live_readiness(candidate_settings, runtime, status=get_bot_status())
+        if not readiness.get("ready_for_live", False):
+            await record_operator_event(
+                db,
+                "live_safety",
+                "auto_trading_enable_blocked",
+                "Auto trading enable was blocked by live readiness checks.",
+                severity="warning",
+                details={"blocking_issues": readiness.get("blocking_issues", [])},
+            )
+            raise HTTPException(status_code=409, detail=readiness)
     await db.update_settings({"auto_trading_enabled": new_state})
+    if hasattr(db, "update_runtime_state"):
+        await db.update_runtime_state({"auto_trading_enabled": new_state})
     update_bot_status("auto_trading_enabled", new_state)
+    await record_operator_event(
+        db,
+        "live_safety",
+        "auto_trading_toggled",
+        f"Auto trading {'enabled' if new_state else 'disabled'}.",
+        severity="warning" if new_state else "info",
+        details={"auto_trading_enabled": new_state},
+    )
     return {"auto_trading_enabled": new_state}
 
 
@@ -330,7 +392,25 @@ async def reset_loss_counters(x_admin_key: Optional[str] = Header(default=None))
     # Only enforce admin key check if ADMIN_API_KEY is configured
     if admin_key and x_admin_key != admin_key:
         raise HTTPException(status_code=403, detail="Admin key required to reset loss counters")
-    from routes.health import bot_status
+    from routes.health import bot_status, get_bot_status
+    settings = await db.get_settings()
+    if not bool((settings or {}).get("simulation_mode", True)):
+        from live_readiness import evaluate_live_readiness
+
+        candidate_settings = dict(settings or {})
+        candidate_settings["auto_trading_enabled"] = True
+        runtime = await db.get_runtime_state() if hasattr(db, "get_runtime_state") else {}
+        readiness = evaluate_live_readiness(candidate_settings, runtime, status=get_bot_status())
+        if not readiness.get("ready_for_live", False):
+            await record_operator_event(
+                db,
+                "live_safety",
+                "loss_counter_reset_blocked",
+                "Loss counter reset trading re-enable was blocked by live readiness checks.",
+                severity="warning",
+                details={"blocking_issues": readiness.get("blocking_issues", [])},
+            )
+            raise HTTPException(status_code=409, detail=readiness)
     # M6/C16: use the atomic reset method
     await db.reset_loss_counters()
     await db.update_settings({'auto_trading_enabled': True})

@@ -2,7 +2,9 @@
 Broker management endpoints
 """
 from fastapi import APIRouter, HTTPException
+from broker_capabilities import get_broker_capabilities
 from models import BrokerType, BrokerInfo
+from operator_audit import record_operator_event
 
 router = APIRouter(tags=["Brokers"])
 
@@ -58,7 +60,12 @@ BROKERS_INFO = [
 @router.get("/brokers")
 async def get_brokers():
     """Get list of supported brokers"""
-    return [b.model_dump() for b in BROKERS_INFO]
+    brokers = []
+    for broker in BROKERS_INFO:
+        payload = broker.model_dump()
+        payload["capabilities"] = get_broker_capabilities(payload["id"])
+        brokers.append(payload)
+    return brokers
 
 
 @router.get("/active-broker")
@@ -86,6 +93,14 @@ async def set_active_broker(broker_id: str):
         )
     await db.update_settings({"active_broker": broker_id})
     update_bot_status("active_broker", broker_type)
+    await record_operator_event(
+        db,
+        "broker",
+        "active_broker_switched",
+        f"Active broker switched to {broker_id}.",
+        severity="warning",
+        details={"active_broker": broker_id},
+    )
     return {"active_broker": broker_id}
 
 
@@ -112,6 +127,7 @@ async def check_broker_alias(broker_id: str):
         return {
             "connected": False,
             "broker": broker_id,
+            "capabilities": get_broker_capabilities(broker_id),
             "message": f"Broker '{broker_id}' has no saved configuration.",
         }
 
@@ -137,5 +153,6 @@ async def check_broker_alias(broker_id: str):
     return {
         "connected": connected,
         "broker": broker_id,
+        "capabilities": get_broker_capabilities(broker_id),
         "message": "Connection successful" if connected else "Connection check failed",
     }

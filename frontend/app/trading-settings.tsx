@@ -138,6 +138,7 @@ function ToggleRow({
       <Switch
         value={value}
         onValueChange={onValueChange}
+        accessibilityLabel={title}
         trackColor={{ false: '#29213a', true: '#164766' }}
         thumbColor={value ? '#f43f5e' : '#68779b'}
       />

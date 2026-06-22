@@ -54,6 +54,8 @@ def evaluate_bridge_health() -> dict[str, Any]:
             issues.append(f"chrome bridge heartbeat is stale ({int(age_seconds)}s old)")
         if heartbeat.get("status") not in {"ok", "disabled"}:
             issues.append(f"chrome bridge reported {heartbeat.get('status')}")
+        if not heartbeat.get("bridge_enabled", False):
+            issues.append("chrome bridge is disabled")
 
     healthy = not issues
     status = {
