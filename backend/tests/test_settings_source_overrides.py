@@ -14,6 +14,7 @@ class FakeSettingsDb:
         self.updated = []
         self.runtime_updates = []
         self.loss_counters_reset = 0
+        self.operator_events = []
 
     async def get_settings(self):
         return dict(self.settings)
@@ -36,6 +37,10 @@ class FakeSettingsDb:
 
     async def reset_loss_counters(self):
         self.loss_counters_reset += 1
+
+    async def insert_operator_event(self, event):
+        self.operator_events.append(event)
+        return event["id"]
 
 
 class SourceOverrideRouteTests(unittest.TestCase):
@@ -190,6 +195,31 @@ class SourceOverrideRouteTests(unittest.TestCase):
 
         self.assertEqual(raised.exception.status_code, 409)
         self.assertEqual(fake_db.updated, [])
+
+    def test_toggle_trading_block_audit_normalizes_malformed_blocking_issues(self):
+        from fastapi import HTTPException
+        from unittest.mock import patch
+        from routes import settings as settings_route
+
+        fake_db = FakeSettingsDb(
+            {
+                "auto_trading_enabled": False,
+                "simulation_mode": False,
+                "active_broker": "alpaca",
+                "broker_configs": {},
+                "source_overrides": {},
+            }
+        )
+        settings_route.set_db(fake_db)
+
+        with patch(
+            "live_readiness.evaluate_live_readiness",
+            return_value={"ready_for_live": False, "blocking_issues": "blocked"},
+        ):
+            with self.assertRaises(HTTPException):
+                asyncio.run(settings_route.toggle_trading())
+
+        self.assertEqual(fake_db.operator_events[-1]["details"]["blocking_issues"], [])
 
     def test_reset_loss_counters_blocks_live_reenable_when_readiness_fails(self):
         from fastapi import HTTPException

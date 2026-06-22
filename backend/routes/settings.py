@@ -35,6 +35,10 @@ def set_db(database):
     db = database
 
 
+def _list_or_empty(value: Any) -> list[Any]:
+    return value if isinstance(value, list) else []
+
+
 def _settings_response(settings: Dict[str, Any] | None) -> Dict[str, Any]:
     """Return settings safe for API clients: no plaintext broker credentials."""
     if not settings:
@@ -158,7 +162,7 @@ async def toggle_trading():
                 "auto_trading_enable_blocked",
                 "Auto trading enable was blocked by live readiness checks.",
                 severity="warning",
-                details={"blocking_issues": readiness.get("blocking_issues", [])},
+                details={"blocking_issues": _list_or_empty(readiness.get("blocking_issues"))},
             )
             raise HTTPException(status_code=409, detail=readiness)
     await db.update_settings({"auto_trading_enabled": new_state})
