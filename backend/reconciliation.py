@@ -204,6 +204,13 @@ async def build_alert_chain_report(db, *, limit: int = 100) -> Dict[str, Any]:
         "trade_linked_count": sum(1 for row in rows if row["trade_id"]),
         "position_linked_count": sum(1 for row in rows if row["position_id"]),
         "attention_count": sum(1 for row in rows if row["status"] == "attention"),
+        "attention_reasons": sorted(
+            {
+                row["attention_reason"]
+                for row in rows
+                if row["status"] == "attention" and row["attention_reason"]
+            }
+        ),
         "deterministic_count": sum(1 for row in rows if row["deterministic"]),
     }
     summary["deterministic"] = summary["total"] > 0 and summary["deterministic_count"] == summary["total"]

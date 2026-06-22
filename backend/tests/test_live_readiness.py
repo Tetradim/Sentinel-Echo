@@ -551,6 +551,30 @@ class LiveReadinessTests(unittest.TestCase):
             ["order pending fill"],
         )
 
+    def test_live_readiness_blocks_alert_chain_attention(self):
+        from live_readiness import evaluate_live_readiness
+
+        result = evaluate_live_readiness(
+            READY_SETTINGS,
+            {"shutdown_triggered": False},
+            status={
+                "broker_connected": True,
+                "discord_connected": False,
+                "chrome_bridge_healthy": True,
+                "alert_chain_attention_count": 1,
+                "alert_chain_attention_reasons": ["accepted bridge alert missing alert id"],
+            },
+            env=READY_ENV,
+        )
+
+        self.assertIn("alert_chain_attention", result["blocking_codes"])
+        self.assertFalse(result["ready_for_live"])
+        self.assertEqual(result["checks"]["alert_chains"]["attention_count"], 1)
+        self.assertEqual(
+            result["checks"]["alert_chains"]["attention_reasons"],
+            ["accepted bridge alert missing alert id"],
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

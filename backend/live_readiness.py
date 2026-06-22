@@ -136,6 +136,8 @@ def evaluate_live_readiness(
     live_trading_armed = coerce_bool(runtime_state.get("live_trading_armed"), default=False)
     reconciliation_unresolved_count = _nonnegative_int(status.get("reconciliation_unresolved_count"))
     reconciliation_unresolved_reasons = _list_of_strings(status.get("reconciliation_unresolved_reasons"))
+    alert_chain_attention_count = _nonnegative_int(status.get("alert_chain_attention_count"))
+    alert_chain_attention_reasons = _list_of_strings(status.get("alert_chain_attention_reasons"))
 
     if not _env_value(env, "API_KEY") and not _authless_desktop_mode(env):
         blocking.append(_issue("api_key_missing", "API_KEY is required before exposing live trading controls."))
@@ -191,6 +193,13 @@ def evaluate_live_readiness(
                 "Broker/order reconciliation has unresolved real-money attention items.",
             )
         )
+    if alert_chain_attention_count > 0:
+        blocking.append(
+            _issue(
+                "alert_chain_attention",
+                "Alert chain report has nondeterministic attention items.",
+            )
+        )
 
     checks = {
         "api_auth": {"configured": bool(_env_value(env, "API_KEY")), "authless_desktop_mode": _authless_desktop_mode(env)},
@@ -223,6 +232,10 @@ def evaluate_live_readiness(
         "reconciliation": {
             "unresolved_count": reconciliation_unresolved_count,
             "unresolved_reasons": reconciliation_unresolved_reasons,
+        },
+        "alert_chains": {
+            "attention_count": alert_chain_attention_count,
+            "attention_reasons": alert_chain_attention_reasons,
         },
     }
 

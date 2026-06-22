@@ -259,6 +259,35 @@ class OperatorRouteContractTests(unittest.TestCase):
         self.assertEqual(response["rows"][0]["trade_id"], "trade-1")
         self.assertEqual(response["rows"][0]["position_id"], "pos-1")
 
+    def test_operator_live_readiness_payload_injects_alert_chain_attention(self):
+        from routes import operator as operator_route
+
+        fake_db = FakeTradingDb()
+        fake_db.inserted_events.append(
+            {
+                "id": "event-1",
+                "timestamp": "2026-06-22T14:30:00Z",
+                "action": "bridge_alert_decision",
+                "details": {
+                    "event_id": "bridge-1",
+                    "parsed": {"ticker": "SPY"},
+                    "decision": {
+                        "status": "accepted",
+                        "alert_inserted": True,
+                        "alert_id": "",
+                        "trade_requested": True,
+                        "trade_request_reason": "auto trading enabled",
+                    },
+                },
+            }
+        )
+        operator_route.set_db(fake_db)
+
+        response = asyncio.run(operator_route._live_readiness_payload())
+
+        self.assertIn("alert_chain_attention", response["blocking_codes"])
+        self.assertEqual(response["checks"]["alert_chains"]["attention_count"], 1)
+
     def test_operator_live_arm_block_audit_normalizes_malformed_blocking_issues(self):
         from fastapi import HTTPException
         from routes import operator as operator_route

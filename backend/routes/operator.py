@@ -52,8 +52,12 @@ async def _live_readiness_payload():
     status = dict(get_bot_status())
     status["chrome_bridge_healthy"] = status_flag(evaluate_bridge_health(), "healthy")
     reconciliation = summarize_reconciliation_rows(await build_reconciliation_rows(db, limit=500))
+    alert_chains = await build_alert_chain_report(db, limit=500)
+    alert_chain_summary = _dict_or_empty(alert_chains.get("summary"))
     status["reconciliation_unresolved_count"] = reconciliation["unresolved_count"]
     status["reconciliation_unresolved_reasons"] = reconciliation["unresolved_reasons"]
+    status["alert_chain_attention_count"] = alert_chain_summary.get("attention_count", 0)
+    status["alert_chain_attention_reasons"] = alert_chain_summary.get("attention_reasons", [])
     return evaluate_live_readiness(settings, runtime, status=status)
 
 
