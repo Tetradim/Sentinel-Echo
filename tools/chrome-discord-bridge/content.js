@@ -32,8 +32,31 @@ chrome.storage.onChanged.addListener((changes, areaName) => {
   }
 });
 
+chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+  if (!message || message.type !== "consolidation:bridge-ping") {
+    return false;
+  }
+  if (message.restart) {
+    restartObserver();
+  } else {
+    startObserver();
+  }
+  sendResponse({
+    ok: true,
+    enabled,
+    observer_ready: Boolean(observer),
+    heartbeat_running: Boolean(heartbeatTimer),
+    channel_id: channelIdFromLocation(),
+  });
+  return false;
+});
+
 function startObserver() {
   if (observer) return;
+  if (!document.body) {
+    setTimeout(startObserver, 1000);
+    return;
+  }
   observer = new MutationObserver((records) => {
     if (!enabled) return;
     for (const record of records) {
@@ -52,6 +75,19 @@ function startObserver() {
   }
   console.info(BRIDGE_LOG_PREFIX, "observer ready");
   startHeartbeat();
+}
+
+function restartObserver() {
+  if (observer) {
+    observer.disconnect();
+    observer = null;
+  }
+  if (heartbeatTimer) {
+    clearInterval(heartbeatTimer);
+    heartbeatTimer = null;
+  }
+  startObserver();
+  publishHeartbeat("ok", { reason: "content_script_restart" });
 }
 
 function startHeartbeat() {

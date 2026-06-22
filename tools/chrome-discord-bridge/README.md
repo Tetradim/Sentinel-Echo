@@ -29,7 +29,9 @@ Use this only for Discord channels you can personally view in Chrome when the no
 - Consolidation parses the text through its existing Discord ingestion path.
 - Every accepted visible Discord message is also appended to the Cross Bot Event Bus as `signal.observed`.
 - Alert captures are permanently appended to market-day `.txt` files under `backend/data/alert-capture` by default.
-- The extension sends a heartbeat every 30 seconds through the same bundle. Consolidation records `bridge.health` events and emits `openclaw.attention.requested` when the bridge goes stale or reports forwarding errors.
+- The extension sends page heartbeats every 30 seconds and service-worker heartbeats every minute. Consolidation records `bridge.health` events and emits `openclaw.attention.requested` when the bridge goes stale or reports forwarding errors.
+- The service worker supervises open Discord tabs every minute. When forwarding, heartbeat, or content-script health checks fail, it re-injects the bridge content script and retries with exponential backoff from 5 seconds up to 5 minutes.
+- Chrome cannot let an extension restart itself after the user disables/uninstalls it or closes all Discord tabs. In those cases the supervisor records a disabled/no-tab heartbeat once the extension is running again.
 - Source policy still applies. Use `chrome_bridge_channel_ids` or source overrides keyed by the observed Discord channel id/name when needed.
 
 ## Cross Bot Event Bus

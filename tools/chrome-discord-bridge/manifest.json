@@ -2,8 +2,8 @@
   "manifest_version": 3,
   "name": "Consolidation Discord Chrome Bridge",
   "description": "Observes visible Discord messages in Chrome and forwards them to a local Consolidation backend.",
-  "version": "0.1.0",
-  "permissions": ["storage", "alarms"],
+  "version": "0.1.1",
+  "permissions": ["storage", "alarms", "scripting", "tabs"],
   "host_permissions": [
     "https://discord.com/*",
     "https://*.discord.com/*",
