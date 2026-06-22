@@ -5,6 +5,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Dict
 
 from operator_audit import record_operator_event
+from settings_flags import coerce_bool
 
 
 CONFIRMATION_PHRASE = "ARM LIVE TRADING"
@@ -64,7 +65,7 @@ async def arm_live_trading(
     if not _valid_duration_minutes(duration_minutes):
         raise ValueError("duration_minutes must be between 1 and 480.")
     readiness = _dict_or_empty(readiness)
-    if not readiness.get("ready_for_live", False):
+    if not coerce_bool(readiness.get("ready_for_live"), default=False):
         await record_operator_event(
             db,
             "live_safety",

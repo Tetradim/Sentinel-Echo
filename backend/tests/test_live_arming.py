@@ -160,6 +160,25 @@ class LiveArmingTests(unittest.TestCase):
         self.assertFalse(db.runtime["live_trading_armed"])
         self.assertEqual(db.events[-1]["action"], "live_trading_arm_blocked")
 
+    def test_arm_live_trading_treats_serialized_false_readiness_as_blocked(self):
+        from live_arming import arm_live_trading
+
+        db = FakeArmDb()
+
+        with self.assertRaises(RuntimeError):
+            asyncio.run(
+                arm_live_trading(
+                    db,
+                    duration_minutes=15,
+                    confirmation="ARM LIVE TRADING",
+                    readiness={"ready_for_live": "false", "blocking_issues": []},
+                    operator="tester",
+                )
+            )
+
+        self.assertFalse(db.runtime["live_trading_armed"])
+        self.assertEqual(db.events[-1]["action"], "live_trading_arm_blocked")
+
     def test_blocked_arm_audit_normalizes_malformed_blocking_issues(self):
         from live_arming import arm_live_trading
 
