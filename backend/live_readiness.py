@@ -53,7 +53,10 @@ def _configured_discord_channel_count(
         settings_channels = settings_channels.split(",")
     explicit_env_channels = _env_value(env, "DISCORD_CHANNEL_IDS")
     env_channels = explicit_env_channels.split(",") if explicit_env_channels else []
-    status_count = int(status.get("discord_channel_count") or status.get("channel_count") or 0)
+    status_count = max(
+        _nonnegative_int(status.get("discord_channel_count")),
+        _nonnegative_int(status.get("channel_count")),
+    )
     configured_channels = [
         str(channel_id).strip()
         for channel_id in [*settings_channels, *env_channels]
@@ -78,6 +81,16 @@ def _positive_float(value: Any) -> bool:
         return float(value or 0) > 0
     except (TypeError, ValueError):
         return False
+
+
+def _nonnegative_int(value: Any) -> int:
+    if isinstance(value, bool):
+        return 0
+    try:
+        parsed = int(value or 0)
+    except (TypeError, ValueError):
+        return 0
+    return max(parsed, 0)
 
 
 def _codes(issues: Iterable[Dict[str, str]]) -> set[str]:

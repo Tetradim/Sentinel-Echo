@@ -175,6 +175,35 @@ class LiveReadinessTests(unittest.TestCase):
         self.assertFalse(result["checks"]["signal_ingestion"]["discord_configured"])
         self.assertFalse(result["ready_for_live"])
 
+    def test_malformed_status_channel_count_does_not_crash_or_configure_discord(self):
+        from live_readiness import evaluate_live_readiness
+
+        settings = dict(READY_SETTINGS)
+        settings.update({"discord_token": "", "discord_channel_ids": []})
+
+        try:
+            result = evaluate_live_readiness(
+                settings,
+                {"shutdown_triggered": False},
+                status={
+                    "broker_connected": True,
+                    "discord_connected": True,
+                    "discord_token_configured": True,
+                    "discord_channel_count": "not-a-number",
+                    "chrome_bridge_healthy": False,
+                },
+                env=READY_ENV,
+            )
+        except (TypeError, ValueError) as exc:
+            self.fail(f"readiness should treat malformed channel counts as zero instead of raising: {exc}")
+        codes = {issue["code"] for issue in result["blocking_issues"]}
+        signal = result["checks"]["signal_ingestion"]
+
+        self.assertEqual(signal["discord_channel_count"], 0)
+        self.assertFalse(signal["discord_configured"])
+        self.assertIn("no_live_ingestion", codes)
+        self.assertFalse(result["ready_for_live"])
+
     def test_live_readiness_allows_chrome_bridge_as_alert_ingestion_path(self):
         from live_readiness import evaluate_live_readiness
 
