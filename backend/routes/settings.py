@@ -299,7 +299,7 @@ async def toggle_stop_loss():
 @router.get("/risk-management-settings")
 async def get_risk_management_settings():
     """Get risk management settings"""
-    settings = await db.get_settings()
+    settings = _dict_or_empty(await db.get_settings())
     return {
         "take_profit_enabled": settings.get('take_profit_enabled', False),
         "take_profit_percentage": settings.get('take_profit_percentage', 50.0),

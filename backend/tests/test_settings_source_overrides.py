@@ -244,6 +244,26 @@ class SourceOverrideRouteTests(unittest.TestCase):
             {"premium_buffer_enabled": False, "premium_buffer_amount": 10.0},
         )
 
+    def test_risk_management_settings_treats_malformed_settings_as_defaults(self):
+        from routes import settings as settings_route
+
+        fake_db = FakeRawSettingsDb("settings")
+        settings_route.set_db(fake_db)
+
+        response = asyncio.run(settings_route.get_risk_management_settings())
+
+        self.assertEqual(
+            response,
+            {
+                "take_profit_enabled": False,
+                "take_profit_percentage": 50.0,
+                "bracket_order_enabled": False,
+                "stop_loss_enabled": False,
+                "stop_loss_percentage": 25.0,
+                "stop_loss_order_type": "market",
+            },
+        )
+
     def test_toggle_trading_uses_persisted_setting_as_source_of_truth(self):
         from routes import settings as settings_route
         from routes.health import update_bot_status
