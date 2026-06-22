@@ -204,6 +204,33 @@ class LiveReadinessTests(unittest.TestCase):
         self.assertIn("no_live_ingestion", codes)
         self.assertFalse(result["ready_for_live"])
 
+    def test_malformed_saved_channel_ids_do_not_crash_or_configure_discord(self):
+        from live_readiness import evaluate_live_readiness
+
+        settings = dict(READY_SETTINGS)
+        settings.update({"discord_token": "discord-token", "discord_channel_ids": 12345})
+
+        try:
+            result = evaluate_live_readiness(
+                settings,
+                {"shutdown_triggered": False},
+                status={
+                    "broker_connected": True,
+                    "discord_connected": True,
+                    "chrome_bridge_healthy": False,
+                },
+                env=READY_ENV,
+            )
+        except TypeError as exc:
+            self.fail(f"readiness should treat malformed saved channel ids as empty instead of raising: {exc}")
+        codes = {issue["code"] for issue in result["blocking_issues"]}
+        signal = result["checks"]["signal_ingestion"]
+
+        self.assertEqual(signal["discord_channel_count"], 0)
+        self.assertFalse(signal["discord_configured"])
+        self.assertIn("no_live_ingestion", codes)
+        self.assertFalse(result["ready_for_live"])
+
     def test_live_readiness_allows_chrome_bridge_as_alert_ingestion_path(self):
         from live_readiness import evaluate_live_readiness
 

@@ -48,11 +48,9 @@ def _configured_discord_channel_count(
     status: Dict[str, Any],
     env: Dict[str, str] | None,
 ) -> int:
-    settings_channels = settings.get("discord_channel_ids") or []
-    if isinstance(settings_channels, str):
-        settings_channels = settings_channels.split(",")
+    settings_channels = _channel_id_values(settings.get("discord_channel_ids"))
     explicit_env_channels = _env_value(env, "DISCORD_CHANNEL_IDS")
-    env_channels = explicit_env_channels.split(",") if explicit_env_channels else []
+    env_channels = _channel_id_values(explicit_env_channels)
     status_count = max(
         _nonnegative_int(status.get("discord_channel_count")),
         _nonnegative_int(status.get("channel_count")),
@@ -72,6 +70,16 @@ def _discord_configured(settings: Dict[str, Any], status: Dict[str, Any], env: D
         or bool(status.get("discord_token_configured", False))
     )
     return token_configured and _configured_discord_channel_count(settings, status, env) > 0
+
+
+def _channel_id_values(value: Any) -> list[Any]:
+    if not value:
+        return []
+    if isinstance(value, str):
+        return value.split(",")
+    if isinstance(value, (list, tuple, set)):
+        return list(value)
+    return []
 
 
 def _positive_float(value: Any) -> bool:
