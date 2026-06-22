@@ -43,6 +43,10 @@ def _auto_live_source_count(source_overrides: Dict[str, Any]) -> tuple[int, bool
     return count, True, ""
 
 
+def _dict_or_empty(value: Any) -> Dict[str, Any]:
+    return value if isinstance(value, dict) else {}
+
+
 def _configured_discord_channel_count(
     settings: Dict[str, Any],
     status: Dict[str, Any],
@@ -120,7 +124,7 @@ def evaluate_live_readiness(
     warnings: List[Dict[str, str]] = []
 
     active_broker = str(settings.get("active_broker") or "ibkr").lower()
-    broker_configs = settings.get("broker_configs") or {}
+    broker_configs = _dict_or_empty(settings.get("broker_configs"))
     capabilities = get_broker_capabilities(active_broker)
     auto_live_sources, source_config_valid, source_error = _auto_live_source_count(
         settings.get("source_overrides") or {}

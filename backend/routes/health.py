@@ -100,7 +100,7 @@ async def setup_diagnostics():
     channel_ids = settings.get("discord_channel_ids") or []
 
     active_broker = str(settings.get("active_broker") or "").lower() or "ibkr"
-    broker_configs = settings.get("broker_configs") or {}
+    broker_configs = _dict_or_empty(settings.get("broker_configs"))
     broker_configured = active_broker in broker_configs
     broker_capabilities = get_broker_capabilities(active_broker)
     order_status_supported = broker_configured and bool(
@@ -190,6 +190,10 @@ def _discord_token_configured(settings: dict, status: dict) -> bool:
         or bool(os.environ.get("DISCORD_BOT_TOKEN", "").strip())
         or bool(status.get("discord_token_configured", False))
     )
+
+
+def _dict_or_empty(value) -> dict:
+    return value if isinstance(value, dict) else {}
 
 
 def _setup_warnings(

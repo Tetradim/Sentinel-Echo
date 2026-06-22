@@ -225,6 +225,39 @@ class SetupDiagnosticsTests(unittest.TestCase):
         self.assertEqual(result["discord"]["channel_count"], 2)
         self.assertNotIn("environment-discord-secret", str(result))
 
+    def test_setup_diagnostics_does_not_count_malformed_broker_configs(self):
+        from routes import health as health_route
+
+        health_route.set_db(
+            FakeDiagnosticsDb(
+                {
+                    "discord_token": "discord-secret-token",
+                    "discord_channel_ids": ["123"],
+                    "active_broker": "alpaca",
+                    "broker_configs": "alpaca",
+                    "source_overrides": {
+                        "alerts": {
+                            "paper_only": False,
+                            "require_manual_confirm": False,
+                        }
+                    },
+                    "auto_trading_enabled": True,
+                    "simulation_mode": False,
+                    "max_position_size": 1000.0,
+                    "shutdown_triggered": False,
+                }
+            )
+        )
+        health_route.update_bot_status("discord_connected", True)
+        health_route.update_bot_status("broker_connected", True)
+
+        result = asyncio.run(health_route.setup_diagnostics())
+
+        self.assertFalse(result["broker"]["configured"])
+        self.assertFalse(result["broker"]["order_status_supported"])
+        self.assertIn("active_broker_not_configured", result["readiness"]["blocking_codes"])
+        self.assertIn("Active broker is not configured.", result["warnings"])
+
     def test_setup_diagnostics_reports_live_ready_without_exposing_secrets(self):
         from routes import health as health_route
 

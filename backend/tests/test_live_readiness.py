@@ -116,6 +116,24 @@ class LiveReadinessTests(unittest.TestCase):
 
         self.assertIn("broker_order_status_unsupported", codes)
 
+    def test_malformed_broker_configs_do_not_count_active_broker_configured(self):
+        from live_readiness import evaluate_live_readiness
+
+        settings = dict(READY_SETTINGS)
+        settings["broker_configs"] = "alpaca"
+
+        result = evaluate_live_readiness(
+            settings,
+            {"shutdown_triggered": False},
+            status={"broker_connected": True, "discord_connected": True},
+            env=READY_ENV,
+        )
+        codes = {issue["code"] for issue in result["blocking_issues"]}
+
+        self.assertIn("active_broker_not_configured", codes)
+        self.assertFalse(result["checks"]["broker"]["configured"])
+        self.assertFalse(result["ready_for_live"])
+
     def test_invalid_max_position_size_reports_blocker_without_crashing(self):
         from live_readiness import evaluate_live_readiness
 
