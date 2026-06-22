@@ -87,6 +87,27 @@ class LiveArmingTests(unittest.TestCase):
         self.assertFalse(disarmed["live_trading_armed"])
         self.assertEqual(db.events[-1]["action"], "live_trading_disarmed")
 
+    def test_arm_live_trading_returns_requested_armed_state_when_update_response_is_malformed(self):
+        from live_arming import arm_live_trading, is_live_trading_armed
+
+        db = FakeMalformedRuntimeUpdateDb()
+
+        armed = asyncio.run(
+            arm_live_trading(
+                db,
+                duration_minutes=15,
+                confirmation="ARM LIVE TRADING",
+                readiness={"ready_for_live": True, "blocking_issues": []},
+                operator="tester",
+                reason="malformed response test",
+            )
+        )
+
+        self.assertTrue(armed["live_trading_armed"])
+        self.assertTrue(is_live_trading_armed(armed))
+        self.assertEqual(armed["live_trading_armed_by"], "tester")
+        self.assertEqual(db.events[-1]["action"], "live_trading_armed")
+
     def test_disarm_live_trading_returns_requested_unarmed_state_when_update_response_is_malformed(self):
         from live_arming import disarm_live_trading
 

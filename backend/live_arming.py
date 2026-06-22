@@ -63,16 +63,16 @@ async def arm_live_trading(
         raise RuntimeError("Live readiness has blocking issues.")
 
     expires_at = datetime.now(timezone.utc) + timedelta(minutes=duration_minutes)
-    runtime = await db.update_runtime_state(
-        {
-            "live_trading_armed": True,
-            "live_trading_armed_until": expires_at.isoformat(),
-            "live_trading_armed_by": operator,
-            "live_trading_arm_reason": reason,
-            "shutdown_triggered": False,
-            "shutdown_reason": "",
-        }
-    )
+    runtime_updates = {
+        "live_trading_armed": True,
+        "live_trading_armed_until": expires_at.isoformat(),
+        "live_trading_armed_by": operator,
+        "live_trading_arm_reason": reason,
+        "shutdown_triggered": False,
+        "shutdown_reason": "",
+    }
+    runtime = await db.update_runtime_state(runtime_updates)
+    runtime = runtime if isinstance(runtime, dict) else runtime_updates
     await record_operator_event(
         db,
         "live_safety",
