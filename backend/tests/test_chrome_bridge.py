@@ -363,6 +363,43 @@ class ChromeBridgeRouteTests(unittest.TestCase):
         self.assertEqual(fake_db.alerts, [])
         self.assertEqual(fake_db.operator_events[-1]["details"]["source"]["key"], "chrome-alerts")
 
+    def test_chrome_bridge_audit_records_source_metadata_policy_proof_for_accepted_alert(self):
+        from routes import discord as discord_route
+
+        fake_db = FakeChromeBridgeDb(
+            {
+                "auto_trading_enabled": False,
+                "source_overrides": {
+                    "chrome-alerts": {
+                        "allowed_channel_urls": ["https://discord.com/channels/1/approved"],
+                        "allowed_author_ids": ["mike"],
+                        "min_parser_confidence": "medium",
+                    }
+                },
+            }
+        )
+        discord_route.set_db(fake_db)
+
+        request = types.SimpleNamespace(client=types.SimpleNamespace(host="127.0.0.1"))
+        payload = discord_route.ChromeBridgeMessage(
+            event_id="chrome-source-metadata-proof",
+            channel_id="chrome-alerts",
+            channel_name="chrome-alerts",
+            channel_url="https://discord.com/channels/1/approved",
+            author_id="mike",
+            author_name="MikeInvesting",
+            content="BTO SPY 500C 6/21 @ 1.25",
+        )
+
+        result = asyncio.run(discord_route.ingest_chrome_bridge_message(payload, request))
+
+        source = fake_db.operator_events[-1]["details"]["source"]
+        self.assertEqual(result["status"], "accepted")
+        self.assertTrue(source["channel_url_allowed"])
+        self.assertTrue(source["author_id_allowed"])
+        self.assertTrue(source["parser_confidence_allowed"])
+        self.assertTrue(source["metadata_policy_passed"])
+
 
 if __name__ == "__main__":
     unittest.main()

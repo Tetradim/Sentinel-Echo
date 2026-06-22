@@ -15,6 +15,7 @@ from risk import calculate_position_size
 from source_config import (
     apply_source_quantity_limits,
     resolve_source_config,
+    source_metadata_policy_report,
     source_metadata_skip_reason,
     source_skip_reason,
 )
@@ -651,6 +652,12 @@ async def _record_chrome_bridge_alert_audit(
                 "paper_only": source_config.get("paper_only"),
                 "require_manual_confirm": source_config.get("require_manual_confirm"),
                 "min_parser_confidence": source_config.get("min_parser_confidence"),
+                **source_metadata_policy_report(
+                    source_config,
+                    channel_url=payload.channel_url,
+                    author_id=payload.author_id,
+                    parser_confidence=parser_metadata.get("confidence"),
+                ),
             },
             "decision": ingestion_result,
         },

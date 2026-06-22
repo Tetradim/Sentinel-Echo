@@ -239,22 +239,58 @@ def source_metadata_skip_reason(
     parser_confidence: Any = None,
 ) -> Optional[str]:
     """Return a skip reason for non-alert source metadata such as bridge origin."""
+    proof = source_metadata_policy_report(
+        source_config,
+        channel_url=channel_url,
+        author_id=author_id,
+        parser_confidence=parser_confidence,
+    )
+    if not proof["parser_confidence_allowed"]:
+        return (
+            f"parser confidence {proof['observed_parser_confidence']} "
+            f"below required {proof['min_parser_confidence']}"
+        )
+    if not proof["channel_url_allowed"]:
+        return "channel URL not allowed for source"
+    if not proof["author_id_allowed"]:
+        return "author not allowed for source"
+
+    return None
+
+
+def source_metadata_policy_report(
+    source_config: Dict[str, Any],
+    *,
+    channel_url: Any = None,
+    author_id: Any = None,
+    parser_confidence: Any = None,
+) -> Dict[str, Any]:
+    """Return auditable source metadata policy proof for bridge-originated alerts."""
     min_confidence = _normalize_parser_confidence(
         source_config.get("min_parser_confidence", "medium")
     )
     observed_confidence = _normalize_parser_confidence(parser_confidence or "none")
-    if PARSER_CONFIDENCE_LEVELS[observed_confidence] < PARSER_CONFIDENCE_LEVELS[min_confidence]:
-        return f"parser confidence {observed_confidence} below required {min_confidence}"
-
     allowed_channel_urls = set(source_config.get("allowed_channel_urls") or [])
-    if allowed_channel_urls and _normalize_url(channel_url) not in allowed_channel_urls:
-        return "channel URL not allowed for source"
-
     allowed_author_ids = set(source_config.get("allowed_author_ids") or [])
-    if allowed_author_ids and str(author_id or "").strip() not in allowed_author_ids:
-        return "author not allowed for source"
-
-    return None
+    parser_confidence_allowed = (
+        PARSER_CONFIDENCE_LEVELS[observed_confidence] >= PARSER_CONFIDENCE_LEVELS[min_confidence]
+    )
+    normalized_channel_url = _normalize_url(channel_url)
+    normalized_author_id = str(author_id or "").strip()
+    channel_url_allowed = not allowed_channel_urls or normalized_channel_url in allowed_channel_urls
+    author_id_allowed = not allowed_author_ids or normalized_author_id in allowed_author_ids
+    return {
+        "min_parser_confidence": min_confidence,
+        "observed_parser_confidence": observed_confidence,
+        "parser_confidence_allowed": parser_confidence_allowed,
+        "allowed_channel_url_count": len(allowed_channel_urls),
+        "channel_url_allowed": channel_url_allowed,
+        "allowed_author_id_count": len(allowed_author_ids),
+        "author_id_allowed": author_id_allowed,
+        "metadata_policy_passed": (
+            parser_confidence_allowed and channel_url_allowed and author_id_allowed
+        ),
+    }
 
 
 def apply_source_quantity_limits(quantity: int, source_config: Dict[str, Any]) -> int:

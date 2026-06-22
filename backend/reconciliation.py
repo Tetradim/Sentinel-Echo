@@ -55,6 +55,18 @@ def _has_source_identity_proof(channel: dict[str, Any], author: dict[str, Any]) 
     return bool(_clean_text(channel.get("url")) and _clean_text(author.get("id")))
 
 
+def _has_source_metadata_policy_proof(source: dict[str, Any]) -> bool:
+    return all(
+        coerce_bool(source.get(key), default=False)
+        for key in (
+            "parser_confidence_allowed",
+            "channel_url_allowed",
+            "author_id_allowed",
+            "metadata_policy_passed",
+        )
+    )
+
+
 def summarize_reconciliation_rows(rows: List[Dict[str, Any]]) -> Dict[str, Any]:
     """Summarize unresolved alert/trade/position chains for readiness checks."""
     unresolved_reasons: list[str] = []
@@ -156,6 +168,8 @@ async def build_alert_chain_report(db, *, limit: int = 100) -> Dict[str, Any]:
                 attention_reason = "accepted bridge alert missing parser confidence proof"
             elif not _has_source_identity_proof(channel, author):
                 attention_reason = "accepted bridge alert missing source identity proof"
+            elif not _has_source_metadata_policy_proof(source):
+                attention_reason = "accepted bridge alert missing source metadata policy proof"
             elif trade_requested and not _clean_text(reconciliation.get("trade_id")):
                 attention_reason = "trade requested but no linked trade"
             else:
@@ -178,6 +192,16 @@ async def build_alert_chain_report(db, *, limit: int = 100) -> Dict[str, Any]:
                 "author_name": _clean_text(author.get("name")),
                 "source_key": _clean_text(source.get("key")),
                 "source_override_matched": source_override_matched,
+                "source_metadata_policy_passed": coerce_bool(
+                    source.get("metadata_policy_passed"),
+                    default=False,
+                ),
+                "channel_url_allowed": coerce_bool(source.get("channel_url_allowed"), default=False),
+                "author_id_allowed": coerce_bool(source.get("author_id_allowed"), default=False),
+                "parser_confidence_allowed": coerce_bool(
+                    source.get("parser_confidence_allowed"),
+                    default=False,
+                ),
                 "parser_confidence": _clean_text(parser.get("confidence")),
                 "min_parser_confidence": _clean_text(source.get("min_parser_confidence")),
                 "alert_id": alert_id,

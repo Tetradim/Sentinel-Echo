@@ -259,6 +259,10 @@ class OperatorRouteContractTests(unittest.TestCase):
                         "key": "chrome-alerts",
                         "override_matched": True,
                         "min_parser_confidence": "medium",
+                        "parser_confidence_allowed": True,
+                        "channel_url_allowed": True,
+                        "author_id_allowed": True,
+                        "metadata_policy_passed": True,
                     },
                 },
             }
