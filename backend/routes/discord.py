@@ -183,7 +183,7 @@ async def test_discord_connection():
     """Test Discord bot connection"""
     from routes.health import bot_status
     
-    settings = await db.get_settings()
+    settings = _dict_or_empty(await db.get_settings())
     if not settings:
         return {"success": False, "status": "not_configured", "message": "Discord not configured", "details": None}
     

@@ -46,6 +46,23 @@ class DiscordRouteControlTests(unittest.TestCase):
         self.assertEqual(raised.exception.status_code, 400)
         self.assertEqual(raised.exception.detail, "Discord token not configured")
 
+    def test_discord_connection_reports_malformed_settings_as_not_configured(self):
+        from routes import discord as discord_route
+
+        discord_route.set_db(FakeRawDiscordSettingsDb("settings"))
+
+        response = asyncio.run(discord_route.test_discord_connection())
+
+        self.assertEqual(
+            response,
+            {
+                "success": False,
+                "status": "not_configured",
+                "message": "Discord not configured",
+                "details": None,
+            },
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
