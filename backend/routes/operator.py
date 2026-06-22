@@ -1,5 +1,5 @@
 """Operator lab, safety controls, reconciliation, and event log endpoints."""
-from typing import Optional
+from typing import Any, Optional
 
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field
@@ -19,6 +19,10 @@ def set_db(database):
     """Set the database reference."""
     global db
     db = database
+
+
+def _list_or_empty(value: Any) -> list[Any]:
+    return value if isinstance(value, list) else []
 
 
 class OperatorSimulateExitRequest(BaseModel):
@@ -115,7 +119,7 @@ async def live_arm(request: LiveArmRequest):
             "live_trading_arm_blocked",
             "Live trading arm was blocked by readiness checks.",
             severity="warning",
-            details={"blocking_issues": readiness.get("blocking_issues", [])},
+            details={"blocking_issues": _list_or_empty(readiness.get("blocking_issues"))},
         )
         raise HTTPException(status_code=409, detail=readiness)
     try:
