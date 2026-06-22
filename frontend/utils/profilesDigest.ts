@@ -1,18 +1,20 @@
 export type ProfilesDigestTone = 'live' | 'attention' | 'idle';
 
+type BooleanLike = boolean | string | number | null | undefined;
+
 export interface DigestProfile {
   id: string;
   name?: string | null;
-  is_active?: boolean | null;
+  is_active?: BooleanLike;
 }
 
 export interface DigestBrokerSettings {
-  enabled?: boolean | null;
-  auto_trading_enabled?: boolean | null;
-  alerts_only?: boolean | null;
-  take_profit_enabled?: boolean | null;
-  stop_loss_enabled?: boolean | null;
-  auto_shutdown_enabled?: boolean | null;
+  enabled?: BooleanLike;
+  auto_trading_enabled?: BooleanLike;
+  alerts_only?: BooleanLike;
+  take_profit_enabled?: BooleanLike;
+  stop_loss_enabled?: BooleanLike;
+  auto_shutdown_enabled?: BooleanLike;
 }
 
 export interface ProfilesDigestStatus {
@@ -43,21 +45,42 @@ function profileName(profile: DigestProfile | undefined): string {
   return profile?.name?.trim() || 'None';
 }
 
+function parseBooleanFlag(value: BooleanLike, fallback = false): boolean {
+  if (typeof value === 'boolean') return value;
+  if (typeof value === 'number') {
+    if (value === 1) return true;
+    if (value === 0) return false;
+    return fallback;
+  }
+  if (typeof value === 'string') {
+    const normalized = value.trim().toLowerCase();
+    if (['true', '1', 'yes', 'y', 'on'].includes(normalized)) return true;
+    if (['false', '0', 'no', 'n', 'off'].includes(normalized)) return false;
+  }
+  return fallback;
+}
+
 function isGuarded(settings: DigestBrokerSettings): boolean {
-  if (!settings.enabled) return false;
-  if (settings.alerts_only) return true;
-  return Boolean(settings.take_profit_enabled && settings.stop_loss_enabled && settings.auto_shutdown_enabled);
+  if (!parseBooleanFlag(settings.enabled)) return false;
+  if (parseBooleanFlag(settings.alerts_only)) return true;
+  return (
+    parseBooleanFlag(settings.take_profit_enabled) &&
+    parseBooleanFlag(settings.stop_loss_enabled) &&
+    parseBooleanFlag(settings.auto_shutdown_enabled)
+  );
 }
 
 export function summarizeProfiles(
   profiles: DigestProfile[],
   allBrokerSettings: ProfileSettingsMap
 ): ProfilesDigest {
-  const activeProfiles = profiles.filter((profile) => Boolean(profile.is_active));
+  const activeProfiles = profiles.filter((profile) => parseBooleanFlag(profile.is_active));
   const activeProfile = activeProfiles[0];
   const activeSettings = activeProfile ? Object.values(allBrokerSettings[activeProfile.id] || {}) : [];
-  const enabledSettings = activeSettings.filter((settings): settings is DigestBrokerSettings => Boolean(settings?.enabled));
-  const autoTradingSettings = enabledSettings.filter((settings) => Boolean(settings.auto_trading_enabled));
+  const enabledSettings = activeSettings.filter(
+    (settings): settings is DigestBrokerSettings => parseBooleanFlag(settings?.enabled)
+  );
+  const autoTradingSettings = enabledSettings.filter((settings) => parseBooleanFlag(settings.auto_trading_enabled));
   const guardedBrokers = enabledSettings.filter(isGuarded).length;
   const profileCoveragePercent = enabledSettings.length === 0
     ? 0

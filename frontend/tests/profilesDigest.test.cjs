@@ -83,12 +83,46 @@ test('asks for an active profile before broker settings can matter', () => {
   assert.deepEqual(digest.warningItems.map((item) => item.title), ['No active profile']);
 });
 
+test('treats string false profile activity as inactive', () => {
+  const digest = summarizeProfiles(
+    profiles.map((profile) => ({ ...profile, is_active: 'false' })),
+    guardedSettings
+  );
+
+  assert.equal(digest.primaryStatus.title, 'Activate Profile');
+  assert.equal(digest.activeProfileName, 'None');
+  assert.equal(digest.enabledBrokers, 0);
+  assert.deepEqual(digest.warningItems.map((item) => item.title), ['No active profile']);
+});
+
 test('flags an active profile without enabled broker routes', () => {
   const digest = summarizeProfiles(profiles, { day: {} });
 
   assert.equal(digest.primaryStatus.title, 'No Active Brokers');
   assert.equal(digest.primaryStatus.tone, 'attention');
   assert.equal(digest.enabledBrokers, 0);
+  assert.deepEqual(digest.warningItems.map((item) => item.title), ['No brokers enabled']);
+});
+
+test('treats string false broker settings as disabled', () => {
+  const digest = summarizeProfiles(profiles, {
+    day: {
+      ibkr: {
+        ...guardedSettings.day.ibkr,
+        enabled: 'false',
+        auto_trading_enabled: 'false',
+        alerts_only: 'false',
+        take_profit_enabled: 'false',
+        stop_loss_enabled: 'false',
+        auto_shutdown_enabled: 'false',
+      },
+    },
+  });
+
+  assert.equal(digest.primaryStatus.title, 'No Active Brokers');
+  assert.equal(digest.enabledBrokers, 0);
+  assert.equal(digest.autoTradingBrokers, 0);
+  assert.equal(digest.guardedBrokers, 0);
   assert.deepEqual(digest.warningItems.map((item) => item.title), ['No brokers enabled']);
 });
 
