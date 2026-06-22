@@ -258,6 +258,38 @@ class SetupDiagnosticsTests(unittest.TestCase):
         self.assertIn("active_broker_not_configured", result["readiness"]["blocking_codes"])
         self.assertIn("Active broker is not configured.", result["warnings"])
 
+    def test_setup_diagnostics_reports_malformed_source_overrides(self):
+        from routes import health as health_route
+
+        health_route.set_db(
+            FakeDiagnosticsDb(
+                {
+                    "discord_token": "discord-secret-token",
+                    "discord_channel_ids": ["123"],
+                    "active_broker": "alpaca",
+                    "broker_configs": {"alpaca": {"api_key": "broker-secret-key"}},
+                    "source_overrides": "alerts",
+                    "auto_trading_enabled": True,
+                    "simulation_mode": False,
+                    "max_position_size": 1000.0,
+                    "shutdown_triggered": False,
+                }
+            )
+        )
+        health_route.update_bot_status("discord_connected", True)
+        health_route.update_bot_status("broker_connected", True)
+
+        try:
+            result = asyncio.run(health_route.setup_diagnostics())
+        except (AttributeError, TypeError, ValueError) as exc:
+            self.fail(f"setup diagnostics should report malformed source_overrides instead of raising: {exc}")
+
+        self.assertFalse(result["source_policy"]["valid"])
+        self.assertIn("source_policy_invalid", result["readiness"]["blocking_codes"])
+        self.assertTrue(
+            any(warning.startswith("Source overrides are invalid:") for warning in result["warnings"])
+        )
+
     def test_setup_diagnostics_reports_live_ready_without_exposing_secrets(self):
         from routes import health as health_route
 

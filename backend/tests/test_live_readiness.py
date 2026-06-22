@@ -134,6 +134,27 @@ class LiveReadinessTests(unittest.TestCase):
         self.assertFalse(result["checks"]["broker"]["configured"])
         self.assertFalse(result["ready_for_live"])
 
+    def test_malformed_source_overrides_report_invalid_policy_without_crashing(self):
+        from live_readiness import evaluate_live_readiness
+
+        settings = dict(READY_SETTINGS)
+        settings["source_overrides"] = "alerts"
+
+        try:
+            result = evaluate_live_readiness(
+                settings,
+                {"shutdown_triggered": False},
+                status={"broker_connected": True, "discord_connected": True},
+                env=READY_ENV,
+            )
+        except (AttributeError, TypeError, ValueError) as exc:
+            self.fail(f"readiness should report malformed source_overrides instead of raising: {exc}")
+        codes = {issue["code"] for issue in result["blocking_issues"]}
+
+        self.assertIn("source_policy_invalid", codes)
+        self.assertFalse(result["checks"]["source_policy"]["valid"])
+        self.assertFalse(result["ready_for_live"])
+
     def test_invalid_max_position_size_reports_blocker_without_crashing(self):
         from live_readiness import evaluate_live_readiness
 

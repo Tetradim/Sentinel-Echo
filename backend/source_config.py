@@ -37,6 +37,8 @@ ACTION_ALIASES = {
 def normalize_source_overrides(
     source_overrides: Dict[str, Dict[str, Any]],
 ) -> Dict[str, Dict[str, Any]]:
+    if not isinstance(source_overrides, dict):
+        raise ValueError("source overrides must be an object")
     normalized: Dict[str, Dict[str, Any]] = {}
     for raw_key, raw_config in (source_overrides or {}).items():
         key = str(raw_key or "").strip()
