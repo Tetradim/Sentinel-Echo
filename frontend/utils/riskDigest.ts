@@ -1,16 +1,18 @@
 export type RiskDigestTone = 'live' | 'attention';
 
+type BooleanLike = boolean | string | number | null | undefined;
+
 export interface DigestRiskSettings {
   maxPositionSize?: number | null;
   riskPerTrade?: number | null;
-  stopLossEnabled?: boolean | null;
-  takeProfitEnabled?: boolean | null;
-  trailingStopEnabled?: boolean | null;
-  autoShutdownEnabled?: boolean | null;
+  stopLossEnabled?: BooleanLike;
+  takeProfitEnabled?: BooleanLike;
+  trailingStopEnabled?: BooleanLike;
+  autoShutdownEnabled?: BooleanLike;
   maxPositionsPerTicker?: number | null;
   maxPositionsPerSector?: number | null;
-  liveExitAutomationSupported?: boolean | null;
-  sectorConcentrationSupported?: boolean | null;
+  liveExitAutomationSupported?: BooleanLike;
+  sectorConcentrationSupported?: BooleanLike;
 }
 
 export interface RiskDigestStatus {
@@ -52,14 +54,33 @@ function formatPercent(value: number): string {
   return `${Number.isInteger(value) ? value : value.toFixed(1)}%`;
 }
 
+function parseBooleanFlag(value: BooleanLike, fallback = false): boolean {
+  if (typeof value === 'boolean') return value;
+  if (typeof value === 'number') {
+    if (value === 1) return true;
+    if (value === 0) return false;
+    return fallback;
+  }
+  if (typeof value === 'string') {
+    const normalized = value.trim().toLowerCase();
+    if (['true', '1', 'yes', 'y', 'on'].includes(normalized)) return true;
+    if (['false', '0', 'no', 'n', 'off'].includes(normalized)) return false;
+  }
+  return fallback;
+}
+
 export function summarizeRiskSettings(settings: DigestRiskSettings): RiskDigest {
-  const liveExitAutomationSupported = Boolean(settings.liveExitAutomationSupported);
-  const sectorConcentrationSupported = Boolean(settings.sectorConcentrationSupported);
+  const stopLossEnabled = parseBooleanFlag(settings.stopLossEnabled);
+  const takeProfitEnabled = parseBooleanFlag(settings.takeProfitEnabled);
+  const trailingStopEnabled = parseBooleanFlag(settings.trailingStopEnabled);
+  const autoShutdownEnabled = parseBooleanFlag(settings.autoShutdownEnabled);
+  const liveExitAutomationSupported = parseBooleanFlag(settings.liveExitAutomationSupported);
+  const sectorConcentrationSupported = parseBooleanFlag(settings.sectorConcentrationSupported);
   const guardChecks = [
-    Boolean(settings.stopLossEnabled) && liveExitAutomationSupported,
-    Boolean(settings.takeProfitEnabled) && liveExitAutomationSupported,
-    Boolean(settings.trailingStopEnabled) && liveExitAutomationSupported,
-    Boolean(settings.autoShutdownEnabled),
+    stopLossEnabled && liveExitAutomationSupported,
+    takeProfitEnabled && liveExitAutomationSupported,
+    trailingStopEnabled && liveExitAutomationSupported,
+    autoShutdownEnabled,
     toNumber(settings.maxPositionsPerTicker) > 0,
     toNumber(settings.maxPositionsPerSector) > 0 && sectorConcentrationSupported,
   ];
@@ -70,9 +91,9 @@ export function summarizeRiskSettings(settings: DigestRiskSettings): RiskDigest 
 
   const guardWarnings: RiskDigestWarning[] = [];
   const hasConfiguredExitGuard =
-    Boolean(settings.stopLossEnabled) ||
-    Boolean(settings.takeProfitEnabled) ||
-    Boolean(settings.trailingStopEnabled);
+    stopLossEnabled ||
+    takeProfitEnabled ||
+    trailingStopEnabled;
 
   if (hasConfiguredExitGuard && !liveExitAutomationSupported) {
     guardWarnings.push({
@@ -80,16 +101,16 @@ export function summarizeRiskSettings(settings: DigestRiskSettings): RiskDigest 
       detail: 'Stop, target, and trailing settings are saved but active orders are not staged automatically.',
     });
   }
-  if (!settings.stopLossEnabled) {
+  if (!stopLossEnabled) {
     guardWarnings.push({ title: 'Stop loss disabled', detail: 'Downside exits will need manual handling.' });
   }
-  if (!settings.takeProfitEnabled) {
+  if (!takeProfitEnabled) {
     guardWarnings.push({ title: 'Take profit disabled', detail: 'Winning exits are not currently staged.' });
   }
-  if (!settings.trailingStopEnabled) {
+  if (!trailingStopEnabled) {
     guardWarnings.push({ title: 'Trailing stop disabled', detail: 'Open winners will not tighten automatically.' });
   }
-  if (!settings.autoShutdownEnabled) {
+  if (!autoShutdownEnabled) {
     guardWarnings.push({ title: 'Auto shutdown disabled', detail: 'Loss streak controls are not armed.' });
   }
   if (toNumber(settings.maxPositionsPerTicker) <= 0) {

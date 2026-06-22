@@ -93,6 +93,35 @@ test('flags missing exits and shutdown controls as guardrail gaps', () => {
   );
 });
 
+test('treats string false risk flags as disabled', () => {
+  const digest = summarizeRiskSettings({
+    ...guardedSettings,
+    stopLossEnabled: 'false',
+    takeProfitEnabled: 'false',
+    trailingStopEnabled: 'false',
+    autoShutdownEnabled: 'false',
+    maxPositionsPerTicker: 0,
+    maxPositionsPerSector: 0,
+    liveExitAutomationSupported: 'false',
+    sectorConcentrationSupported: 'false',
+  });
+
+  assert.equal(digest.primaryStatus.title, 'Needs Guardrails');
+  assert.equal(digest.enabledGuards, 0);
+  assert.equal(digest.guardCoveragePercent, 0);
+  assert.deepEqual(
+    digest.warningItems.map((item) => item.title),
+    [
+      'Stop loss disabled',
+      'Take profit disabled',
+      'Trailing stop disabled',
+      'Auto shutdown disabled',
+      'Ticker cap missing',
+      'Sector cap missing',
+    ]
+  );
+});
+
 test('prioritizes sizing risk when allocation settings are too aggressive', () => {
   const digest = summarizeRiskSettings({
     ...guardedSettings,
