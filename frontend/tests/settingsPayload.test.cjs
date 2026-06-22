@@ -28,3 +28,16 @@ test('premium buffer save params include enabled flag and amount', () => {
     }
   );
 });
+
+test('premium buffer save params parse string false as disabled', () => {
+  assert.deepEqual(
+    buildPremiumBufferSettingsParams({
+      premium_buffer_enabled: 'false',
+      premium_buffer_amount: '15',
+    }),
+    {
+      premium_buffer_enabled: false,
+      premium_buffer_amount: 15,
+    }
+  );
+});
