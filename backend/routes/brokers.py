@@ -22,6 +22,21 @@ def _dict_or_empty(value):
     return value if isinstance(value, dict) else {}
 
 
+def _enum_value(value):
+    return value.value if hasattr(value, "value") else value
+
+
+def _active_broker_id(settings):
+    active_broker = _enum_value(_dict_or_empty(settings).get("active_broker", "ibkr"))
+    return active_broker if isinstance(active_broker, str) and active_broker else "ibkr"
+
+
+def _broker_config(settings, broker_id):
+    broker_configs = _dict_or_empty(_dict_or_empty(settings).get("broker_configs", {}))
+    config = broker_configs.get(broker_id)
+    return config if isinstance(config, dict) else None
+
+
 # Broker info for frontend
 BROKERS_INFO = [
     BrokerInfo(id="ibkr", name="Interactive Brokers", description="Professional-grade broker", supports_options=True, requires_gateway=True,
@@ -76,7 +91,7 @@ async def get_brokers():
 async def get_active_broker():
     """Get currently active broker"""
     settings = _dict_or_empty(await db.get_settings())
-    return {"active_broker": settings.get('active_broker', 'ibkr')}
+    return {"active_broker": _active_broker_id(settings)}
 
 
 @router.post("/active-broker/{broker_id}")
@@ -89,8 +104,7 @@ async def set_active_broker(broker_id: str):
     except ValueError:
         raise HTTPException(status_code=400, detail=f"Invalid broker: {broker_id}")
     settings = _dict_or_empty(await db.get_settings())
-    broker_configs = settings.get("broker_configs", {})
-    if broker_id not in broker_configs:
+    if _broker_config(settings, broker_id) is None:
         raise HTTPException(
             status_code=400,
             detail=f"Broker '{broker_id}' has no saved configuration. Configure it first."
@@ -126,8 +140,7 @@ async def check_broker_alias(broker_id: str):
         raise HTTPException(status_code=400, detail=f"Invalid broker: {broker_id}")
 
     settings = _dict_or_empty(await db.get_settings())
-    broker_configs = settings.get("broker_configs", {})
-    if broker_id not in broker_configs:
+    if _broker_config(settings, broker_id) is None:
         return {
             "connected": False,
             "broker": broker_id,
@@ -148,9 +161,7 @@ async def check_broker_alias(broker_id: str):
         if broker_client is not None:
             await close_broker_client(broker_client)
 
-    active_broker = settings.get("active_broker", "ibkr")
-    if hasattr(active_broker, "value"):
-        active_broker = active_broker.value
+    active_broker = _active_broker_id(settings)
     if str(active_broker) == broker_id:
         update_bot_status("broker_connected", connected)
 

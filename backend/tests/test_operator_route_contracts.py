@@ -314,6 +314,25 @@ class OperatorRouteContractTests(unittest.TestCase):
 
         self.assertEqual(response, {"active_broker": "ibkr"})
 
+    def test_active_broker_normalizes_enum_value(self):
+        from models import BrokerType
+        from routes import brokers as brokers_route
+
+        brokers_route.set_db(FakeRawBrokerDb({"active_broker": BrokerType.ALPACA}))
+
+        response = asyncio.run(brokers_route.get_active_broker())
+
+        self.assertEqual(response, {"active_broker": "alpaca"})
+
+    def test_active_broker_defaults_when_active_broker_value_is_malformed(self):
+        from routes import brokers as brokers_route
+
+        brokers_route.set_db(FakeRawBrokerDb({"active_broker": {"id": "alpaca"}}))
+
+        response = asyncio.run(brokers_route.get_active_broker())
+
+        self.assertEqual(response, {"active_broker": "ibkr"})
+
     def test_switch_broker_blocks_malformed_settings(self):
         from fastapi import HTTPException
         from routes import brokers as brokers_route
@@ -329,11 +348,69 @@ class OperatorRouteContractTests(unittest.TestCase):
         self.assertEqual(fake_db.updated, [])
         self.assertEqual(fake_db.events, [])
 
+    def test_switch_broker_blocks_malformed_broker_configs_container(self):
+        from fastapi import HTTPException
+        from routes import brokers as brokers_route
+
+        fake_db = FakeRawBrokerDb({"broker_configs": "alpaca"})
+        brokers_route.set_db(fake_db)
+
+        with self.assertRaises(HTTPException) as raised:
+            asyncio.run(brokers_route.set_active_broker("alpaca"))
+
+        self.assertEqual(raised.exception.status_code, 400)
+        self.assertIn("has no saved configuration", raised.exception.detail)
+        self.assertEqual(fake_db.updated, [])
+        self.assertEqual(fake_db.events, [])
+
+    def test_switch_broker_blocks_malformed_broker_config_entry(self):
+        from fastapi import HTTPException
+        from routes import brokers as brokers_route
+
+        fake_db = FakeRawBrokerDb({"broker_configs": {"alpaca": "configured"}})
+        brokers_route.set_db(fake_db)
+
+        with self.assertRaises(HTTPException) as raised:
+            asyncio.run(brokers_route.set_active_broker("alpaca"))
+
+        self.assertEqual(raised.exception.status_code, 400)
+        self.assertIn("has no saved configuration", raised.exception.detail)
+        self.assertEqual(fake_db.updated, [])
+        self.assertEqual(fake_db.events, [])
+
     def test_broker_check_reports_no_config_when_settings_are_malformed(self):
         from unittest.mock import patch
         from routes import brokers as brokers_route
 
         brokers_route.set_db(FakeRawBrokerDb("settings"))
+
+        with patch("order_execution.get_configured_broker_client") as get_client:
+            response = asyncio.run(brokers_route.check_broker_alias("alpaca"))
+
+        self.assertFalse(response["connected"])
+        self.assertEqual(response["broker"], "alpaca")
+        self.assertIn("has no saved configuration", response["message"])
+        get_client.assert_not_called()
+
+    def test_broker_check_reports_no_config_for_malformed_broker_configs_container(self):
+        from unittest.mock import patch
+        from routes import brokers as brokers_route
+
+        brokers_route.set_db(FakeRawBrokerDb({"broker_configs": "alpaca"}))
+
+        with patch("order_execution.get_configured_broker_client") as get_client:
+            response = asyncio.run(brokers_route.check_broker_alias("alpaca"))
+
+        self.assertFalse(response["connected"])
+        self.assertEqual(response["broker"], "alpaca")
+        self.assertIn("has no saved configuration", response["message"])
+        get_client.assert_not_called()
+
+    def test_broker_check_reports_no_config_for_malformed_broker_config_entry(self):
+        from unittest.mock import patch
+        from routes import brokers as brokers_route
+
+        brokers_route.set_db(FakeRawBrokerDb({"broker_configs": {"alpaca": "configured"}}))
 
         with patch("order_execution.get_configured_broker_client") as get_client:
             response = asyncio.run(brokers_route.check_broker_alias("alpaca"))
