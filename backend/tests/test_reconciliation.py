@@ -192,6 +192,51 @@ class FakeAcceptedBridgeMissingSourceProofDb:
         ]
 
 
+class FakeTradeRequestedMissingTradeDb:
+    async def get_alerts(self, limit=100):
+        return [
+            {
+                "id": "alert-trade-requested-no-trade",
+                "ticker": "SPY",
+                "alert_type": "buy",
+                "trade_executed": False,
+                "processed": False,
+            }
+        ]
+
+    async def get_trades(self, limit=100):
+        return []
+
+    async def get_positions(self, status=None):
+        return []
+
+    async def get_operator_events(self, limit=100):
+        return [
+            {
+                "id": "event-trade-requested-no-trade",
+                "timestamp": "2026-06-22T14:35:00Z",
+                "action": "bridge_alert_decision",
+                "details": {
+                    "contract_version": "chrome.discord.message.v1",
+                    "event_id": "bridge-trade-requested-no-trade",
+                    "parsed": {"ticker": "SPY"},
+                    "decision": {
+                        "status": "accepted",
+                        "alert_inserted": True,
+                        "alert_id": "alert-trade-requested-no-trade",
+                        "trade_requested": True,
+                        "trade_request_reason": "auto trading enabled",
+                    },
+                    "source": {
+                        "key": "chrome-alerts",
+                        "override_matched": True,
+                        "min_parser_confidence": "medium",
+                    },
+                },
+            }
+        ]
+
+
 class ReconciliationTests(unittest.TestCase):
     def test_reconciliation_links_alert_trade_and_position(self):
         from reconciliation import build_reconciliation_rows
@@ -274,6 +319,19 @@ class ReconciliationTests(unittest.TestCase):
         self.assertEqual(row["author_id"], "mike")
         self.assertFalse(row["source_override_matched"])
         self.assertEqual(report["summary"]["attention_reasons"], ["accepted bridge alert missing source policy proof"])
+
+    def test_alert_chain_report_flags_trade_request_without_linked_trade(self):
+        from reconciliation import build_alert_chain_report
+
+        report = asyncio.run(build_alert_chain_report(FakeTradeRequestedMissingTradeDb()))
+        row = report["rows"][0]
+
+        self.assertTrue(row["trade_requested"])
+        self.assertEqual(row["trade_id"], "")
+        self.assertEqual(row["status"], "attention")
+        self.assertEqual(row["attention_reason"], "trade requested but no linked trade")
+        self.assertFalse(row["deterministic"])
+        self.assertEqual(report["summary"]["attention_reasons"], ["trade requested but no linked trade"])
 
 
 if __name__ == "__main__":

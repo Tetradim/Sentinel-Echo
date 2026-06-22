@@ -124,6 +124,7 @@ async def build_alert_chain_report(db, *, limit: int = 100) -> Dict[str, Any]:
             bridge_alert_ids.add(alert_id)
         reconciliation = reconciliation_by_alert.get(alert_id, {})
         skipped = _clean_text(decision.get("status")).lower() == "skipped"
+        trade_requested = coerce_bool(decision.get("trade_requested"), default=False)
         source_override_matched = coerce_bool(source.get("override_matched"), default=False)
         decision_reason = _clean_text(decision.get("skip_reason")) or _clean_text(
             decision.get("trade_request_reason")
@@ -136,6 +137,8 @@ async def build_alert_chain_report(db, *, limit: int = 100) -> Dict[str, Any]:
                 attention_reason = "accepted bridge alert missing reconciliation row"
             elif not source_override_matched:
                 attention_reason = "accepted bridge alert missing source policy proof"
+            elif trade_requested and not _clean_text(reconciliation.get("trade_id")):
+                attention_reason = "trade requested but no linked trade"
             else:
                 attention_reason = _clean_text(reconciliation.get("attention_reason"))
         status, deterministic = _chain_status(
@@ -164,7 +167,7 @@ async def build_alert_chain_report(db, *, limit: int = 100) -> Dict[str, Any]:
                 "parsed": bool(parsed),
                 "accepted": not skipped,
                 "alert_inserted": coerce_bool(decision.get("alert_inserted"), default=False),
-                "trade_requested": coerce_bool(decision.get("trade_requested"), default=False),
+                "trade_requested": trade_requested,
                 "decision_reason": decision_reason,
                 "trade_id": _clean_text(reconciliation.get("trade_id")),
                 "order_id": _clean_text(reconciliation.get("order_id")),
