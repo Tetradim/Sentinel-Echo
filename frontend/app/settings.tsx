@@ -11,6 +11,7 @@ import { BACKEND_URL, DEMO_MODE } from '../constants/config';
 import { BROKER_COLORS, BROKER_NAMES_FULL as BROKER_NAMES } from '../constants/brokers';
 import { SettingsDigest, summarizeSettings } from '../utils/settingsDigest';
 import { buildPremiumBufferSettingsParams } from '../utils/settingsPayload';
+import { parseSettingsViewFlags } from '../utils/settingsViewFlags';
 
 // Default demo settings
 const DEMO_SETTINGS: Settings = {
@@ -504,6 +505,7 @@ export default function SettingsScreen() {
   const settingsDigest = settings
     ? summarizeSettings({ ...settings, discord_channel_ids: channelIdsForDigest }, patterns)
     : null;
+  const settingsFlags = parseSettingsViewFlags(settings);
 
   return (
     <SafeAreaView style={s.container}>
@@ -534,7 +536,7 @@ export default function SettingsScreen() {
         </View>
 
         {/* ── Sim mode banner ── */}
-        {settings?.simulation_mode && (
+        {settingsFlags.simulationMode && (
           <View style={s.simBanner}>
             <Ionicons name="flask" size={16} color="#a78bfa" />
             <Text style={s.simBannerText}>SIMULATION MODE ACTIVE — No real trades will execute</Text>
@@ -660,10 +662,10 @@ export default function SettingsScreen() {
           <SectionCard accent="#22c55e">
             <SectionTitle icon="settings-outline" label="Trading" color="#22c55e" sub="Core execution settings" />
 
-            <SwitchRow label="Auto Trading" sub="Execute trades when Discord alerts arrive" value={settings?.auto_trading_enabled || false} onChange={v => update('auto_trading_enabled', v)} accent="#22c55e" />
-            <SwitchRow label="Simulation Mode" sub="Paper trade — no real money executes" value={settings?.simulation_mode || false} onChange={v => update('simulation_mode', v)} accent="#a78bfa" />
+            <SwitchRow label="Auto Trading" sub="Execute trades when Discord alerts arrive" value={settingsFlags.autoTradingEnabled} onChange={v => update('auto_trading_enabled', v)} accent="#22c55e" />
+            <SwitchRow label="Simulation Mode" sub="Paper trade — no real money executes" value={settingsFlags.simulationMode} onChange={v => update('simulation_mode', v)} accent="#a78bfa" />
 
-            {settings?.simulation_mode && (
+            {settingsFlags.simulationMode && (
               <View style={s.simWarning}>
                 <Ionicons name="flask" size={14} color="#a78bfa" />
                 <Text style={s.simWarningText}>Simulation mode is ON. All trades will be paper trades only.</Text>
@@ -684,12 +686,12 @@ export default function SettingsScreen() {
             {/* Premium Buffer */}
             <View style={s.divider} />
             <Text style={s.subSectionLabel}>PREMIUM BUFFER</Text>
-            <SwitchRow label="Premium Buffer" sub="Skip trade if live price too far above alert price" value={settings?.premium_buffer_enabled || false} onChange={v => update('premium_buffer_enabled', v)} accent="#f43f5e" />
-            {settings?.premium_buffer_enabled && (
+            <SwitchRow label="Premium Buffer" sub="Skip trade if live price too far above alert price" value={settingsFlags.premiumBufferEnabled} onChange={v => update('premium_buffer_enabled', v)} accent="#f43f5e" />
+            {settingsFlags.premiumBufferEnabled && (
               <>
                 <FieldLabel label="Max Difference (cents)" hint="Skip if live premium exceeds alert price by this many ¢" />
-                <QuickSelect values={[5, 10, 15, 25, 50]} current={settings.premium_buffer_amount} onChange={v => update('premium_buffer_amount', v)} suffix="¢" />
-                <Input value={String(settings.premium_buffer_amount)} onChange={v => update('premium_buffer_amount', parseFloat(v) || 10)} placeholder="Custom ¢" numeric />
+                <QuickSelect values={[5, 10, 15, 25, 50]} current={settings?.premium_buffer_amount ?? 10} onChange={v => update('premium_buffer_amount', v)} suffix="¢" />
+                <Input value={String(settings?.premium_buffer_amount ?? 10)} onChange={v => update('premium_buffer_amount', parseFloat(v) || 10)} placeholder="Custom ¢" numeric />
               </>
             )}
           </SectionCard>
@@ -697,21 +699,21 @@ export default function SettingsScreen() {
           {/* ═══ AVERAGING DOWN ═══ */}
           <SectionCard accent="#f59e0b">
             <SectionTitle icon="trending-down" label="Averaging Down" color="#f59e0b" sub="Buy more on price drops" />
-            <SwitchRow label="Enable Averaging Down" sub="Add to losing positions to lower average cost" value={settings?.averaging_down_enabled || false} onChange={v => update('averaging_down_enabled', v)} accent="#f59e0b" />
+            <SwitchRow label="Enable Averaging Down" sub="Add to losing positions to lower average cost" value={settingsFlags.averagingDownEnabled} onChange={v => update('averaging_down_enabled', v)} accent="#f59e0b" />
 
-            {settings?.averaging_down_enabled && (
+            {settingsFlags.averagingDownEnabled && (
               <>
                 <FieldLabel label="Price Drop Threshold (%)" hint="Buy when price drops this % below entry" />
-                <QuickSelect values={[5, 10, 15, 20, 25]} current={settings.averaging_down_threshold} onChange={v => update('averaging_down_threshold', v)} suffix="%" />
-                <Input value={String(settings.averaging_down_threshold || 10)} onChange={v => update('averaging_down_threshold', parseFloat(v) || 10)} numeric />
+                <QuickSelect values={[5, 10, 15, 20, 25]} current={settings?.averaging_down_threshold ?? 10} onChange={v => update('averaging_down_threshold', v)} suffix="%" />
+                <Input value={String(settings?.averaging_down_threshold || 10)} onChange={v => update('averaging_down_threshold', parseFloat(v) || 10)} numeric />
 
                 <FieldLabel label="Buy Size (% of original)" hint="How much to buy relative to original position" />
-                <QuickSelect values={[10, 25, 50, 75, 100]} current={settings.averaging_down_percentage} onChange={v => update('averaging_down_percentage', v)} suffix="%" />
-                <Input value={String(settings.averaging_down_percentage || 25)} onChange={v => update('averaging_down_percentage', parseFloat(v) || 25)} numeric />
+                <QuickSelect values={[10, 25, 50, 75, 100]} current={settings?.averaging_down_percentage ?? 25} onChange={v => update('averaging_down_percentage', v)} suffix="%" />
+                <Input value={String(settings?.averaging_down_percentage || 25)} onChange={v => update('averaging_down_percentage', parseFloat(v) || 25)} numeric />
 
                 <FieldLabel label="Max Avg-Down Buys" hint="Maximum number of times to average down per position" />
-                <QuickSelect values={[1, 2, 3, 4, 5]} current={settings.averaging_down_max_buys} onChange={v => update('averaging_down_max_buys', v)} />
-                <Input value={String(settings.averaging_down_max_buys || 3)} onChange={v => update('averaging_down_max_buys', parseInt(v) || 3)} numeric />
+                <QuickSelect values={[1, 2, 3, 4, 5]} current={settings?.averaging_down_max_buys ?? 3} onChange={v => update('averaging_down_max_buys', v)} />
+                <Input value={String(settings?.averaging_down_max_buys || 3)} onChange={v => update('averaging_down_max_buys', parseInt(v) || 3)} numeric />
               </>
             )}
             <InfoBox text='Discord alerts like "AVERAGE DOWN $SPY" or "AVG DOWN $QQQ" trigger this.' color="#f59e0b" />
@@ -723,14 +725,14 @@ export default function SettingsScreen() {
 
             {/* Take Profit */}
             <Text style={s.subSectionLabel}>TAKE PROFIT</Text>
-            <SwitchRow label="Take Profit" sub="Auto-sell when profit target is reached" value={settings?.take_profit_enabled || false} onChange={v => update('take_profit_enabled', v)} accent="#22c55e" />
-            {settings?.take_profit_enabled && (
+            <SwitchRow label="Take Profit" sub="Auto-sell when profit target is reached" value={settingsFlags.takeProfitEnabled} onChange={v => update('take_profit_enabled', v)} accent="#22c55e" />
+            {settingsFlags.takeProfitEnabled && (
               <>
                 <FieldLabel label="Take Profit %" hint="Sell when position gains this %" />
-                <QuickSelect values={[25, 50, 75, 100, 150]} current={settings.take_profit_percentage} onChange={v => update('take_profit_percentage', v)} suffix="%" />
-                <Input value={String(settings.take_profit_percentage || 50)} onChange={v => update('take_profit_percentage', parseFloat(v) || 50)} numeric />
+                <QuickSelect values={[25, 50, 75, 100, 150]} current={settings?.take_profit_percentage ?? 50} onChange={v => update('take_profit_percentage', v)} suffix="%" />
+                <Input value={String(settings?.take_profit_percentage || 50)} onChange={v => update('take_profit_percentage', parseFloat(v) || 50)} numeric />
 
-                <SwitchRow label="Bracket Order" sub="Submit TP + SL as a single bracket order" value={settings?.bracket_order_enabled || false} onChange={v => update('bracket_order_enabled', v)} accent="#3b82f6" />
+                <SwitchRow label="Bracket Order" sub="Submit TP + SL as a single bracket order" value={settingsFlags.bracketOrderEnabled} onChange={v => update('bracket_order_enabled', v)} accent="#3b82f6" />
               </>
             )}
 
@@ -738,22 +740,22 @@ export default function SettingsScreen() {
 
             {/* Stop Loss */}
             <Text style={s.subSectionLabel}>STOP LOSS</Text>
-            <SwitchRow label="Stop Loss" sub="Auto-sell to limit losses" value={settings?.stop_loss_enabled || false} onChange={v => update('stop_loss_enabled', v)} accent="#ef4444" />
-            {settings?.stop_loss_enabled && (
+            <SwitchRow label="Stop Loss" sub="Auto-sell to limit losses" value={settingsFlags.stopLossEnabled} onChange={v => update('stop_loss_enabled', v)} accent="#ef4444" />
+            {settingsFlags.stopLossEnabled && (
               <>
                 <FieldLabel label="Stop Loss %" hint="Sell when position loses this %" />
-                <QuickSelect values={[10, 25, 50, 75, 90]} current={settings.stop_loss_percentage} onChange={v => update('stop_loss_percentage', v)} suffix="%" />
-                <Input value={String(settings.stop_loss_percentage || 25)} onChange={v => update('stop_loss_percentage', parseFloat(v) || 25)} numeric />
+                <QuickSelect values={[10, 25, 50, 75, 90]} current={settings?.stop_loss_percentage ?? 25} onChange={v => update('stop_loss_percentage', v)} suffix="%" />
+                <Input value={String(settings?.stop_loss_percentage || 25)} onChange={v => update('stop_loss_percentage', parseFloat(v) || 25)} numeric />
 
                 <FieldLabel label="Stop Loss Order Type" />
                 <View style={s.segmentRow}>
                   {['market', 'limit', 'stop'].map(type => (
                     <TouchableOpacity
                       key={type}
-                      style={[s.segBtn, settings.stop_loss_order_type === type && s.segBtnActive]}
+                      style={[s.segBtn, settings?.stop_loss_order_type === type && s.segBtnActive]}
                       onPress={() => update('stop_loss_order_type', type)}
                     >
-                      <Text style={[s.segText, settings.stop_loss_order_type === type && s.segTextActive]}>
+                      <Text style={[s.segText, settings?.stop_loss_order_type === type && s.segTextActive]}>
                         {type.charAt(0).toUpperCase() + type.slice(1)}
                       </Text>
                     </TouchableOpacity>
@@ -768,30 +770,30 @@ export default function SettingsScreen() {
           {/* ═══ TRAILING STOP ═══ */}
           <SectionCard accent="#a78bfa">
             <SectionTitle icon="git-branch" label="Trailing Stop" color="#a78bfa" sub="Follow price up, sell on pullback" />
-            <SwitchRow label="Enable Trailing Stop" sub="Sell when price pulls back from its highest point" value={settings?.trailing_stop_enabled || false} onChange={v => update('trailing_stop_enabled', v)} accent="#a78bfa" />
+            <SwitchRow label="Enable Trailing Stop" sub="Sell when price pulls back from its highest point" value={settingsFlags.trailingStopEnabled} onChange={v => update('trailing_stop_enabled', v)} accent="#a78bfa" />
 
-            {settings?.trailing_stop_enabled && (
+            {settingsFlags.trailingStopEnabled && (
               <>
                 <FieldLabel label="Trail By" />
                 <View style={s.segmentRow}>
                   {[{ v: 'percent', label: '% Percent' }, { v: 'premium', label: '¢ Premium' }].map(({ v, label }) => (
-                    <TouchableOpacity key={v} style={[s.segBtn, settings.trailing_stop_type === v && s.segBtnActive]} onPress={() => update('trailing_stop_type', v)}>
-                      <Text style={[s.segText, settings.trailing_stop_type === v && s.segTextActive]}>{label}</Text>
+                    <TouchableOpacity key={v} style={[s.segBtn, settings?.trailing_stop_type === v && s.segBtnActive]} onPress={() => update('trailing_stop_type', v)}>
+                      <Text style={[s.segText, settings?.trailing_stop_type === v && s.segTextActive]}>{label}</Text>
                     </TouchableOpacity>
                   ))}
                 </View>
 
-                {settings.trailing_stop_type === 'percent' ? (
+                {settings?.trailing_stop_type === 'percent' ? (
                   <>
                     <FieldLabel label="Trail Percent (%)" hint="Sell when price drops this % below its highest" />
-                    <QuickSelect values={[5, 10, 15, 20, 25]} current={settings.trailing_stop_percent} onChange={v => update('trailing_stop_percent', v)} suffix="%" />
-                    <Input value={String(settings.trailing_stop_percent || 10)} onChange={v => update('trailing_stop_percent', parseFloat(v) || 10)} numeric />
+                    <QuickSelect values={[5, 10, 15, 20, 25]} current={settings?.trailing_stop_percent ?? 10} onChange={v => update('trailing_stop_percent', v)} suffix="%" />
+                    <Input value={String(settings?.trailing_stop_percent || 10)} onChange={v => update('trailing_stop_percent', parseFloat(v) || 10)} numeric />
                   </>
                 ) : (
                   <>
                     <FieldLabel label="Trail Cents (¢)" hint="Sell when price drops this many cents below its highest" />
-                    <QuickSelect values={[10, 25, 50, 75, 100]} current={settings.trailing_stop_cents} onChange={v => update('trailing_stop_cents', v)} suffix="¢" />
-                    <Input value={String(settings.trailing_stop_cents || 50)} onChange={v => update('trailing_stop_cents', parseFloat(v) || 50)} numeric />
+                    <QuickSelect values={[10, 25, 50, 75, 100]} current={settings?.trailing_stop_cents ?? 50} onChange={v => update('trailing_stop_cents', v)} suffix="¢" />
+                    <Input value={String(settings?.trailing_stop_cents || 50)} onChange={v => update('trailing_stop_cents', parseFloat(v) || 50)} numeric />
                   </>
                 )}
               </>
@@ -802,9 +804,9 @@ export default function SettingsScreen() {
           {/* ═══ AUTO SHUTDOWN ═══ */}
           <SectionCard accent="#f87171">
             <SectionTitle icon="power" label="Auto Shutdown" color="#f87171" sub="Stop trading on loss limits" />
-            <SwitchRow label="Enable Auto Shutdown" sub="Automatically pause trading when loss limits are hit" value={settings?.auto_shutdown_enabled || false} onChange={v => update('auto_shutdown_enabled', v)} accent="#f87171" />
+            <SwitchRow label="Enable Auto Shutdown" sub="Automatically pause trading when loss limits are hit" value={settingsFlags.autoShutdownEnabled} onChange={v => update('auto_shutdown_enabled', v)} accent="#f87171" />
 
-            {settings?.auto_shutdown_enabled && (
+            {settingsFlags.autoShutdownEnabled && (
               <>
                 {/* Consecutive Losses */}
                 <View style={s.thresholdBlock}>
@@ -816,20 +818,20 @@ export default function SettingsScreen() {
                     <View style={s.stepperWrap}>
                       <TouchableOpacity
                         style={s.stepperBtn}
-                        onPress={() => update('max_consecutive_losses', Math.max(1, (settings.max_consecutive_losses || 3) - 1))}
+                        onPress={() => update('max_consecutive_losses', Math.max(1, (settings?.max_consecutive_losses || 3) - 1))}
                       >
                         <Ionicons name="remove" size={16} color="#f87171" />
                       </TouchableOpacity>
                       <TextInput
                         style={s.stepperInput}
-                        value={String(settings.max_consecutive_losses || 3)}
+                        value={String(settings?.max_consecutive_losses || 3)}
                         onChangeText={v => { const n = parseInt(v); if (!isNaN(n) && n >= 1) update('max_consecutive_losses', n); else if (v === '') update('max_consecutive_losses', 1); }}
                         keyboardType="number-pad"
                         selectTextOnFocus
                       />
                       <TouchableOpacity
                         style={s.stepperBtn}
-                        onPress={() => update('max_consecutive_losses', (settings.max_consecutive_losses || 3) + 1)}
+                        onPress={() => update('max_consecutive_losses', (settings?.max_consecutive_losses || 3) + 1)}
                       >
                         <Ionicons name="add" size={16} color="#f87171" />
                       </TouchableOpacity>
@@ -837,8 +839,8 @@ export default function SettingsScreen() {
                   </View>
                   <View style={s.thresholdPresets}>
                     {[2, 3, 4, 5, 6, 8, 10].map(v => (
-                      <TouchableOpacity key={v} style={[s.preset, settings.max_consecutive_losses === v && s.presetActive]} onPress={() => update('max_consecutive_losses', v)}>
-                        <Text style={[s.presetText, settings.max_consecutive_losses === v && s.presetTextActive]}>{v}</Text>
+                      <TouchableOpacity key={v} style={[s.preset, settings?.max_consecutive_losses === v && s.presetActive]} onPress={() => update('max_consecutive_losses', v)}>
+                        <Text style={[s.presetText, settings?.max_consecutive_losses === v && s.presetTextActive]}>{v}</Text>
                       </TouchableOpacity>
                     ))}
                   </View>
@@ -854,20 +856,20 @@ export default function SettingsScreen() {
                     <View style={s.stepperWrap}>
                       <TouchableOpacity
                         style={s.stepperBtn}
-                        onPress={() => update('max_daily_losses', Math.max(1, (settings.max_daily_losses || 5) - 1))}
+                        onPress={() => update('max_daily_losses', Math.max(1, (settings?.max_daily_losses || 5) - 1))}
                       >
                         <Ionicons name="remove" size={16} color="#f87171" />
                       </TouchableOpacity>
                       <TextInput
                         style={s.stepperInput}
-                        value={String(settings.max_daily_losses || 5)}
+                        value={String(settings?.max_daily_losses || 5)}
                         onChangeText={v => { const n = parseInt(v); if (!isNaN(n) && n >= 1) update('max_daily_losses', n); else if (v === '') update('max_daily_losses', 1); }}
                         keyboardType="number-pad"
                         selectTextOnFocus
                       />
                       <TouchableOpacity
                         style={s.stepperBtn}
-                        onPress={() => update('max_daily_losses', (settings.max_daily_losses || 5) + 1)}
+                        onPress={() => update('max_daily_losses', (settings?.max_daily_losses || 5) + 1)}
                       >
                         <Ionicons name="add" size={16} color="#f87171" />
                       </TouchableOpacity>
@@ -875,8 +877,8 @@ export default function SettingsScreen() {
                   </View>
                   <View style={s.thresholdPresets}>
                     {[3, 5, 7, 10, 15, 20].map(v => (
-                      <TouchableOpacity key={v} style={[s.preset, settings.max_daily_losses === v && s.presetActive]} onPress={() => update('max_daily_losses', v)}>
-                        <Text style={[s.presetText, settings.max_daily_losses === v && s.presetTextActive]}>{v}</Text>
+                      <TouchableOpacity key={v} style={[s.preset, settings?.max_daily_losses === v && s.presetActive]} onPress={() => update('max_daily_losses', v)}>
+                        <Text style={[s.presetText, settings?.max_daily_losses === v && s.presetTextActive]}>{v}</Text>
                       </TouchableOpacity>
                     ))}
                   </View>
@@ -892,7 +894,7 @@ export default function SettingsScreen() {
                     <View style={s.stepperWrap}>
                       <TouchableOpacity
                         style={s.stepperBtn}
-                        onPress={() => update('max_daily_loss_amount', Math.max(10, (settings.max_daily_loss_amount || 500) - 50))}
+                        onPress={() => update('max_daily_loss_amount', Math.max(10, (settings?.max_daily_loss_amount || 500) - 50))}
                       >
                         <Ionicons name="remove" size={16} color="#f87171" />
                       </TouchableOpacity>
@@ -900,7 +902,7 @@ export default function SettingsScreen() {
                         <Text style={s.stepperDollar}>$</Text>
                         <TextInput
                           style={[s.stepperInput, { paddingLeft: 2 }]}
-                          value={String(settings.max_daily_loss_amount || 500)}
+                          value={String(settings?.max_daily_loss_amount || 500)}
                           onChangeText={v => { const n = parseFloat(v); if (!isNaN(n) && n >= 1) update('max_daily_loss_amount', n); else if (v === '') update('max_daily_loss_amount', 0); }}
                           keyboardType="decimal-pad"
                           selectTextOnFocus
@@ -908,7 +910,7 @@ export default function SettingsScreen() {
                       </View>
                       <TouchableOpacity
                         style={s.stepperBtn}
-                        onPress={() => update('max_daily_loss_amount', (settings.max_daily_loss_amount || 500) + 50)}
+                        onPress={() => update('max_daily_loss_amount', (settings?.max_daily_loss_amount || 500) + 50)}
                       >
                         <Ionicons name="add" size={16} color="#f87171" />
                       </TouchableOpacity>
@@ -916,8 +918,8 @@ export default function SettingsScreen() {
                   </View>
                   <View style={s.thresholdPresets}>
                     {[100, 250, 500, 1000, 2000, 5000].map(v => (
-                      <TouchableOpacity key={v} style={[s.preset, settings.max_daily_loss_amount === v && s.presetActive]} onPress={() => update('max_daily_loss_amount', v)}>
-                        <Text style={[s.presetText, settings.max_daily_loss_amount === v && s.presetTextActive]}>${v >= 1000 ? `${v/1000}k` : v}</Text>
+                      <TouchableOpacity key={v} style={[s.preset, settings?.max_daily_loss_amount === v && s.presetActive]} onPress={() => update('max_daily_loss_amount', v)}>
+                        <Text style={[s.presetText, settings?.max_daily_loss_amount === v && s.presetTextActive]}>${v >= 1000 ? `${v/1000}k` : v}</Text>
                       </TouchableOpacity>
                     ))}
                   </View>
@@ -998,16 +1000,16 @@ export default function SettingsScreen() {
             <SwitchRow
               label="SMS Alerts"
               sub="Receive texts for fills, failures, shutdowns & disconnects"
-              value={settings?.sms_enabled || false}
+              value={settingsFlags.smsEnabled}
               onChange={v => update('sms_enabled', v)}
               accent="#10b981"
             />
 
-            {settings?.sms_enabled && (
+            {settingsFlags.smsEnabled && (
               <>
                 <FieldLabel label="Your Phone Number" hint="Format: +15551234567 (include country code)" />
                 <Input
-                  value={settings.sms_phone_number}
+                  value={settings?.sms_phone_number || ''}
                   onChange={v => update('sms_phone_number', v)}
                   placeholder="+15551234567"
                 />
@@ -1021,22 +1023,22 @@ export default function SettingsScreen() {
 
                 <FieldLabel label="Account SID" hint="From your Twilio console dashboard" />
                 <Input
-                  value={settings.twilio_account_sid}
+                  value={settings?.twilio_account_sid || ''}
                   onChange={v => update('twilio_account_sid', v)}
                   placeholder="ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
                 />
 
                 <FieldLabel label="Auth Token" hint="Keep this secret — never share it" />
                 <Input
-                  value={settings.twilio_auth_token}
+                  value={settings?.twilio_auth_token || ''}
                   onChange={v => update('twilio_auth_token', v)}
-                  placeholder={settings.twilio_auth_token?.startsWith('●') ? '●●●●●●●● (saved)' : 'Paste auth token'}
+                  placeholder={settings?.twilio_auth_token?.startsWith('●') ? '●●●●●●●● (saved)' : 'Paste auth token'}
                   secure
                 />
 
                 <FieldLabel label="Twilio From Number" hint="The number Twilio assigned to you" />
                 <Input
-                  value={settings.twilio_from_number}
+                  value={settings?.twilio_from_number || ''}
                   onChange={v => update('twilio_from_number', v)}
                   placeholder="+15550000000"
                 />
