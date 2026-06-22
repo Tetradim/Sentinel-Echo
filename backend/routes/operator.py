@@ -145,6 +145,7 @@ async def panic_stop():
     from routes.health import update_bot_status
 
     settings = await db.get_settings()
+    settings = settings if isinstance(settings, dict) else {}
     active_broker = normalize_broker_id(settings.get("active_broker"), default="ibkr")
     capabilities = get_broker_capabilities(active_broker)
 

@@ -42,6 +42,11 @@ class FakePanicDb:
         return event["id"]
 
 
+class FakeMalformedSettingsPanicDb(FakePanicDb):
+    async def get_settings(self):
+        return "settings"
+
+
 class PanicStopTests(unittest.TestCase):
     def test_panic_stop_disables_automation_and_records_event(self):
         from routes import operator as operator_route
@@ -69,6 +74,18 @@ class PanicStopTests(unittest.TestCase):
 
         self.assertEqual(db.events[-1]["details"]["active_broker"], "alpaca")
         self.assertNotIn("BrokerType", " ".join(db.events[-1]["details"]["warnings"]))
+
+    def test_panic_stop_treats_malformed_settings_as_default_broker(self):
+        from routes import operator as operator_route
+
+        db = FakeMalformedSettingsPanicDb()
+        operator_route.set_db(db)
+
+        result = asyncio.run(operator_route.panic_stop())
+
+        self.assertFalse(result["auto_trading_enabled"])
+        self.assertTrue(result["shutdown_triggered"])
+        self.assertEqual(db.events[-1]["details"]["active_broker"], "ibkr")
 
 
 if __name__ == "__main__":
