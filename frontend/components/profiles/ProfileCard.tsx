@@ -3,7 +3,7 @@ import { View, Text, StyleSheet, TouchableOpacity, Alert } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { BrokerRow } from './BrokerRow';
 import type { BrokerSettingsData, Broker, Profile } from '../../types/profiles';
-import { parseProfileBrokerFlags } from '../../utils/profileBrokerFlags';
+import { parseProfileActiveFlag, parseProfileBrokerFlags } from '../../utils/profileBrokerFlags';
 
 interface ProfileCardProps {
   profile: Profile;
@@ -32,6 +32,8 @@ export const ProfileCard: React.FC<ProfileCardProps> = ({
   onActivateProfile,
   onDeleteProfile,
 }) => {
+  const profileActive = parseProfileActiveFlag(profile);
+
   const getEnabledBrokersCount = (): number => {
     return Object.values(brokerSettings).filter(s => parseProfileBrokerFlags(s).enabled).length;
   };
@@ -49,7 +51,7 @@ export const ProfileCard: React.FC<ProfileCardProps> = ({
 
   return (
     <View
-      style={[styles.profileCard, profile.is_active && styles.activeProfileCard]}
+      style={[styles.profileCard, profileActive && styles.activeProfileCard]}
       testID={`profile-card-${profile.id}`}
     >
       <TouchableOpacity
@@ -59,7 +61,7 @@ export const ProfileCard: React.FC<ProfileCardProps> = ({
       >
         <View style={styles.profileInfo}>
           <View style={styles.profileTitleRow}>
-            {profile.is_active && (
+            {profileActive && (
               <View style={styles.activeBadge}>
                 <Text style={styles.activeBadgeText}>ACTIVE</Text>
               </View>
@@ -98,7 +100,7 @@ export const ProfileCard: React.FC<ProfileCardProps> = ({
 
           {/* Profile Actions */}
           <View style={styles.profileActions}>
-            {!profile.is_active && (
+            {!profileActive && (
               <>
                 <TouchableOpacity 
                   style={styles.activateButton} 

@@ -13,6 +13,10 @@ export interface ProfileBrokerFlagsInput {
   auto_shutdown_enabled?: BooleanLike;
 }
 
+export interface ProfileActivityInput {
+  is_active?: BooleanLike;
+}
+
 export interface ProfileBrokerFlags {
   enabled: boolean;
   autoTradingEnabled: boolean;
@@ -24,6 +28,10 @@ export interface ProfileBrokerFlags {
   trailingStopEnabled: boolean;
   averagingDownEnabled: boolean;
   autoShutdownEnabled: boolean;
+}
+
+export function parseProfileActiveFlag(profile?: ProfileActivityInput | null): boolean {
+  return parseBooleanFlag(profile?.is_active);
 }
 
 export function parseProfileBrokerFlags(settings?: ProfileBrokerFlagsInput | null): ProfileBrokerFlags {

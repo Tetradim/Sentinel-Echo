@@ -16,6 +16,7 @@ require.extensions['.ts'] = function loadTs(module, filename) {
 
 const {
   getProfileBrokerSummary,
+  parseProfileActiveFlag,
   parseProfileBrokerFlags,
 } = require('../utils/profileBrokerFlags.ts');
 
@@ -65,4 +66,10 @@ test('builds broker summary from parsed flags', () => {
     auto_trading_enabled: 'true',
     take_profit_enabled: 'false',
   }), 'Alerts Only');
+});
+
+test('parses serialized profile active state for profile cards', () => {
+  assert.equal(parseProfileActiveFlag({ is_active: 'false' }), false);
+  assert.equal(parseProfileActiveFlag({ is_active: 'true' }), true);
+  assert.equal(parseProfileActiveFlag({ is_active: 0 }), false);
 });

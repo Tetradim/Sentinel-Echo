@@ -30,5 +30,5 @@ export interface Profile {
   description: string;
   active_brokers: string[];
   created_at: string;
-  is_active: boolean;
+  is_active: ProfileBooleanLike;
 }
