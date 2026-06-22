@@ -24,6 +24,7 @@ import {
   panicStop,
   simulateOperatorExit,
 } from '../utils/apiClient';
+import { summarizeBridgeAlertDecisions } from '../utils/alertAuditDigest';
 import { summarizeLiveSafety } from '../utils/liveSafetyDigest';
 import { summarizeReconciliation } from '../utils/reconciliationDigest';
 
@@ -411,6 +412,7 @@ export default function OperatorLabScreen() {
     () => summarizeReconciliation(reconciliationRows),
     [reconciliationRows]
   );
+  const bridgeAlerts = useMemo(() => summarizeBridgeAlertDecisions(events), [events]);
 
   return (
     <SafeAreaView style={s.container}>
@@ -552,6 +554,59 @@ export default function OperatorLabScreen() {
               </View>
             </View>
           ))}
+        </View>
+
+        <View style={s.panel}>
+          <View style={s.panelHeader}>
+            <View>
+              <Text style={s.panelTitle}>Bridge Alerts</Text>
+              <Text style={s.panelSub}>{bridgeAlerts.detail}</Text>
+            </View>
+            <View style={[s.panelPill, bridgeAlerts.skippedCount > 0 ? s.panelPillBlocked : null]}>
+              <Ionicons
+                name={bridgeAlerts.skippedCount > 0 ? 'warning-outline' : 'checkmark-circle-outline'}
+                size={13}
+                color={bridgeAlerts.skippedCount > 0 ? '#ef4444' : '#22c55e'}
+              />
+              <Text style={[s.panelPillText, bridgeAlerts.skippedCount > 0 ? s.panelPillTextBlocked : null]}>
+                {bridgeAlerts.title}
+              </Text>
+            </View>
+          </View>
+          <View style={s.statsGrid}>
+            <StatTile label="Seen" value={String(bridgeAlerts.total)} tone="#38bdf8" />
+            <StatTile label="Accepted" value={String(bridgeAlerts.acceptedCount)} tone="#22c55e" />
+            <StatTile label="Skipped" value={String(bridgeAlerts.skippedCount)} tone={bridgeAlerts.skippedCount > 0 ? '#f59e0b' : '#68779b'} />
+          </View>
+          {bridgeAlerts.rows.length === 0 ? (
+            <View style={s.emptyBlock}>
+              <Ionicons name="notifications-outline" size={34} color="#29213a" />
+              <Text style={s.emptyTitle}>No bridge alerts</Text>
+            </View>
+          ) : (
+            bridgeAlerts.rows.slice(0, 5).map((row, index) => {
+              const skipped = row.status === 'skipped';
+              const tone = skipped ? '#f59e0b' : '#22c55e';
+              return (
+                <View key={`${row.id}-${index}`} style={s.eventRow}>
+                  <View style={[s.eventIcon, { backgroundColor: tone + '1f' }]}>
+                    <Ionicons name={skipped ? 'warning-outline' : 'checkmark-circle-outline'} size={16} color={tone} />
+                  </View>
+                  <View style={s.eventBody}>
+                    <View style={s.eventTopLine}>
+                      <Text style={s.eventAction}>{row.tickerLabel}</Text>
+                      <Text style={s.eventTime}>{formatDate(row.timestamp)}</Text>
+                    </View>
+                    <Text style={s.eventSummary}>{row.skipReason || row.summary}</Text>
+                    {row.rawTextPreview ? <Text style={s.eventSummary}>{row.rawTextPreview}</Text> : null}
+                    <Text style={s.eventCategory}>
+                      {row.channelLabel} / {row.authorLabel} / parser {row.parserConfidence} / source {row.sourceLabel}
+                    </Text>
+                  </View>
+                </View>
+              );
+            })
+          )}
         </View>
 
         <View style={s.panel}>
