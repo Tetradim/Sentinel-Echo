@@ -542,6 +542,9 @@ async def check_broker_connection():
     settings = await db.get_settings()
     if not settings:
         return {"connected": False, "broker": None, "error": "No settings configured"}
+    if not isinstance(settings, dict):
+        bot_status['broker_connected'] = False
+        return {"connected": False, "broker": None, "error": "Settings are malformed"}
 
     active_broker = settings.get('active_broker', 'ibkr')
     broker_client = None

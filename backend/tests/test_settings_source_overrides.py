@@ -355,6 +355,19 @@ class SourceOverrideRouteTests(unittest.TestCase):
         self.assertEqual(fake_db.runtime_updates, [])
         self.assertEqual(fake_db.operator_events[-1]["action"], "loss_counter_reset_blocked")
 
+    def test_check_broker_connection_reports_malformed_settings(self):
+        from routes import settings as settings_route
+
+        fake_db = FakeRawSettingsDb("settings")
+        settings_route.set_db(fake_db)
+
+        response = asyncio.run(settings_route.check_broker_connection())
+
+        self.assertEqual(
+            response,
+            {"connected": False, "broker": None, "error": "Settings are malformed"},
+        )
+
     def test_settings_update_rejects_invalid_risk_numbers(self):
         from pydantic import ValidationError
         from models import SettingsUpdate
