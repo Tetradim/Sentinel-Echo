@@ -1,8 +1,8 @@
+import { parseBooleanFlag, type BooleanLike } from './booleanFlags';
+
 export type ReadinessTone = 'live' | 'attention' | 'blocked';
 
 export type ReadinessState = 'ready' | 'attention' | 'blocked';
-
-type BooleanLike = boolean | string | number | null | undefined;
 
 export type ReadinessActionTarget =
   | '/broker-config'
@@ -106,21 +106,6 @@ function getSummary(
   if (firstIssue) return firstIssue.detail;
   if (simMode) return 'Simulation trading is ready with protections online.';
   return 'Live trading path is ready with protections online.';
-}
-
-function parseBooleanFlag(value: BooleanLike, fallback = false): boolean {
-  if (typeof value === 'boolean') return value;
-  if (typeof value === 'number') {
-    if (value === 1) return true;
-    if (value === 0) return false;
-    return fallback;
-  }
-  if (typeof value === 'string') {
-    const normalized = value.trim().toLowerCase();
-    if (['true', '1', 'yes', 'y', 'on'].includes(normalized)) return true;
-    if (['false', '0', 'no', 'n', 'off'].includes(normalized)) return false;
-  }
-  return fallback;
 }
 
 export function buildDashboardReadiness(input: DashboardReadinessInput): DashboardReadiness {

@@ -1,6 +1,6 @@
-export type RiskDigestTone = 'live' | 'attention';
+import { parseBooleanFlag, type BooleanLike } from './booleanFlags';
 
-type BooleanLike = boolean | string | number | null | undefined;
+export type RiskDigestTone = 'live' | 'attention';
 
 export interface DigestRiskSettings {
   maxPositionSize?: number | null;
@@ -52,21 +52,6 @@ function formatCompactCurrency(value: number): string {
 
 function formatPercent(value: number): string {
   return `${Number.isInteger(value) ? value : value.toFixed(1)}%`;
-}
-
-function parseBooleanFlag(value: BooleanLike, fallback = false): boolean {
-  if (typeof value === 'boolean') return value;
-  if (typeof value === 'number') {
-    if (value === 1) return true;
-    if (value === 0) return false;
-    return fallback;
-  }
-  if (typeof value === 'string') {
-    const normalized = value.trim().toLowerCase();
-    if (['true', '1', 'yes', 'y', 'on'].includes(normalized)) return true;
-    if (['false', '0', 'no', 'n', 'off'].includes(normalized)) return false;
-  }
-  return fallback;
 }
 
 export function summarizeRiskSettings(settings: DigestRiskSettings): RiskDigest {

@@ -1,6 +1,6 @@
-export type SettingsDigestTone = 'live' | 'attention' | 'idle';
+import { parseBooleanFlag, type BooleanLike } from './booleanFlags';
 
-type BooleanLike = boolean | string | number | null | undefined;
+export type SettingsDigestTone = 'live' | 'attention' | 'idle';
 
 export interface DigestSettings {
   discord_token?: string | null;
@@ -76,21 +76,6 @@ function countLabel(count: number, singular: string, plural: string): string {
 function normalizeBroker(value: string | null | undefined): string {
   const broker = String(value || '').trim();
   return broker ? broker.toUpperCase() : 'None';
-}
-
-function parseBooleanFlag(value: BooleanLike, fallback = false): boolean {
-  if (typeof value === 'boolean') return value;
-  if (typeof value === 'number') {
-    if (value === 1) return true;
-    if (value === 0) return false;
-    return fallback;
-  }
-  if (typeof value === 'string') {
-    const normalized = value.trim().toLowerCase();
-    if (['true', '1', 'yes', 'y', 'on'].includes(normalized)) return true;
-    if (['false', '0', 'no', 'n', 'off'].includes(normalized)) return false;
-  }
-  return fallback;
 }
 
 export function summarizeSettings(

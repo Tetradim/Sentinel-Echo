@@ -1,6 +1,6 @@
-export type LiveSafetyTone = 'live' | 'attention' | 'blocked' | 'idle';
+import { parseBooleanFlag, type BooleanLike } from './booleanFlags';
 
-type BooleanLike = boolean | string | number | null | undefined;
+export type LiveSafetyTone = 'live' | 'attention' | 'blocked' | 'idle';
 
 export interface LiveReadinessIssue {
   code: string;
@@ -62,21 +62,6 @@ function formatSourceBlockReason(reason: string): string {
   if (reason === 'manual_confirm_required') return 'requires manual confirmation';
   if (reason === 'disabled') return 'is disabled';
   return reason.replace(/_/g, ' ');
-}
-
-function parseBooleanFlag(value: BooleanLike, fallback = false): boolean {
-  if (typeof value === 'boolean') return value;
-  if (typeof value === 'number') {
-    if (value === 1) return true;
-    if (value === 0) return false;
-    return fallback;
-  }
-  if (typeof value === 'string') {
-    const normalized = value.trim().toLowerCase();
-    if (['true', '1', 'yes', 'y', 'on'].includes(normalized)) return true;
-    if (['false', '0', 'no', 'n', 'off'].includes(normalized)) return false;
-  }
-  return fallback;
 }
 
 function formatSourcePolicyBlockers(readiness: LiveReadinessPayload | null | undefined): string | null {

@@ -1,6 +1,6 @@
-export type TradingSettingsDigestTone = 'live' | 'attention' | 'idle';
+import { parseBooleanFlag, type BooleanLike } from './booleanFlags';
 
-type BooleanLike = boolean | string | number | null | undefined;
+export type TradingSettingsDigestTone = 'live' | 'attention' | 'idle';
 
 export interface DigestTradingSettings {
   simulationMode?: BooleanLike;
@@ -55,21 +55,6 @@ function formatPercent(value: number): string {
 function normalizeBrokerLabel(value: string | null | undefined): string {
   const broker = String(value || '').trim();
   return broker ? broker.toUpperCase() : 'None';
-}
-
-function parseBooleanFlag(value: BooleanLike, fallback = false): boolean {
-  if (typeof value === 'boolean') return value;
-  if (typeof value === 'number') {
-    if (value === 1) return true;
-    if (value === 0) return false;
-    return fallback;
-  }
-  if (typeof value === 'string') {
-    const normalized = value.trim().toLowerCase();
-    if (['true', '1', 'yes', 'y', 'on'].includes(normalized)) return true;
-    if (['false', '0', 'no', 'n', 'off'].includes(normalized)) return false;
-  }
-  return fallback;
 }
 
 export function summarizeTradingSettings(settings: DigestTradingSettings): TradingSettingsDigest {

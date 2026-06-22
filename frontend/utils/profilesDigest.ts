@@ -1,6 +1,6 @@
-export type ProfilesDigestTone = 'live' | 'attention' | 'idle';
+import { parseBooleanFlag, type BooleanLike } from './booleanFlags';
 
-type BooleanLike = boolean | string | number | null | undefined;
+export type ProfilesDigestTone = 'live' | 'attention' | 'idle';
 
 export interface DigestProfile {
   id: string;
@@ -43,21 +43,6 @@ type ProfileSettingsMap = Record<string, Record<string, DigestBrokerSettings | u
 
 function profileName(profile: DigestProfile | undefined): string {
   return profile?.name?.trim() || 'None';
-}
-
-function parseBooleanFlag(value: BooleanLike, fallback = false): boolean {
-  if (typeof value === 'boolean') return value;
-  if (typeof value === 'number') {
-    if (value === 1) return true;
-    if (value === 0) return false;
-    return fallback;
-  }
-  if (typeof value === 'string') {
-    const normalized = value.trim().toLowerCase();
-    if (['true', '1', 'yes', 'y', 'on'].includes(normalized)) return true;
-    if (['false', '0', 'no', 'n', 'off'].includes(normalized)) return false;
-  }
-  return fallback;
 }
 
 function isGuarded(settings: DigestBrokerSettings): boolean {
