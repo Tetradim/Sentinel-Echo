@@ -33,6 +33,7 @@ import { summarizeAlerts } from '../utils/alertDigest';
 import { summarizePositions } from '../utils/positionDigest';
 import { summarizeSettings } from '../utils/settingsDigest';
 import { summarizeTrades } from '../utils/tradeDigest';
+import { normalizeDashboardRuntimeState } from '../utils/dashboardRuntimeState';
 
 type AccentKey = 'indigo' | 'mint' | 'amber' | 'rose' | 'sky' | 'violet' | 'gold' | 'coral';
 type PatternKey = 'triangle' | 'hex' | 'circuit';
@@ -1308,29 +1309,27 @@ export default function Dashboard() {
       setPortfolio(portfolioRes.data);
       setSettings(liveSettings);
       setPatterns(patternsRes.data || null);
-      setAutoTrading(Boolean(liveStatus.auto_trading_enabled));
-      setSimMode(Boolean(liveStatus.simulation_mode ?? liveSettings.simulation_mode));
-      setAvgDown(Boolean(avgRes.data.averaging_down_enabled));
-      setTakeProfit(Boolean(riskRes.data.take_profit_enabled));
-      setStopLoss(Boolean(riskRes.data.stop_loss_enabled));
-      setRiskSettings({
-        take_profit_percentage: Number(riskRes.data.take_profit_percentage ?? 50),
-        stop_loss_percentage: Number(riskRes.data.stop_loss_percentage ?? 25),
+      const runtimeState = normalizeDashboardRuntimeState({
+        status: liveStatus,
+        settings: liveSettings,
+        averagingDown: avgRes.data,
+        risk: riskRes.data,
+        trailing: trailRes.data,
+        shutdown: shutRes.data,
+        premium: bufRes.data,
       });
-      setTrailingStop(Boolean(trailRes.data.trailing_stop_enabled));
-      setTrailingSettings({ trailing_stop_percent: Number(trailRes.data.trailing_stop_percent ?? 10) });
-      setAutoShutdown(Boolean(shutRes.data.auto_shutdown_enabled));
-      setShutdownSettings({
-        max_consecutive_losses: Number(shutRes.data.max_consecutive_losses ?? 3),
-        max_daily_losses: Number(shutRes.data.max_daily_losses ?? 5),
-        max_daily_loss_amount: Number(shutRes.data.max_daily_loss_amount ?? 500),
-        consecutive_losses: Number(shutRes.data.consecutive_losses ?? 0),
-        daily_losses: Number(shutRes.data.daily_losses ?? 0),
-        shutdown_triggered: Boolean(shutRes.data.shutdown_triggered),
-        shutdown_reason: String(shutRes.data.shutdown_reason || ''),
-      });
-      setPremiumBuffer(Boolean(bufRes.data.premium_buffer_enabled));
-      setPremiumBufferAmt(Number(bufRes.data.premium_buffer_amount ?? 10));
+      setAutoTrading(runtimeState.autoTrading);
+      setSimMode(runtimeState.simMode);
+      setAvgDown(runtimeState.avgDown);
+      setTakeProfit(runtimeState.takeProfit);
+      setStopLoss(runtimeState.stopLoss);
+      setRiskSettings(runtimeState.riskSettings);
+      setTrailingStop(runtimeState.trailingStop);
+      setTrailingSettings(runtimeState.trailingSettings);
+      setAutoShutdown(runtimeState.autoShutdown);
+      setShutdownSettings(runtimeState.shutdownSettings);
+      setPremiumBuffer(runtimeState.premiumBuffer);
+      setPremiumBufferAmt(runtimeState.premiumBufferAmt);
     } catch (e: any) {
       console.error('dashboard fetch error', e);
       setError(e?.response?.data?.detail || e?.message || 'Failed to connect to backend');
