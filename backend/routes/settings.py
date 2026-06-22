@@ -208,7 +208,7 @@ async def toggle_trading():
 @router.post("/toggle-premium-buffer")
 async def toggle_premium_buffer():
     """Toggle premium buffer"""
-    settings = await db.get_settings()
+    settings = _dict_or_empty(await db.get_settings())
     new_state = not settings.get('premium_buffer_enabled', False)
     await db.update_settings({'premium_buffer_enabled': new_state})
     return {"premium_buffer_enabled": new_state}
@@ -245,7 +245,7 @@ async def update_premium_buffer_settings(
 @router.post("/toggle-averaging-down")
 async def toggle_averaging_down():
     """Toggle averaging down"""
-    settings = await db.get_settings()
+    settings = _dict_or_empty(await db.get_settings())
     new_state = not settings.get('averaging_down_enabled', False)
     await db.update_settings({'averaging_down_enabled': new_state})
     return {"averaging_down_enabled": new_state}
@@ -290,7 +290,7 @@ async def toggle_take_profit():
 @router.post("/toggle-stop-loss")
 async def toggle_stop_loss():
     """Toggle stop loss"""
-    settings = await db.get_settings()
+    settings = _dict_or_empty(await db.get_settings())
     new_state = not settings.get('stop_loss_enabled', False)
     await db.update_settings({'stop_loss_enabled': new_state})
     return {"stop_loss_enabled": new_state}
@@ -332,7 +332,7 @@ async def update_risk_management_settings(update: RiskManagementSettingsUpdate):
 @router.post("/toggle-trailing-stop")
 async def toggle_trailing_stop():
     """Toggle trailing stop"""
-    settings = await db.get_settings()
+    settings = _dict_or_empty(await db.get_settings())
     new_state = not settings.get('trailing_stop_enabled', False)
     await db.update_settings({'trailing_stop_enabled': new_state})
     return {"trailing_stop_enabled": new_state}
@@ -370,7 +370,7 @@ async def update_trailing_stop_settings(update: TrailingStopSettingsUpdate):
 @router.post("/toggle-auto-shutdown")
 async def toggle_auto_shutdown():
     """Toggle auto shutdown"""
-    settings = await db.get_settings()
+    settings = _dict_or_empty(await db.get_settings())
     new_state = not settings.get('auto_shutdown_enabled', False)
     await db.update_settings({'auto_shutdown_enabled': new_state})
     return {"auto_shutdown_enabled": new_state}

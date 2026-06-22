@@ -599,6 +599,61 @@ class SourceOverrideRouteTests(unittest.TestCase):
         self.assertEqual(fake_db.updated, [])
         self.assertEqual(fake_db.operator_events[-1]["action"], "auto_trading_enable_blocked")
 
+    def test_toggle_premium_buffer_treats_malformed_settings_as_default(self):
+        from routes import settings as settings_route
+
+        fake_db = FakeRawSettingsDb("settings")
+        settings_route.set_db(fake_db)
+
+        response = asyncio.run(settings_route.toggle_premium_buffer())
+
+        self.assertEqual(response, {"premium_buffer_enabled": True})
+        self.assertEqual(fake_db.updated, [{"premium_buffer_enabled": True}])
+
+    def test_toggle_averaging_down_treats_malformed_settings_as_default(self):
+        from routes import settings as settings_route
+
+        fake_db = FakeRawSettingsDb("settings")
+        settings_route.set_db(fake_db)
+
+        response = asyncio.run(settings_route.toggle_averaging_down())
+
+        self.assertEqual(response, {"averaging_down_enabled": True})
+        self.assertEqual(fake_db.updated, [{"averaging_down_enabled": True}])
+
+    def test_toggle_stop_loss_treats_malformed_settings_as_default(self):
+        from routes import settings as settings_route
+
+        fake_db = FakeRawSettingsDb("settings")
+        settings_route.set_db(fake_db)
+
+        response = asyncio.run(settings_route.toggle_stop_loss())
+
+        self.assertEqual(response, {"stop_loss_enabled": True})
+        self.assertEqual(fake_db.updated, [{"stop_loss_enabled": True}])
+
+    def test_toggle_trailing_stop_treats_malformed_settings_as_default(self):
+        from routes import settings as settings_route
+
+        fake_db = FakeRawSettingsDb("settings")
+        settings_route.set_db(fake_db)
+
+        response = asyncio.run(settings_route.toggle_trailing_stop())
+
+        self.assertEqual(response, {"trailing_stop_enabled": True})
+        self.assertEqual(fake_db.updated, [{"trailing_stop_enabled": True}])
+
+    def test_toggle_auto_shutdown_treats_malformed_settings_as_default(self):
+        from routes import settings as settings_route
+
+        fake_db = FakeRawSettingsDb("settings")
+        settings_route.set_db(fake_db)
+
+        response = asyncio.run(settings_route.toggle_auto_shutdown())
+
+        self.assertEqual(response, {"auto_shutdown_enabled": True})
+        self.assertEqual(fake_db.updated, [{"auto_shutdown_enabled": True}])
+
     def test_reset_loss_counters_blocks_live_reenable_when_readiness_fails(self):
         from fastapi import HTTPException
         from routes import settings as settings_route
