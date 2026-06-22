@@ -18,6 +18,14 @@ class FakeReconciliationDb:
                 "details": {
                     "contract_version": "chrome.discord.message.v1",
                     "event_id": "bridge-accepted",
+                    "channel": {
+                        "id": "chrome-alerts",
+                        "url": "https://discord.com/channels/1/chrome-alerts",
+                    },
+                    "author": {
+                        "id": "mike",
+                        "name": "MikeInvesting",
+                    },
                     "parsed": {"ticker": "SPY"},
                     "decision": {
                         "status": "accepted",
@@ -223,6 +231,14 @@ class FakeTradeRequestedMissingTradeDb:
                 "details": {
                     "contract_version": "chrome.discord.message.v1",
                     "event_id": "bridge-trade-requested-no-trade",
+                    "channel": {
+                        "id": "chrome-alerts",
+                        "url": "https://discord.com/channels/1/chrome-alerts",
+                    },
+                    "author": {
+                        "id": "mike",
+                        "name": "MikeInvesting",
+                    },
                     "parsed": {"ticker": "SPY"},
                     "decision": {
                         "status": "accepted",
@@ -288,6 +304,14 @@ class FakeAcceptedBridgeMissingParserProofDb:
                 "details": {
                     "contract_version": "chrome.discord.message.v1",
                     "event_id": "bridge-accepted-without-parser-proof",
+                    "channel": {
+                        "id": "chrome-alerts",
+                        "url": "https://discord.com/channels/1/chrome-alerts",
+                    },
+                    "author": {
+                        "id": "mike",
+                        "name": "MikeInvesting",
+                    },
                     "parsed": {"ticker": "SPY"},
                     "decision": {
                         "status": "accepted",
@@ -349,11 +373,90 @@ class FakeAcceptedBridgeMissingContractProofDb:
                 "action": "bridge_alert_decision",
                 "details": {
                     "event_id": "bridge-accepted-without-contract-proof",
+                    "channel": {
+                        "id": "chrome-alerts",
+                        "url": "https://discord.com/channels/1/chrome-alerts",
+                    },
+                    "author": {
+                        "id": "mike",
+                        "name": "MikeInvesting",
+                    },
                     "parsed": {"ticker": "SPY"},
                     "decision": {
                         "status": "accepted",
                         "alert_inserted": True,
                         "alert_id": "alert-accepted-without-contract-proof",
+                        "trade_requested": True,
+                        "trade_request_reason": "auto trading enabled",
+                    },
+                    "source": {
+                        "key": "chrome-alerts",
+                        "override_matched": True,
+                        "min_parser_confidence": "medium",
+                    },
+                    "parser": {
+                        "confidence": "medium",
+                    },
+                },
+            }
+        ]
+
+
+class FakeAcceptedBridgeMissingSourceIdentityProofDb:
+    async def get_alerts(self, limit=100):
+        return [
+            {
+                "id": "alert-accepted-without-source-identity-proof",
+                "ticker": "SPY",
+                "alert_type": "buy",
+                "trade_executed": True,
+                "processed": True,
+            }
+        ]
+
+    async def get_trades(self, limit=100):
+        return [
+            {
+                "id": "trade-accepted-without-source-identity-proof",
+                "alert_id": "alert-accepted-without-source-identity-proof",
+                "ticker": "SPY",
+                "status": "filled",
+                "order_id": "order-accepted-without-source-identity-proof",
+                "simulated": False,
+            }
+        ]
+
+    async def get_positions(self, status=None):
+        return [
+            {
+                "id": "position-accepted-without-source-identity-proof",
+                "ticker": "SPY",
+                "status": "open",
+                "trade_ids": ["trade-accepted-without-source-identity-proof"],
+                "simulated": False,
+            }
+        ]
+
+    async def get_operator_events(self, limit=100):
+        return [
+            {
+                "id": "event-accepted-without-source-identity-proof",
+                "timestamp": "2026-06-22T14:50:00Z",
+                "action": "bridge_alert_decision",
+                "details": {
+                    "contract_version": "chrome.discord.message.v1",
+                    "event_id": "bridge-accepted-without-source-identity-proof",
+                    "channel": {
+                        "id": "chrome-alerts",
+                    },
+                    "author": {
+                        "name": "MikeInvesting",
+                    },
+                    "parsed": {"ticker": "SPY"},
+                    "decision": {
+                        "status": "accepted",
+                        "alert_inserted": True,
+                        "alert_id": "alert-accepted-without-source-identity-proof",
                         "trade_requested": True,
                         "trade_request_reason": "auto trading enabled",
                     },
@@ -494,6 +597,22 @@ class ReconciliationTests(unittest.TestCase):
         self.assertEqual(
             report["summary"]["attention_reasons"],
             ["accepted bridge alert missing chrome bridge contract proof"],
+        )
+
+    def test_alert_chain_report_flags_accepted_bridge_alert_without_source_identity_proof(self):
+        from reconciliation import build_alert_chain_report
+
+        report = asyncio.run(build_alert_chain_report(FakeAcceptedBridgeMissingSourceIdentityProofDb()))
+        row = report["rows"][0]
+
+        self.assertEqual(row["status"], "attention")
+        self.assertEqual(row["attention_reason"], "accepted bridge alert missing source identity proof")
+        self.assertEqual(row["channel_url"], "")
+        self.assertEqual(row["author_id"], "")
+        self.assertFalse(row["deterministic"])
+        self.assertEqual(
+            report["summary"]["attention_reasons"],
+            ["accepted bridge alert missing source identity proof"],
         )
 
 

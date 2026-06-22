@@ -53,6 +53,10 @@ def _has_chrome_bridge_contract_proof(details: dict[str, Any]) -> bool:
     return _clean_text(details.get("contract_version")) == CHROME_BRIDGE_CONTRACT_VERSION
 
 
+def _has_source_identity_proof(channel: dict[str, Any], author: dict[str, Any]) -> bool:
+    return bool(_clean_text(channel.get("url")) and _clean_text(author.get("id")))
+
+
 def summarize_reconciliation_rows(rows: List[Dict[str, Any]]) -> Dict[str, Any]:
     """Summarize unresolved alert/trade/position chains for readiness checks."""
     unresolved_reasons: list[str] = []
@@ -152,6 +156,8 @@ async def build_alert_chain_report(db, *, limit: int = 100) -> Dict[str, Any]:
                 attention_reason = "accepted bridge alert missing source policy proof"
             elif not _has_parser_confidence_proof(parser):
                 attention_reason = "accepted bridge alert missing parser confidence proof"
+            elif not _has_source_identity_proof(channel, author):
+                attention_reason = "accepted bridge alert missing source identity proof"
             elif trade_requested and not _clean_text(reconciliation.get("trade_id")):
                 attention_reason = "trade requested but no linked trade"
             else:
