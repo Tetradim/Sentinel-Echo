@@ -17,6 +17,7 @@ import {
   armLiveTrading,
   createOperatorTestAlert,
   disarmLiveTrading,
+  getAlertChains,
   getLiveReadiness,
   getOperatorEvents,
   getPositions,
@@ -24,6 +25,7 @@ import {
   panicStop,
   simulateOperatorExit,
 } from '../utils/apiClient';
+import { summarizeAlertChains, type AlertChainReport } from '../utils/alertChainDigest';
 import { summarizeBridgeAlertDecisions } from '../utils/alertAuditDigest';
 import { summarizeLiveSafety } from '../utils/liveSafetyDigest';
 import { summarizeReconciliation } from '../utils/reconciliationDigest';
@@ -137,6 +139,33 @@ const DEMO_RECONCILIATION: ReconciliationRow[] = [
   },
 ];
 
+const DEMO_ALERT_CHAINS: AlertChainReport = {
+  summary: {
+    total: 1,
+    seen_count: 1,
+    parsed_count: 1,
+    accepted_count: 1,
+    alert_inserted_count: 1,
+    trade_requested_count: 1,
+    trade_linked_count: 1,
+    position_linked_count: 1,
+    attention_count: 0,
+    deterministic: true,
+  },
+  rows: [
+    {
+      chain_key: 'demo-chain',
+      source: 'operator_test',
+      ticker: 'SPY',
+      alert_id: 'demo-alert',
+      trade_id: 'demo-trade',
+      position_id: 'demo-position-1',
+      status: 'reconciled',
+      deterministic: true,
+    },
+  ],
+};
+
 function formatMoney(value: unknown): string {
   const numeric = typeof value === 'number' ? value : Number(value);
   if (!Number.isFinite(numeric)) return '$0.00';
@@ -212,6 +241,7 @@ export default function OperatorLabScreen() {
   const [positions, setPositions] = useState<Position[]>([]);
   const [liveReadiness, setLiveReadiness] = useState<LiveReadiness | null>(null);
   const [reconciliationRows, setReconciliationRows] = useState<ReconciliationRow[]>([]);
+  const [alertChainReport, setAlertChainReport] = useState<AlertChainReport | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [runningAction, setRunningAction] = useState<RunningAction>(null);
@@ -223,6 +253,7 @@ export default function OperatorLabScreen() {
       setPositions(DEMO_POSITIONS);
       setLiveReadiness(DEMO_READINESS);
       setReconciliationRows(DEMO_RECONCILIATION);
+      setAlertChainReport(DEMO_ALERT_CHAINS);
       setLoadError(null);
       setLoading(false);
       setRefreshing(false);
@@ -230,16 +261,18 @@ export default function OperatorLabScreen() {
     }
 
     try {
-      const [eventsResult, positionsResult, readinessResult, reconciliationResult] = await Promise.all([
+      const [eventsResult, positionsResult, readinessResult, reconciliationResult, alertChainsResult] = await Promise.all([
         getOperatorEvents(80),
         getPositions(),
         getLiveReadiness(),
         getReconciliation(80),
+        getAlertChains(80),
       ]);
       setEvents(eventsResult.data || []);
       setPositions(positionsResult.data || []);
       setLiveReadiness(readinessResult.data || null);
       setReconciliationRows(reconciliationResult.data || []);
+      setAlertChainReport(alertChainsResult.data || null);
       setLoadError(null);
     } catch (error) {
       console.error(error);
@@ -395,10 +428,15 @@ export default function OperatorLabScreen() {
     try {
       if (DEMO_MODE) {
         setReconciliationRows(DEMO_RECONCILIATION);
+        setAlertChainReport(DEMO_ALERT_CHAINS);
         return;
       }
-      const response = await getReconciliation(80);
+      const [response, alertChainsResponse] = await Promise.all([
+        getReconciliation(80),
+        getAlertChains(80),
+      ]);
       setReconciliationRows(response.data || []);
+      setAlertChainReport(alertChainsResponse.data || null);
     } catch (error: any) {
       Alert.alert('Refresh failed', error.response?.data?.detail || 'Could not load reconciliation.');
     } finally {
@@ -413,6 +451,7 @@ export default function OperatorLabScreen() {
     [reconciliationRows]
   );
   const bridgeAlerts = useMemo(() => summarizeBridgeAlertDecisions(events), [events]);
+  const alertChains = useMemo(() => summarizeAlertChains(alertChainReport), [alertChainReport]);
 
   return (
     <SafeAreaView style={s.container}>
@@ -554,6 +593,61 @@ export default function OperatorLabScreen() {
               </View>
             </View>
           ))}
+        </View>
+
+        <View style={s.panel}>
+          <View style={s.panelHeader}>
+            <View>
+              <Text style={s.panelTitle}>Alert Chain Proof</Text>
+              <Text style={s.panelSub}>{alertChains.detail}</Text>
+            </View>
+            <View style={[s.panelPill, alertChains.attentionCount > 0 ? s.panelPillBlocked : null]}>
+              <Ionicons
+                name={alertChains.attentionCount > 0 ? 'warning-outline' : 'checkmark-circle-outline'}
+                size={13}
+                color={alertChains.attentionCount > 0 ? '#ef4444' : '#22c55e'}
+              />
+              <Text style={[s.panelPillText, alertChains.attentionCount > 0 ? s.panelPillTextBlocked : null]}>
+                {alertChains.stateLabel}
+              </Text>
+            </View>
+          </View>
+          <View style={s.statsGrid}>
+            <StatTile label="Seen" value={String(alertChains.stageCounts.seen)} tone="#38bdf8" />
+            <StatTile label="Parsed" value={String(alertChains.stageCounts.parsed)} tone="#22c55e" />
+            <StatTile label="Decided" value={String(alertChains.stageCounts.decided)} tone="#a78bfa" />
+          </View>
+          <View style={s.statsGrid}>
+            <StatTile label="Placed" value={String(alertChains.stageCounts.placed)} tone="#fb923c" />
+            <StatTile label="Reconciled" value={String(alertChains.stageCounts.reconciled)} tone="#22c55e" />
+            <StatTile label="Attention" value={String(alertChains.attentionCount)} tone={alertChains.attentionCount > 0 ? '#f59e0b' : '#68779b'} />
+          </View>
+          {alertChains.rows.length === 0 ? (
+            <View style={s.emptyBlock}>
+              <Ionicons name="git-network-outline" size={34} color="#29213a" />
+              <Text style={s.emptyTitle}>No alert chains</Text>
+            </View>
+          ) : (
+            alertChains.rows.slice(0, 5).map((row, index) => {
+              const needsReview = row.status === 'attention' || !row.deterministic;
+              const tone = needsReview ? '#f59e0b' : '#22c55e';
+              return (
+                <View key={`${row.key}-${index}`} style={s.eventRow}>
+                  <View style={[s.eventIcon, { backgroundColor: tone + '1f' }]}>
+                    <Ionicons name={needsReview ? 'warning-outline' : 'checkmark-circle-outline'} size={16} color={tone} />
+                  </View>
+                  <View style={s.eventBody}>
+                    <View style={s.eventTopLine}>
+                      <Text style={s.eventAction}>{row.tickerLabel} chain</Text>
+                      <Text style={s.eventTime}>{row.status}</Text>
+                    </View>
+                    <Text style={s.eventSummary}>{row.attentionReason || row.decisionReason || row.linkageLabel}</Text>
+                    <Text style={s.eventCategory}>{row.sourceLabel} / {row.deterministic ? 'DETERMINISTIC' : 'REVIEW'}</Text>
+                  </View>
+                </View>
+              );
+            })
+          )}
         </View>
 
         <View style={s.panel}>

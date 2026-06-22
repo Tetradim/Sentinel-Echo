@@ -9,6 +9,7 @@ test('operator lab exposes safe backend action endpoints', () => {
   const source = fs.readFileSync(screenPath, 'utf8');
 
   assert.match(source, /getOperatorEvents/);
+  assert.match(source, /getAlertChains/);
   assert.match(source, /createOperatorTestAlert/);
   assert.match(source, /simulateOperatorExit/);
   assert.match(source, /getLiveReadiness/);
@@ -17,7 +18,9 @@ test('operator lab exposes safe backend action endpoints', () => {
   assert.match(source, /panicStop/);
   assert.match(source, /getReconciliation/);
   assert.match(source, /summarizeBridgeAlertDecisions/);
+  assert.match(source, /summarizeAlertChains/);
   assert.match(source, /bridgeAlerts\.stateLabel/);
+  assert.match(source, /alertChains\.stateLabel/);
 });
 
 test('operator lab renders the expected action surface', () => {
@@ -29,6 +32,9 @@ test('operator lab renders the expected action surface', () => {
   assert.match(source, /Disarm/);
   assert.match(source, /Panic Stop/);
   assert.match(source, /Reconciliation/);
+  assert.match(source, /Alert Chain Proof/);
+  assert.match(source, /Placed/);
+  assert.match(source, /Reconciled/);
   assert.match(source, /Bridge Alerts/);
   assert.match(source, /Accepted/);
   assert.match(source, /Skipped/);
