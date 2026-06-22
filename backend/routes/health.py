@@ -254,6 +254,8 @@ def _merge_readiness_warnings(warnings: list[str], readiness: dict) -> list[str]
     merged = list(warnings)
     seen = set(merged)
     for issue in readiness.get("blocking_issues", []) or []:
+        if not isinstance(issue, dict):
+            continue
         summary = str(issue.get("summary") or "").strip()
         if summary and summary not in seen:
             merged.append(summary)

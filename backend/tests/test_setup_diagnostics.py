@@ -50,6 +50,22 @@ class SetupDiagnosticsTests(unittest.TestCase):
 
         self.assertNotIn("live_trading_armed", health_route.get_bot_status())
 
+    def test_readiness_warning_merge_ignores_malformed_issues(self):
+        from routes import health as health_route
+
+        result = health_route._merge_readiness_warnings(
+            ["Existing warning"],
+            {
+                "blocking_issues": [
+                    "blocked",
+                    {"summary": "Existing warning"},
+                    {"summary": "Valid readiness warning"},
+                ]
+            },
+        )
+
+        self.assertEqual(result, ["Existing warning", "Valid readiness warning"])
+
     def test_status_derives_trading_state_from_settings(self):
         from routes import health as health_route
 
