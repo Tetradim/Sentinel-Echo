@@ -21,8 +21,10 @@ class FakeSettingsDb:
 
     async def update_settings(self, update):
         self.updated.append(update)
-        self.settings.update(update)
-        return dict(self.settings)
+        if isinstance(self.settings, dict):
+            self.settings.update(update)
+            return dict(self.settings)
+        return dict(update)
 
     async def update_runtime_state(self, update):
         self.runtime_updates.append(update)
@@ -367,6 +369,27 @@ class SourceOverrideRouteTests(unittest.TestCase):
             response,
             {"connected": False, "broker": None, "error": "Settings are malformed"},
         )
+
+    def test_shutdown_check_disables_trading_on_malformed_settings(self):
+        from routes import settings as settings_route
+
+        fake_db = FakeRawSettingsDb("settings")
+        settings_route.set_db(fake_db)
+
+        reason = asyncio.run(settings_route.check_and_trigger_shutdown(-125.0))
+
+        self.assertEqual(reason, "Settings are malformed")
+        self.assertEqual(
+            fake_db.runtime_updates,
+            [
+                {
+                    "shutdown_triggered": True,
+                    "shutdown_reason": "Settings are malformed",
+                    "auto_trading_enabled": False,
+                }
+            ],
+        )
+        self.assertEqual(fake_db.updated, [{"auto_trading_enabled": False}])
 
     def test_settings_update_rejects_invalid_risk_numbers(self):
         from pydantic import ValidationError

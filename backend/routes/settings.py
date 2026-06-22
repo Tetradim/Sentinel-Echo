@@ -575,6 +575,17 @@ async def check_and_trigger_shutdown(realized_pnl: float):
     from routes.health import bot_status
 
     settings = await db.get_settings()
+    if not isinstance(settings, dict):
+        shutdown_reason = "Settings are malformed"
+        await db.update_runtime_state({
+            'shutdown_triggered': True,
+            'shutdown_reason': shutdown_reason,
+            'auto_trading_enabled': False,
+        })
+        await db.update_settings({'auto_trading_enabled': False})
+        bot_status['auto_trading_enabled'] = False
+        logger.error("AUTO SHUTDOWN TRIGGERED: %s", shutdown_reason)
+        return shutdown_reason
 
     if not settings.get('auto_shutdown_enabled', False):
         return None
