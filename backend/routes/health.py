@@ -133,7 +133,7 @@ async def setup_diagnostics():
     missing_broker_fields = []
     if not broker_configured and broker_config_has_saved_value(active_broker_config):
         missing_broker_fields = list(missing_broker_config_fields(active_broker_config, active_broker))
-    broker_connected = broker_configured and bool(status.get("broker_connected", False))
+    broker_connected = broker_configured and coerce_bool(status.get("broker_connected"), default=False)
     broker_capabilities = get_broker_capabilities(active_broker)
     order_status_supported = broker_configured and bool(
         broker_capabilities.get("supports_order_status", False)

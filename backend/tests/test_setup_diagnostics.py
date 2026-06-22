@@ -410,6 +410,50 @@ class SetupDiagnosticsTests(unittest.TestCase):
         )
         self.assertIn("Broker connection is not healthy.", result["warnings"])
 
+    def test_setup_diagnostics_parses_serialized_false_broker_status(self):
+        from routes import health as health_route
+
+        health_route.set_db(
+            FakeDiagnosticsDb(
+                {
+                    "discord_token": "discord-secret-token",
+                    "discord_channel_ids": ["123"],
+                    "active_broker": "alpaca",
+                    "broker_configs": {
+                        "alpaca": {
+                            "api_key": "broker-secret-key",
+                            "api_secret": "broker-secret-secret",
+                        }
+                    },
+                    "source_overrides": {
+                        "alerts": {
+                            "paper_only": False,
+                            "require_manual_confirm": False,
+                        }
+                    },
+                    "auto_trading_enabled": True,
+                    "simulation_mode": False,
+                    "max_position_size": 1000.0,
+                    "shutdown_triggered": False,
+                }
+            )
+        )
+        health_route.update_bot_status("discord_connected", True)
+        health_route.update_bot_status("broker_connected", "false")
+
+        with patch.dict(
+            "os.environ",
+            {
+                "API_KEY": "api-key",
+                "CREDENTIAL_KEY": "0" * 64,
+            },
+        ):
+            result = asyncio.run(health_route.setup_diagnostics())
+
+        self.assertFalse(result["broker"]["connected"])
+        self.assertIn("broker_not_connected", result["readiness"]["blocking_codes"])
+        self.assertIn("Broker connection is not healthy.", result["warnings"])
+
     def test_setup_diagnostics_does_not_report_stale_discord_connected_without_config(self):
         from routes import health as health_route
 
