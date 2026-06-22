@@ -339,6 +339,22 @@ class SourceOverrideRouteTests(unittest.TestCase):
         self.assertEqual(fake_db.runtime_updates, [])
         self.assertEqual(fake_db.operator_events[-1]["action"], "loss_counter_reset_blocked")
 
+    def test_reset_loss_counters_blocks_malformed_settings(self):
+        from fastapi import HTTPException
+        from routes import settings as settings_route
+
+        fake_db = FakeRawSettingsDb("settings")
+        settings_route.set_db(fake_db)
+
+        with self.assertRaises(HTTPException) as raised:
+            asyncio.run(settings_route.reset_loss_counters())
+
+        self.assertEqual(raised.exception.status_code, 409)
+        self.assertEqual(fake_db.loss_counters_reset, 0)
+        self.assertEqual(fake_db.updated, [])
+        self.assertEqual(fake_db.runtime_updates, [])
+        self.assertEqual(fake_db.operator_events[-1]["action"], "loss_counter_reset_blocked")
+
     def test_settings_update_rejects_invalid_risk_numbers(self):
         from pydantic import ValidationError
         from models import SettingsUpdate

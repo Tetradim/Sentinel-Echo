@@ -422,6 +422,26 @@ async def reset_loss_counters(x_admin_key: Optional[str] = Header(default=None))
         raise HTTPException(status_code=403, detail="Admin key required to reset loss counters")
     from routes.health import bot_status, get_bot_status
     settings = await db.get_settings()
+    if not isinstance(settings, dict):
+        blocked_readiness = {
+            "ready_for_live": False,
+            "blocking_issues": [
+                {
+                    "code": "settings_malformed",
+                    "summary": "Persisted settings are malformed.",
+                }
+            ],
+            "blocking_codes": ["settings_malformed"],
+        }
+        await record_operator_event(
+            db,
+            "live_safety",
+            "loss_counter_reset_blocked",
+            "Loss counter reset was blocked because settings are malformed.",
+            severity="warning",
+            details={"blocking_issues": blocked_readiness["blocking_issues"]},
+        )
+        raise HTTPException(status_code=409, detail=blocked_readiness)
     if not bool((settings or {}).get("simulation_mode", True)):
         from live_readiness import evaluate_live_readiness
 
