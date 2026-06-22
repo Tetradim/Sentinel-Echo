@@ -119,7 +119,7 @@ def resolve_discord_start_config(
     """Resolve Discord config for the manual start route without exposing secrets."""
     fallback_env = env if env is not None else os.environ
     return resolve_saved_or_runtime_discord_config(
-        settings or {},
+        _dict_or_empty(settings),
         fallback_env,
         openclaw_home=openclaw_home,
     )
@@ -146,7 +146,7 @@ async def start_discord_bot(background_tasks: BackgroundTasks):
     """Start the Discord bot"""
     global discord_bot_thread
     
-    settings = await db.get_settings()
+    settings = _dict_or_empty(await db.get_settings())
     discord_config = resolve_discord_start_config(settings)
     if not discord_config.token:
         raise HTTPException(status_code=400, detail="Discord token not configured")
