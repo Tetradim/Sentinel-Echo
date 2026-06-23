@@ -272,6 +272,71 @@ class FakeTradeRequestedMissingTradeDb:
         ]
 
 
+class FakeInterleavedTradeWindowDb:
+    def __init__(self):
+        self.requested_trade_limit = None
+
+    async def get_alerts(self, limit=100):
+        return [
+            {
+                "id": "alert-newer",
+                "ticker": "AMD",
+                "alert_type": "buy",
+                "trade_executed": True,
+                "processed": True,
+            },
+            {
+                "id": "alert-older",
+                "ticker": "SPY",
+                "alert_type": "buy",
+                "trade_executed": True,
+                "processed": True,
+            },
+        ][:limit]
+
+    async def get_trades(self, limit=100):
+        self.requested_trade_limit = limit
+        trades = [
+            {"id": "exit-newer", "alert_id": None, "ticker": "AMD", "side": "SELL", "simulated": True},
+            {
+                "id": "entry-newer",
+                "alert_id": "alert-newer",
+                "ticker": "AMD",
+                "side": "BUY",
+                "status": "simulated",
+                "simulated": True,
+            },
+            {"id": "exit-older", "alert_id": None, "ticker": "SPY", "side": "SELL", "simulated": True},
+            {
+                "id": "entry-older",
+                "alert_id": "alert-older",
+                "ticker": "SPY",
+                "side": "BUY",
+                "status": "simulated",
+                "simulated": True,
+            },
+        ]
+        return trades[:limit]
+
+    async def get_positions(self, status=None):
+        return [
+            {
+                "id": "position-newer",
+                "ticker": "AMD",
+                "status": "open",
+                "trade_ids": ["entry-newer"],
+                "simulated": True,
+            },
+            {
+                "id": "position-older",
+                "ticker": "SPY",
+                "status": "open",
+                "trade_id": "entry-older",
+                "simulated": True,
+            },
+        ]
+
+
 class FakeAcceptedBridgeMissingParserProofDb:
     async def get_alerts(self, limit=100):
         return [
@@ -654,6 +719,21 @@ class ReconciliationTests(unittest.TestCase):
         self.assertEqual(by_alert["alert-1"]["position_id"], "position-1")
         self.assertEqual(by_alert["alert-1"]["attention_reason"], "order pending fill")
         self.assertEqual(by_alert["alert-2"]["attention_reason"], "processed alert has no trade")
+
+    def test_reconciliation_reads_wider_trade_window_and_legacy_position_trade_id(self):
+        from reconciliation import build_reconciliation_rows
+
+        db = FakeInterleavedTradeWindowDb()
+        rows = asyncio.run(build_reconciliation_rows(db, limit=2))
+        by_alert = {row["alert_id"]: row for row in rows}
+
+        self.assertGreaterEqual(db.requested_trade_limit, 4)
+        self.assertEqual(by_alert["alert-newer"]["trade_id"], "entry-newer")
+        self.assertEqual(by_alert["alert-newer"]["position_id"], "position-newer")
+        self.assertEqual(by_alert["alert-newer"]["attention_reason"], "")
+        self.assertEqual(by_alert["alert-older"]["trade_id"], "entry-older")
+        self.assertEqual(by_alert["alert-older"]["position_id"], "position-older")
+        self.assertEqual(by_alert["alert-older"]["attention_reason"], "")
 
     def test_reconciliation_summary_counts_only_unresolved_real_rows(self):
         from reconciliation import summarize_reconciliation_rows

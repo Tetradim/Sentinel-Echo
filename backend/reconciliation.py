@@ -11,10 +11,22 @@ def _first_trade_for_alert(trades: list[dict], alert_id: str) -> dict | None:
     return next((trade for trade in trades if trade.get("alert_id") == alert_id), None)
 
 
+def _position_trade_ids(position: dict[str, Any]) -> list[str]:
+    trade_ids = position.get("trade_ids")
+    if isinstance(trade_ids, list):
+        values = [_clean_text(trade_id) for trade_id in trade_ids]
+    else:
+        values = [_clean_text(trade_ids)]
+    legacy_trade_id = _clean_text(position.get("trade_id"))
+    if legacy_trade_id:
+        values.append(legacy_trade_id)
+    return [trade_id for trade_id in values if trade_id]
+
+
 def _first_position_for_trade(positions: list[dict], trade_id: str | None) -> dict | None:
     if not trade_id:
         return None
-    return next((position for position in positions if trade_id in (position.get("trade_ids") or [])), None)
+    return next((position for position in positions if trade_id in _position_trade_ids(position)), None)
 
 
 def _attention_reason(alert: dict, trade: dict | None, position: dict | None) -> str:
@@ -101,7 +113,9 @@ def summarize_reconciliation_rows(rows: List[Dict[str, Any]]) -> Dict[str, Any]:
 async def build_reconciliation_rows(db, *, limit: int = 100) -> List[Dict[str, Any]]:
     """Return alert/trade/position chain summaries for operator review."""
     alerts = await db.get_alerts(limit)
-    trades = await db.get_trades(limit)
+    # Entry and exit rows can be interleaved. Read a wider trade window so a page
+    # of recent alerts still links to its entry trades after simulated exits.
+    trades = await db.get_trades(max(limit * 4, 100))
     positions = await db.get_positions()
     rows: List[Dict[str, Any]] = []
     for alert in alerts:
