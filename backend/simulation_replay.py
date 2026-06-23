@@ -74,8 +74,17 @@ def build_replay_preview(replay: dict[str, Any], settings: dict[str, Any] | None
     acceptance_expected_count = 0
     acceptance_passed_count = 0
     acceptance_failed_count = 0
+    expected_event_ids = {
+        str(event_id)
+        for event_id, expected in expected_results.items()
+        if str(event_id) and isinstance(expected, dict)
+    }
+    observed_event_ids: set[str] = set()
 
     for event in events:
+        event_id = str(event.get("event_id") or "")
+        if event_id:
+            observed_event_ids.add(event_id)
         payload = event.get("payload") or {}
         message = payload.get("message") or {}
         engine_alert = payload.get("alert") or {}
@@ -112,7 +121,7 @@ def build_replay_preview(replay: dict[str, Any], settings: dict[str, Any] | None
             would_request_trade_count += 1
 
         result = {
-            "engine_event_id": event.get("event_id"),
+            "engine_event_id": event_id or event.get("event_id"),
             "timestamp": event.get("timestamp"),
             "channel_id": event.get("channel_id"),
             "raw_text": raw_text,
@@ -137,6 +146,11 @@ def build_replay_preview(replay: dict[str, Any], settings: dict[str, Any] | None
                 acceptance_failed_count += 1
         results.append(result)
 
+    missing_event_ids = sorted(expected_event_ids - observed_event_ids)
+    if missing_event_ids:
+        acceptance_expected_count += len(missing_event_ids)
+        acceptance_failed_count += len(missing_event_ids)
+
     acceptance_status = "not_provided"
     if acceptance_expected_count:
         acceptance_status = "failed" if acceptance_failed_count else "passed"
@@ -154,6 +168,8 @@ def build_replay_preview(replay: dict[str, Any], settings: dict[str, Any] | None
             "expected_count": acceptance_expected_count,
             "passed_count": acceptance_passed_count,
             "failed_count": acceptance_failed_count,
+            "missing_event_count": len(missing_event_ids),
+            "missing_event_ids": missing_event_ids,
         },
         "results": results,
     }

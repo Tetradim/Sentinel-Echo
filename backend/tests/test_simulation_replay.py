@@ -283,6 +283,36 @@ class SimulationReplayTests(unittest.TestCase):
             mismatches,
         )
 
+    def test_replay_preview_fails_acceptance_when_expected_event_is_missing(self):
+        from simulation_replay import build_replay_preview
+
+        replay = {
+            "contract_version": "simulation.consolidation.replay.v1",
+            "expected_results": {
+                "discord_alert:missing": {
+                    "parsed": {"ticker": "SPY"},
+                    "would_request_trade": True,
+                }
+            },
+            "events": [],
+        }
+
+        preview = build_replay_preview(
+            replay,
+            {
+                "auto_trading_enabled": True,
+                "simulation_mode": True,
+                "source_overrides": {"alerts": {"paper_only": True}},
+            },
+        )
+
+        self.assertEqual(preview["acceptance"]["status"], "failed")
+        self.assertEqual(preview["acceptance"]["expected_count"], 1)
+        self.assertEqual(preview["acceptance"]["passed_count"], 0)
+        self.assertEqual(preview["acceptance"]["failed_count"], 1)
+        self.assertEqual(preview["acceptance"]["missing_event_count"], 1)
+        self.assertEqual(preview["acceptance"]["missing_event_ids"], ["discord_alert:missing"])
+
     def test_normalize_replay_url_accepts_engine_root_or_full_endpoint(self):
         from simulation_replay import normalize_replay_url
 
