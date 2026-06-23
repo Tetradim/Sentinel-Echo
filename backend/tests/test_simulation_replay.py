@@ -257,6 +257,8 @@ class SimulationReplayTests(unittest.TestCase):
         self.assertEqual(preview["acceptance"]["status"], "failed")
         self.assertEqual(preview["acceptance"]["expected_count"], 1)
         self.assertEqual(preview["acceptance"]["failed_count"], 1)
+        self.assertEqual(preview["acceptance"]["failed_event_count"], 1)
+        self.assertEqual(preview["acceptance"]["failed_event_ids"], ["discord_alert:m-expected-fail"])
         mismatches = preview["results"][0]["acceptance"]["mismatches"]
         self.assertIn(
             {
@@ -310,6 +312,8 @@ class SimulationReplayTests(unittest.TestCase):
         self.assertEqual(preview["acceptance"]["expected_count"], 1)
         self.assertEqual(preview["acceptance"]["passed_count"], 0)
         self.assertEqual(preview["acceptance"]["failed_count"], 1)
+        self.assertEqual(preview["acceptance"]["failed_event_count"], 1)
+        self.assertEqual(preview["acceptance"]["failed_event_ids"], ["discord_alert:missing"])
         self.assertEqual(preview["acceptance"]["missing_event_count"], 1)
         self.assertEqual(preview["acceptance"]["missing_event_ids"], ["discord_alert:missing"])
 

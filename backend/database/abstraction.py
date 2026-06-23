@@ -45,6 +45,8 @@ def _default_runtime_state() -> Dict[str, Any]:
         'simulation_replay_acceptance_expected_count': 0,
         'simulation_replay_acceptance_passed_count': 0,
         'simulation_replay_acceptance_failed_count': 0,
+        'simulation_replay_acceptance_failed_event_count': 0,
+        'simulation_replay_acceptance_failed_event_ids': [],
         'simulation_replay_acceptance_missing_event_count': 0,
         'simulation_replay_acceptance_missing_event_ids': [],
         'simulation_replay_acceptance_updated_at': '',
@@ -412,6 +414,8 @@ CREATE TABLE IF NOT EXISTS runtime_state (
     simulation_replay_acceptance_expected_count INTEGER NOT NULL DEFAULT 0,
     simulation_replay_acceptance_passed_count INTEGER NOT NULL DEFAULT 0,
     simulation_replay_acceptance_failed_count INTEGER NOT NULL DEFAULT 0,
+    simulation_replay_acceptance_failed_event_count INTEGER NOT NULL DEFAULT 0,
+    simulation_replay_acceptance_failed_event_ids TEXT NOT NULL DEFAULT '[]',
     simulation_replay_acceptance_missing_event_count INTEGER NOT NULL DEFAULT 0,
     simulation_replay_acceptance_missing_event_ids TEXT NOT NULL DEFAULT '[]',
     simulation_replay_acceptance_updated_at TEXT NOT NULL DEFAULT '',
@@ -524,6 +528,8 @@ class SQLiteDatabase(DatabaseInterface):
             'simulation_replay_acceptance_expected_count': "ALTER TABLE runtime_state ADD COLUMN simulation_replay_acceptance_expected_count INTEGER NOT NULL DEFAULT 0",
             'simulation_replay_acceptance_passed_count': "ALTER TABLE runtime_state ADD COLUMN simulation_replay_acceptance_passed_count INTEGER NOT NULL DEFAULT 0",
             'simulation_replay_acceptance_failed_count': "ALTER TABLE runtime_state ADD COLUMN simulation_replay_acceptance_failed_count INTEGER NOT NULL DEFAULT 0",
+            'simulation_replay_acceptance_failed_event_count': "ALTER TABLE runtime_state ADD COLUMN simulation_replay_acceptance_failed_event_count INTEGER NOT NULL DEFAULT 0",
+            'simulation_replay_acceptance_failed_event_ids': "ALTER TABLE runtime_state ADD COLUMN simulation_replay_acceptance_failed_event_ids TEXT NOT NULL DEFAULT '[]'",
             'simulation_replay_acceptance_missing_event_count': "ALTER TABLE runtime_state ADD COLUMN simulation_replay_acceptance_missing_event_count INTEGER NOT NULL DEFAULT 0",
             'simulation_replay_acceptance_missing_event_ids': "ALTER TABLE runtime_state ADD COLUMN simulation_replay_acceptance_missing_event_ids TEXT NOT NULL DEFAULT '[]'",
             'simulation_replay_acceptance_updated_at': "ALTER TABLE runtime_state ADD COLUMN simulation_replay_acceptance_updated_at TEXT NOT NULL DEFAULT ''",
@@ -579,12 +585,16 @@ class SQLiteDatabase(DatabaseInterface):
             'live_trading_armed',
         ):
             runtime[key] = bool(runtime.get(key, False))
-        if isinstance(runtime.get('simulation_replay_acceptance_missing_event_ids'), str):
-            try:
-                decoded = json.loads(runtime['simulation_replay_acceptance_missing_event_ids'])
-            except json.JSONDecodeError:
-                decoded = []
-            runtime['simulation_replay_acceptance_missing_event_ids'] = decoded if isinstance(decoded, list) else []
+        for replay_list_key in (
+            'simulation_replay_acceptance_failed_event_ids',
+            'simulation_replay_acceptance_missing_event_ids',
+        ):
+            if isinstance(runtime.get(replay_list_key), str):
+                try:
+                    decoded = json.loads(runtime[replay_list_key])
+                except json.JSONDecodeError:
+                    decoded = []
+                runtime[replay_list_key] = decoded if isinstance(decoded, list) else []
         return runtime
 
     async def get_runtime_state(self) -> Dict[str, Any]:
@@ -611,16 +621,20 @@ class SQLiteDatabase(DatabaseInterface):
             'simulation_replay_acceptance_expected_count',
             'simulation_replay_acceptance_passed_count',
             'simulation_replay_acceptance_failed_count',
+            'simulation_replay_acceptance_failed_event_count',
+            'simulation_replay_acceptance_failed_event_ids',
             'simulation_replay_acceptance_missing_event_count',
             'simulation_replay_acceptance_missing_event_ids',
             'simulation_replay_acceptance_updated_at',
             'simulation_replay_acceptance_replay_url',
         }
         cols = {k: v for k, v in updates.items() if k in allowed}
-        if isinstance(cols.get('simulation_replay_acceptance_missing_event_ids'), (list, tuple, set)):
-            cols['simulation_replay_acceptance_missing_event_ids'] = json.dumps(
-                list(cols['simulation_replay_acceptance_missing_event_ids'])
-            )
+        for replay_list_key in (
+            'simulation_replay_acceptance_failed_event_ids',
+            'simulation_replay_acceptance_missing_event_ids',
+        ):
+            if isinstance(cols.get(replay_list_key), (list, tuple, set)):
+                cols[replay_list_key] = json.dumps(list(cols[replay_list_key]))
         if not cols:
             return await self.get_runtime_state()
         set_clause = ', '.join(f'{k} = ?' for k in cols)

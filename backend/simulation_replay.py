@@ -74,6 +74,7 @@ def build_replay_preview(replay: dict[str, Any], settings: dict[str, Any] | None
     acceptance_expected_count = 0
     acceptance_passed_count = 0
     acceptance_failed_count = 0
+    failed_event_ids: list[str] = []
     expected_event_ids = {
         str(event_id)
         for event_id, expected in expected_results.items()
@@ -144,12 +145,15 @@ def build_replay_preview(replay: dict[str, Any], settings: dict[str, Any] | None
                 acceptance_passed_count += 1
             else:
                 acceptance_failed_count += 1
+                if event_id:
+                    failed_event_ids.append(event_id)
         results.append(result)
 
     missing_event_ids = sorted(expected_event_ids - observed_event_ids)
     if missing_event_ids:
         acceptance_expected_count += len(missing_event_ids)
         acceptance_failed_count += len(missing_event_ids)
+        failed_event_ids.extend(missing_event_ids)
 
     acceptance_status = "not_provided"
     if acceptance_expected_count:
@@ -168,6 +172,8 @@ def build_replay_preview(replay: dict[str, Any], settings: dict[str, Any] | None
             "expected_count": acceptance_expected_count,
             "passed_count": acceptance_passed_count,
             "failed_count": acceptance_failed_count,
+            "failed_event_count": len(failed_event_ids),
+            "failed_event_ids": failed_event_ids,
             "missing_event_count": len(missing_event_ids),
             "missing_event_ids": missing_event_ids,
         },

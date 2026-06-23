@@ -67,6 +67,11 @@ class SimulationEngineRouteTests(unittest.TestCase):
         self.assertEqual(response["acceptance"]["status"], "failed")
         self.assertEqual(fake_db.runtime_updates[-1]["simulation_replay_acceptance_status"], "failed")
         self.assertEqual(fake_db.runtime_updates[-1]["simulation_replay_acceptance_failed_count"], 1)
+        self.assertEqual(fake_db.runtime_updates[-1]["simulation_replay_acceptance_failed_event_count"], 1)
+        self.assertEqual(
+            fake_db.runtime_updates[-1]["simulation_replay_acceptance_failed_event_ids"],
+            ["discord_alert:one"],
+        )
         self.assertEqual(fake_db.runtime_updates[-1]["simulation_replay_acceptance_expected_count"], 1)
         self.assertIn("simulation_replay_acceptance_updated_at", fake_db.runtime_updates[-1])
         self.assertEqual(
@@ -100,12 +105,17 @@ class SimulationEngineRouteTests(unittest.TestCase):
 
         self.assertEqual(response["acceptance"]["missing_event_count"], 1)
         self.assertEqual(response["acceptance"]["missing_event_ids"], ["discord_alert:missing"])
+        self.assertEqual(response["acceptance"]["failed_event_ids"], ["discord_alert:missing"])
         self.assertEqual(
             fake_db.runtime_updates[-1]["simulation_replay_acceptance_missing_event_count"],
             1,
         )
         self.assertEqual(
             fake_db.runtime_updates[-1]["simulation_replay_acceptance_missing_event_ids"],
+            ["discord_alert:missing"],
+        )
+        self.assertEqual(
+            fake_db.runtime_updates[-1]["simulation_replay_acceptance_failed_event_ids"],
             ["discord_alert:missing"],
         )
 

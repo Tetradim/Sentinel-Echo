@@ -64,6 +64,11 @@ class SQLiteSerializationTests(unittest.TestCase):
                         "simulation_replay_acceptance_expected_count": 3,
                         "simulation_replay_acceptance_passed_count": 1,
                         "simulation_replay_acceptance_failed_count": 2,
+                        "simulation_replay_acceptance_failed_event_count": 2,
+                        "simulation_replay_acceptance_failed_event_ids": [
+                            "discord_alert:bad-one",
+                            "discord_alert:missing",
+                        ],
                         "simulation_replay_acceptance_missing_event_count": 1,
                         "simulation_replay_acceptance_missing_event_ids": [
                             "discord_alert:missing"
@@ -80,6 +85,11 @@ class SQLiteSerializationTests(unittest.TestCase):
         self.assertEqual(runtime["simulation_replay_acceptance_expected_count"], 3)
         self.assertEqual(runtime["simulation_replay_acceptance_passed_count"], 1)
         self.assertEqual(runtime["simulation_replay_acceptance_failed_count"], 2)
+        self.assertEqual(runtime["simulation_replay_acceptance_failed_event_count"], 2)
+        self.assertEqual(
+            runtime["simulation_replay_acceptance_failed_event_ids"],
+            ["discord_alert:bad-one", "discord_alert:missing"],
+        )
         self.assertEqual(runtime["simulation_replay_acceptance_missing_event_count"], 1)
         self.assertEqual(
             runtime["simulation_replay_acceptance_missing_event_ids"],

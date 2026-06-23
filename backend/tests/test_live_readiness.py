@@ -603,6 +603,8 @@ class LiveReadinessTests(unittest.TestCase):
                 "chrome_bridge_healthy": True,
                 "simulation_replay_acceptance_status": "failed",
                 "simulation_replay_acceptance_failed_count": "2",
+                "simulation_replay_acceptance_failed_event_count": "2",
+                "simulation_replay_acceptance_failed_event_ids": '["discord_alert:bad-one","discord_alert:bad-two"]',
                 "simulation_replay_acceptance_expected_count": "4",
                 "simulation_replay_acceptance_updated_at": "2026-06-22T22:52:00Z",
                 "simulation_replay_acceptance_replay_url": "http://127.0.0.1:9200/api/consolidation/replay/events",
@@ -614,6 +616,11 @@ class LiveReadinessTests(unittest.TestCase):
         self.assertFalse(result["ready_for_live"])
         self.assertEqual(result["checks"]["simulation_replay"]["acceptance_status"], "failed")
         self.assertEqual(result["checks"]["simulation_replay"]["failed_count"], 2)
+        self.assertEqual(result["checks"]["simulation_replay"]["failed_event_count"], 2)
+        self.assertEqual(
+            result["checks"]["simulation_replay"]["failed_event_ids"],
+            ["discord_alert:bad-one", "discord_alert:bad-two"],
+        )
         self.assertEqual(result["checks"]["simulation_replay"]["expected_count"], 4)
 
     def test_live_readiness_reports_missing_replay_acceptance_event_ids(self):
@@ -655,6 +662,8 @@ class LiveReadinessTests(unittest.TestCase):
                 "simulation_replay_acceptance_expected_count": 1,
                 "simulation_replay_acceptance_passed_count": 1,
                 "simulation_replay_acceptance_failed_count": 0,
+                "simulation_replay_acceptance_failed_event_count": "1",
+                "simulation_replay_acceptance_failed_event_ids": '["discord_alert:bad-one"]',
                 "simulation_replay_acceptance_missing_event_count": "1",
                 "simulation_replay_acceptance_missing_event_ids": '["discord_alert:missing"]',
                 "simulation_replay_acceptance_updated_at": "2026-06-23T01:16:00Z",
@@ -671,6 +680,8 @@ class LiveReadinessTests(unittest.TestCase):
         self.assertIn("simulation_replay_acceptance_failed", result["blocking_codes"])
         replay = result["checks"]["simulation_replay"]
         self.assertEqual(replay["acceptance_status"], "passed")
+        self.assertEqual(replay["failed_event_count"], 1)
+        self.assertEqual(replay["failed_event_ids"], ["discord_alert:bad-one"])
         self.assertEqual(replay["missing_event_count"], 1)
         self.assertEqual(replay["missing_event_ids"], ["discord_alert:missing"])
 
