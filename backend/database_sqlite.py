@@ -29,8 +29,9 @@ def get_db_path():
 
 @contextmanager
 def get_connection():
-    conn = sqlite3.connect(get_db_path())
+    conn = sqlite3.connect(get_db_path(), timeout=30)
     conn.row_factory = sqlite3.Row
+    conn.execute('PRAGMA busy_timeout=30000')
     try:
         yield conn
     finally:
@@ -40,6 +41,7 @@ def init_database():
     """Initialize SQLite database with required tables"""
     with get_connection() as conn:
         cursor = conn.cursor()
+        cursor.execute('PRAGMA journal_mode=WAL')
         
         # Settings table
         cursor.execute('''

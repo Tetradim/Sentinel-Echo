@@ -472,7 +472,8 @@ class SQLiteDatabase(DatabaseInterface):
 
     async def _init_db(self):
         import aiosqlite
-        async with aiosqlite.connect(self.db_path) as conn:
+        async with aiosqlite.connect(self.db_path, timeout=30) as conn:
+            await conn.execute('PRAGMA journal_mode=WAL')
             await conn.executescript(_INIT_SQL)
             # Seed default settings
             async with conn.execute(
@@ -513,7 +514,7 @@ class SQLiteDatabase(DatabaseInterface):
     async def get_settings(self) -> Dict[str, Any]:
         await self._ensure_ready()
         import aiosqlite
-        async with aiosqlite.connect(self.db_path) as conn:
+        async with aiosqlite.connect(self.db_path, timeout=30) as conn:
             conn.row_factory = aiosqlite.Row
             async with conn.execute(
                 'SELECT data FROM settings WHERE id = ?', ('main_settings',)
@@ -525,7 +526,7 @@ class SQLiteDatabase(DatabaseInterface):
         await self._ensure_ready()
         import aiosqlite
         async with self._settings_lock:  # M1
-            async with aiosqlite.connect(self.db_path) as conn:
+            async with aiosqlite.connect(self.db_path, timeout=30) as conn:
                 conn.row_factory = aiosqlite.Row
                 async with conn.execute(
                     'SELECT data FROM settings WHERE id = ?', ('main_settings',)
@@ -559,7 +560,7 @@ class SQLiteDatabase(DatabaseInterface):
     async def get_runtime_state(self) -> Dict[str, Any]:
         await self._ensure_ready()
         import aiosqlite
-        async with aiosqlite.connect(self.db_path) as conn:
+        async with aiosqlite.connect(self.db_path, timeout=30) as conn:
             conn.row_factory = aiosqlite.Row
             async with conn.execute(
                 'SELECT * FROM runtime_state WHERE id = ?', ('runtime',)
@@ -582,7 +583,7 @@ class SQLiteDatabase(DatabaseInterface):
             return await self.get_runtime_state()
         set_clause = ', '.join(f'{k} = ?' for k in cols)
         values = list(cols.values()) + ['runtime']
-        async with aiosqlite.connect(self.db_path) as conn:
+        async with aiosqlite.connect(self.db_path, timeout=30) as conn:
             await conn.execute(
                 f'UPDATE runtime_state SET {set_clause} WHERE id = ?', values
             )
@@ -594,7 +595,7 @@ class SQLiteDatabase(DatabaseInterface):
         await self._ensure_ready()
         import aiosqlite
         today = datetime.now(timezone.utc).strftime('%Y-%m-%d')
-        async with aiosqlite.connect(self.db_path) as conn:
+        async with aiosqlite.connect(self.db_path, timeout=30) as conn:
             conn.row_factory = aiosqlite.Row
             await conn.execute(
                 '''UPDATE runtime_state
@@ -615,7 +616,7 @@ class SQLiteDatabase(DatabaseInterface):
     async def reset_loss_counters(self) -> Dict[str, Any]:
         await self._ensure_ready()
         import aiosqlite
-        async with aiosqlite.connect(self.db_path) as conn:
+        async with aiosqlite.connect(self.db_path, timeout=30) as conn:
             await conn.execute(
                 """UPDATE runtime_state
                    SET consecutive_losses = 0,
@@ -634,7 +635,7 @@ class SQLiteDatabase(DatabaseInterface):
     async def get_alerts(self, limit: int = 50) -> List[Dict[str, Any]]:
         await self._ensure_ready()
         import aiosqlite
-        async with aiosqlite.connect(self.db_path) as conn:
+        async with aiosqlite.connect(self.db_path, timeout=30) as conn:
             conn.row_factory = aiosqlite.Row
             async with conn.execute(
                 'SELECT data FROM alerts ORDER BY timestamp DESC LIMIT ?', (limit,)
@@ -648,7 +649,7 @@ class SQLiteDatabase(DatabaseInterface):
         ts = alert.get('timestamp', datetime.now(timezone.utc).isoformat())
         if hasattr(ts, 'isoformat'):
             ts = ts.isoformat()
-        async with aiosqlite.connect(self.db_path) as conn:
+        async with aiosqlite.connect(self.db_path, timeout=30) as conn:
             await conn.execute(
                 'INSERT INTO alerts (id, timestamp, data) VALUES (?, ?, ?)',
                 (alert.get('id'), ts, json.dumps(alert))
@@ -659,7 +660,7 @@ class SQLiteDatabase(DatabaseInterface):
     async def update_alert(self, alert_id: str, updates: Dict[str, Any]):
         await self._ensure_ready()
         import aiosqlite
-        async with aiosqlite.connect(self.db_path) as conn:
+        async with aiosqlite.connect(self.db_path, timeout=30) as conn:
             conn.row_factory = aiosqlite.Row
             async with conn.execute(
                 'SELECT data FROM alerts WHERE id = ?', (alert_id,)
@@ -679,7 +680,7 @@ class SQLiteDatabase(DatabaseInterface):
     async def get_trades(self, limit: int = 50) -> List[Dict[str, Any]]:
         await self._ensure_ready()
         import aiosqlite
-        async with aiosqlite.connect(self.db_path) as conn:
+        async with aiosqlite.connect(self.db_path, timeout=30) as conn:
             conn.row_factory = aiosqlite.Row
             async with conn.execute(
                 'SELECT data FROM trades ORDER BY created_at DESC LIMIT ?', (limit,)
@@ -693,7 +694,7 @@ class SQLiteDatabase(DatabaseInterface):
         created_at = trade.get('created_at', datetime.now(timezone.utc).isoformat())
         if hasattr(created_at, 'isoformat'):
             created_at = created_at.isoformat()
-        async with aiosqlite.connect(self.db_path) as conn:
+        async with aiosqlite.connect(self.db_path, timeout=30) as conn:
             await conn.execute(
                 '''INSERT INTO trades (id, created_at, side, status, realized_pnl, data)
                    VALUES (?, ?, ?, ?, ?, ?)''',
@@ -710,7 +711,7 @@ class SQLiteDatabase(DatabaseInterface):
     async def update_trade(self, trade_id: str, updates: Dict[str, Any]):
         await self._ensure_ready()
         import aiosqlite
-        async with aiosqlite.connect(self.db_path) as conn:
+        async with aiosqlite.connect(self.db_path, timeout=30) as conn:
             conn.row_factory = aiosqlite.Row
             async with conn.execute(
                 'SELECT data FROM trades WHERE id = ?', (trade_id,)
@@ -736,7 +737,7 @@ class SQLiteDatabase(DatabaseInterface):
     async def get_positions(self, status: Optional[str] = None) -> List[Dict[str, Any]]:
         await self._ensure_ready()
         import aiosqlite
-        async with aiosqlite.connect(self.db_path) as conn:
+        async with aiosqlite.connect(self.db_path, timeout=30) as conn:
             conn.row_factory = aiosqlite.Row
             q = ('SELECT data FROM positions WHERE status = ? ORDER BY opened_at DESC', (status,)) \
                 if status else ('SELECT data FROM positions ORDER BY opened_at DESC', ())
@@ -747,7 +748,7 @@ class SQLiteDatabase(DatabaseInterface):
     async def get_position_by_id(self, position_id: str) -> Optional[Dict[str, Any]]:
         await self._ensure_ready()
         import aiosqlite
-        async with aiosqlite.connect(self.db_path) as conn:
+        async with aiosqlite.connect(self.db_path, timeout=30) as conn:
             conn.row_factory = aiosqlite.Row
             async with conn.execute(
                 'SELECT data FROM positions WHERE id = ?', (position_id,)
@@ -761,7 +762,7 @@ class SQLiteDatabase(DatabaseInterface):
         opened_at = position.get('opened_at', datetime.now(timezone.utc).isoformat())
         if hasattr(opened_at, 'isoformat'):
             opened_at = opened_at.isoformat()
-        async with aiosqlite.connect(self.db_path) as conn:
+        async with aiosqlite.connect(self.db_path, timeout=30) as conn:
             await conn.execute(
                 '''INSERT INTO positions (id, status, opened_at, unrealized_pnl, data)
                    VALUES (?, ?, ?, ?, ?)''',
@@ -777,7 +778,7 @@ class SQLiteDatabase(DatabaseInterface):
     async def update_position(self, position_id: str, updates: Dict[str, Any]):
         await self._ensure_ready()
         import aiosqlite
-        async with aiosqlite.connect(self.db_path) as conn:
+        async with aiosqlite.connect(self.db_path, timeout=30) as conn:
             conn.row_factory = aiosqlite.Row
             async with conn.execute(
                 'SELECT data FROM positions WHERE id = ?', (position_id,)
@@ -809,7 +810,7 @@ class SQLiteDatabase(DatabaseInterface):
     async def get_profiles(self) -> List[Dict[str, Any]]:
         await self._ensure_ready()
         import aiosqlite
-        async with aiosqlite.connect(self.db_path) as conn:
+        async with aiosqlite.connect(self.db_path, timeout=30) as conn:
             conn.row_factory = aiosqlite.Row
             async with conn.execute('SELECT data FROM profiles') as cur:
                 rows = await cur.fetchall()
@@ -818,7 +819,7 @@ class SQLiteDatabase(DatabaseInterface):
     async def get_profile_by_id(self, profile_id: str) -> Optional[Dict[str, Any]]:
         await self._ensure_ready()
         import aiosqlite
-        async with aiosqlite.connect(self.db_path) as conn:
+        async with aiosqlite.connect(self.db_path, timeout=30) as conn:
             conn.row_factory = aiosqlite.Row
             async with conn.execute(
                 'SELECT data FROM profiles WHERE id = ?', (profile_id,)
@@ -829,7 +830,7 @@ class SQLiteDatabase(DatabaseInterface):
     async def insert_profile(self, profile: Dict[str, Any]) -> str:
         await self._ensure_ready()
         import aiosqlite
-        async with aiosqlite.connect(self.db_path) as conn:
+        async with aiosqlite.connect(self.db_path, timeout=30) as conn:
             await conn.execute(
                 'INSERT INTO profiles (id, is_active, data) VALUES (?, ?, ?)',
                 (profile.get('id'), 1 if profile.get('is_active') else 0, json.dumps(profile))
@@ -840,7 +841,7 @@ class SQLiteDatabase(DatabaseInterface):
     async def update_profile(self, profile_id: str, updates: Dict[str, Any]):
         await self._ensure_ready()
         import aiosqlite
-        async with aiosqlite.connect(self.db_path) as conn:
+        async with aiosqlite.connect(self.db_path, timeout=30) as conn:
             conn.row_factory = aiosqlite.Row
             async with conn.execute(
                 'SELECT data FROM profiles WHERE id = ?', (profile_id,)
@@ -858,7 +859,7 @@ class SQLiteDatabase(DatabaseInterface):
     async def delete_profile(self, profile_id: str) -> bool:
         await self._ensure_ready()
         import aiosqlite
-        async with aiosqlite.connect(self.db_path) as conn:
+        async with aiosqlite.connect(self.db_path, timeout=30) as conn:
             await conn.execute('DELETE FROM profiles WHERE id = ?', (profile_id,))
             deleted = conn.total_changes > 0
             await conn.commit()
@@ -867,7 +868,7 @@ class SQLiteDatabase(DatabaseInterface):
     async def count_profiles(self) -> int:
         await self._ensure_ready()
         import aiosqlite
-        async with aiosqlite.connect(self.db_path) as conn:
+        async with aiosqlite.connect(self.db_path, timeout=30) as conn:
             conn.row_factory = aiosqlite.Row
             async with conn.execute('SELECT COUNT(*) AS cnt FROM profiles') as cur:
                 row = await cur.fetchone()
@@ -876,7 +877,7 @@ class SQLiteDatabase(DatabaseInterface):
     async def set_all_profiles_inactive(self):
         await self._ensure_ready()
         import aiosqlite
-        async with aiosqlite.connect(self.db_path) as conn:
+        async with aiosqlite.connect(self.db_path, timeout=30) as conn:
             await conn.execute('UPDATE profiles SET is_active = 0')
             await conn.commit()
 
@@ -885,7 +886,7 @@ class SQLiteDatabase(DatabaseInterface):
     async def get_discord_patterns(self) -> Optional[Dict[str, Any]]:
         await self._ensure_ready()
         import aiosqlite
-        async with aiosqlite.connect(self.db_path) as conn:
+        async with aiosqlite.connect(self.db_path, timeout=30) as conn:
             conn.row_factory = aiosqlite.Row
             async with conn.execute(
                 'SELECT data FROM discord_patterns WHERE id = ?', ('main_patterns',)
@@ -897,7 +898,7 @@ class SQLiteDatabase(DatabaseInterface):
         await self._ensure_ready()
         import aiosqlite
         patterns['id'] = 'main_patterns'
-        async with aiosqlite.connect(self.db_path) as conn:
+        async with aiosqlite.connect(self.db_path, timeout=30) as conn:
             await conn.execute(
                 'INSERT OR REPLACE INTO discord_patterns (id, data) VALUES (?, ?)',
                 ('main_patterns', json.dumps(patterns))
@@ -910,7 +911,7 @@ class SQLiteDatabase(DatabaseInterface):
         """SQL aggregation -- never loads large result sets into Python memory."""
         await self._ensure_ready()
         import aiosqlite
-        async with aiosqlite.connect(self.db_path) as conn:
+        async with aiosqlite.connect(self.db_path, timeout=30) as conn:
             conn.row_factory = aiosqlite.Row
             async with conn.execute(
                 '''SELECT
@@ -965,7 +966,7 @@ class SQLiteDatabase(DatabaseInterface):
     async def get_operator_events(self, limit: int = 100) -> List[Dict[str, Any]]:
         await self._ensure_ready()
         import aiosqlite
-        async with aiosqlite.connect(self.db_path) as conn:
+        async with aiosqlite.connect(self.db_path, timeout=30) as conn:
             conn.row_factory = aiosqlite.Row
             async with conn.execute(
                 'SELECT data FROM operator_events ORDER BY timestamp DESC LIMIT ?',
@@ -980,7 +981,7 @@ class SQLiteDatabase(DatabaseInterface):
         timestamp = event.get('timestamp', datetime.now(timezone.utc).isoformat())
         if hasattr(timestamp, 'isoformat'):
             timestamp = timestamp.isoformat()
-        async with aiosqlite.connect(self.db_path) as conn:
+        async with aiosqlite.connect(self.db_path, timeout=30) as conn:
             await conn.execute(
                 '''INSERT INTO operator_events (id, timestamp, category, severity, data)
                    VALUES (?, ?, ?, ?, ?)''',

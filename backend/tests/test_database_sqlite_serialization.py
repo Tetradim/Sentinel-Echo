@@ -11,6 +11,16 @@ sys.path.insert(0, str(BACKEND_DIR))
 
 
 class SQLiteSerializationTests(unittest.TestCase):
+    def test_sqlite_connections_use_wal_and_busy_timeout(self):
+        sqlite_source = (BACKEND_DIR / "database_sqlite.py").read_text()
+        abstraction_source = (BACKEND_DIR / "database" / "abstraction.py").read_text()
+
+        self.assertIn("timeout=30", sqlite_source)
+        self.assertIn("PRAGMA busy_timeout=30000", sqlite_source)
+        self.assertIn("PRAGMA journal_mode=WAL", sqlite_source)
+        self.assertIn("timeout=30", abstraction_source)
+        self.assertIn("PRAGMA journal_mode=WAL", abstraction_source)
+
     def test_insert_alert_accepts_pydantic_model_dump_with_datetime(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             db_path = pathlib.Path(temp_dir) / "test.sqlite3"
