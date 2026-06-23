@@ -616,6 +616,34 @@ class LiveReadinessTests(unittest.TestCase):
         self.assertEqual(result["checks"]["simulation_replay"]["failed_count"], 2)
         self.assertEqual(result["checks"]["simulation_replay"]["expected_count"], 4)
 
+    def test_live_readiness_reports_missing_replay_acceptance_event_ids(self):
+        from live_readiness import evaluate_live_readiness
+
+        result = evaluate_live_readiness(
+            READY_SETTINGS,
+            {
+                "shutdown_triggered": False,
+                "simulation_replay_acceptance_status": "failed",
+                "simulation_replay_acceptance_failed_count": 1,
+                "simulation_replay_acceptance_expected_count": 1,
+                "simulation_replay_acceptance_missing_event_count": 1,
+                "simulation_replay_acceptance_missing_event_ids": ["discord_alert:missing"],
+                "simulation_replay_acceptance_updated_at": "2026-06-23T01:11:00Z",
+                "simulation_replay_acceptance_replay_url": "http://127.0.0.1:9200/api/consolidation/replay/events",
+            },
+            status={
+                "broker_connected": True,
+                "discord_connected": False,
+                "chrome_bridge_healthy": True,
+            },
+            env=READY_ENV,
+        )
+
+        self.assertIn("simulation_replay_acceptance_failed", result["blocking_codes"])
+        replay = result["checks"]["simulation_replay"]
+        self.assertEqual(replay["missing_event_count"], 1)
+        self.assertEqual(replay["missing_event_ids"], ["discord_alert:missing"])
+
     def test_live_readiness_blocks_missing_replay_acceptance_proof(self):
         from live_readiness import evaluate_live_readiness
 

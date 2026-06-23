@@ -74,6 +74,41 @@ class SimulationEngineRouteTests(unittest.TestCase):
             "http://127.0.0.1:9200/api/consolidation/replay/events",
         )
 
+    def test_replay_preview_caches_missing_expected_event_ids_for_readiness(self):
+        from routes import simulation_engine as simulation_engine_route
+
+        fake_db = FakeSimulationEngineDb()
+        simulation_engine_route.set_db(fake_db)
+        replay = {
+            "contract_version": "simulation.consolidation.replay.v1",
+            "expected_results": {
+                "discord_alert:missing": {
+                    "parsed": {"ticker": "SPY"},
+                    "would_request_trade": True,
+                }
+            },
+            "events": [],
+        }
+
+        async def fake_fetch(**kwargs):
+            return replay
+
+        with patch("routes.simulation_engine.fetch_engine_replay", side_effect=fake_fetch):
+            response = asyncio.run(
+                simulation_engine_route.preview_simulation_engine_replay({"replay_url": "http://127.0.0.1:9200"})
+            )
+
+        self.assertEqual(response["acceptance"]["missing_event_count"], 1)
+        self.assertEqual(response["acceptance"]["missing_event_ids"], ["discord_alert:missing"])
+        self.assertEqual(
+            fake_db.runtime_updates[-1]["simulation_replay_acceptance_missing_event_count"],
+            1,
+        )
+        self.assertEqual(
+            fake_db.runtime_updates[-1]["simulation_replay_acceptance_missing_event_ids"],
+            ["discord_alert:missing"],
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

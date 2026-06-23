@@ -41,6 +41,14 @@ def _default_runtime_state() -> Dict[str, Any]:
         'live_trading_armed_until': '',
         'live_trading_armed_by': '',
         'live_trading_arm_reason': '',
+        'simulation_replay_acceptance_status': 'not_provided',
+        'simulation_replay_acceptance_expected_count': 0,
+        'simulation_replay_acceptance_passed_count': 0,
+        'simulation_replay_acceptance_failed_count': 0,
+        'simulation_replay_acceptance_missing_event_count': 0,
+        'simulation_replay_acceptance_missing_event_ids': [],
+        'simulation_replay_acceptance_updated_at': '',
+        'simulation_replay_acceptance_replay_url': '',
     }
 
 
@@ -399,7 +407,15 @@ CREATE TABLE IF NOT EXISTS runtime_state (
     live_trading_armed INTEGER NOT NULL DEFAULT 0,
     live_trading_armed_until TEXT NOT NULL DEFAULT '',
     live_trading_armed_by TEXT NOT NULL DEFAULT '',
-    live_trading_arm_reason TEXT NOT NULL DEFAULT ''
+    live_trading_arm_reason TEXT NOT NULL DEFAULT '',
+    simulation_replay_acceptance_status TEXT NOT NULL DEFAULT 'not_provided',
+    simulation_replay_acceptance_expected_count INTEGER NOT NULL DEFAULT 0,
+    simulation_replay_acceptance_passed_count INTEGER NOT NULL DEFAULT 0,
+    simulation_replay_acceptance_failed_count INTEGER NOT NULL DEFAULT 0,
+    simulation_replay_acceptance_missing_event_count INTEGER NOT NULL DEFAULT 0,
+    simulation_replay_acceptance_missing_event_ids TEXT NOT NULL DEFAULT '[]',
+    simulation_replay_acceptance_updated_at TEXT NOT NULL DEFAULT '',
+    simulation_replay_acceptance_replay_url TEXT NOT NULL DEFAULT ''
 );
 
 CREATE TABLE IF NOT EXISTS alerts (
@@ -504,6 +520,14 @@ class SQLiteDatabase(DatabaseInterface):
             'live_trading_armed_until': "ALTER TABLE runtime_state ADD COLUMN live_trading_armed_until TEXT NOT NULL DEFAULT ''",
             'live_trading_armed_by': "ALTER TABLE runtime_state ADD COLUMN live_trading_armed_by TEXT NOT NULL DEFAULT ''",
             'live_trading_arm_reason': "ALTER TABLE runtime_state ADD COLUMN live_trading_arm_reason TEXT NOT NULL DEFAULT ''",
+            'simulation_replay_acceptance_status': "ALTER TABLE runtime_state ADD COLUMN simulation_replay_acceptance_status TEXT NOT NULL DEFAULT 'not_provided'",
+            'simulation_replay_acceptance_expected_count': "ALTER TABLE runtime_state ADD COLUMN simulation_replay_acceptance_expected_count INTEGER NOT NULL DEFAULT 0",
+            'simulation_replay_acceptance_passed_count': "ALTER TABLE runtime_state ADD COLUMN simulation_replay_acceptance_passed_count INTEGER NOT NULL DEFAULT 0",
+            'simulation_replay_acceptance_failed_count': "ALTER TABLE runtime_state ADD COLUMN simulation_replay_acceptance_failed_count INTEGER NOT NULL DEFAULT 0",
+            'simulation_replay_acceptance_missing_event_count': "ALTER TABLE runtime_state ADD COLUMN simulation_replay_acceptance_missing_event_count INTEGER NOT NULL DEFAULT 0",
+            'simulation_replay_acceptance_missing_event_ids': "ALTER TABLE runtime_state ADD COLUMN simulation_replay_acceptance_missing_event_ids TEXT NOT NULL DEFAULT '[]'",
+            'simulation_replay_acceptance_updated_at': "ALTER TABLE runtime_state ADD COLUMN simulation_replay_acceptance_updated_at TEXT NOT NULL DEFAULT ''",
+            'simulation_replay_acceptance_replay_url': "ALTER TABLE runtime_state ADD COLUMN simulation_replay_acceptance_replay_url TEXT NOT NULL DEFAULT ''",
         }
         for column, statement in additions.items():
             if column not in existing:
@@ -555,6 +579,12 @@ class SQLiteDatabase(DatabaseInterface):
             'live_trading_armed',
         ):
             runtime[key] = bool(runtime.get(key, False))
+        if isinstance(runtime.get('simulation_replay_acceptance_missing_event_ids'), str):
+            try:
+                decoded = json.loads(runtime['simulation_replay_acceptance_missing_event_ids'])
+            except json.JSONDecodeError:
+                decoded = []
+            runtime['simulation_replay_acceptance_missing_event_ids'] = decoded if isinstance(decoded, list) else []
         return runtime
 
     async def get_runtime_state(self) -> Dict[str, Any]:
@@ -577,8 +607,20 @@ class SQLiteDatabase(DatabaseInterface):
             'auto_trading_enabled', 'live_trading_armed',
             'live_trading_armed_until', 'live_trading_armed_by',
             'live_trading_arm_reason',
+            'simulation_replay_acceptance_status',
+            'simulation_replay_acceptance_expected_count',
+            'simulation_replay_acceptance_passed_count',
+            'simulation_replay_acceptance_failed_count',
+            'simulation_replay_acceptance_missing_event_count',
+            'simulation_replay_acceptance_missing_event_ids',
+            'simulation_replay_acceptance_updated_at',
+            'simulation_replay_acceptance_replay_url',
         }
         cols = {k: v for k, v in updates.items() if k in allowed}
+        if isinstance(cols.get('simulation_replay_acceptance_missing_event_ids'), (list, tuple, set)):
+            cols['simulation_replay_acceptance_missing_event_ids'] = json.dumps(
+                list(cols['simulation_replay_acceptance_missing_event_ids'])
+            )
         if not cols:
             return await self.get_runtime_state()
         set_clause = ', '.join(f'{k} = ?' for k in cols)

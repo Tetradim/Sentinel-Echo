@@ -170,6 +170,12 @@ def evaluate_live_readiness(
     replay_acceptance_failed_count = _nonnegative_int(
         _status_or_runtime(status, runtime_state, "simulation_replay_acceptance_failed_count")
     )
+    replay_acceptance_missing_event_count = _nonnegative_int(
+        _status_or_runtime(status, runtime_state, "simulation_replay_acceptance_missing_event_count")
+    )
+    replay_acceptance_missing_event_ids = _list_of_strings(
+        _status_or_runtime(status, runtime_state, "simulation_replay_acceptance_missing_event_ids")
+    )
     replay_acceptance_updated_at = str(
         _status_or_runtime(status, runtime_state, "simulation_replay_acceptance_updated_at")
         or ""
@@ -330,6 +336,8 @@ def evaluate_live_readiness(
             "expected_count": replay_acceptance_expected_count,
             "passed_count": replay_acceptance_passed_count,
             "failed_count": replay_acceptance_failed_count,
+            "missing_event_count": replay_acceptance_missing_event_count,
+            "missing_event_ids": replay_acceptance_missing_event_ids,
             "updated_at": replay_acceptance_updated_at,
             "replay_url": replay_acceptance_replay_url,
         },

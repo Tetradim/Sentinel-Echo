@@ -58,6 +58,14 @@ async def preview_simulation_engine_replay(body: dict[str, Any] = Body(default_f
                 "simulation_replay_acceptance_expected_count": int(acceptance.get("expected_count") or 0),
                 "simulation_replay_acceptance_passed_count": int(acceptance.get("passed_count") or 0),
                 "simulation_replay_acceptance_failed_count": int(acceptance.get("failed_count") or 0),
+                "simulation_replay_acceptance_missing_event_count": int(
+                    acceptance.get("missing_event_count") or 0
+                ),
+                "simulation_replay_acceptance_missing_event_ids": (
+                    acceptance.get("missing_event_ids")
+                    if isinstance(acceptance.get("missing_event_ids"), list)
+                    else []
+                ),
                 "simulation_replay_acceptance_updated_at": datetime.now(timezone.utc).isoformat(),
                 "simulation_replay_acceptance_replay_url": preview["replay_url"],
             }

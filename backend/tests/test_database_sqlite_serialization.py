@@ -1,4 +1,5 @@
 import os
+import asyncio
 import pathlib
 import sys
 import tempfile
@@ -49,6 +50,45 @@ class SQLiteSerializationTests(unittest.TestCase):
         self.assertEqual(alert_id, alert.id)
         self.assertEqual(alerts[0]["ticker"], "SPY")
         self.assertEqual(alerts[0]["timestamp"], "2026-06-19T18:02:00+00:00")
+
+    def test_sqlite_runtime_state_persists_simulation_replay_acceptance(self):
+        async def run_case():
+            from database.abstraction import SQLiteDatabase
+
+            with tempfile.TemporaryDirectory() as temp_dir:
+                db_path = pathlib.Path(temp_dir) / "runtime.sqlite3"
+                database = SQLiteDatabase(str(db_path))
+                await database.update_runtime_state(
+                    {
+                        "simulation_replay_acceptance_status": "failed",
+                        "simulation_replay_acceptance_expected_count": 3,
+                        "simulation_replay_acceptance_passed_count": 1,
+                        "simulation_replay_acceptance_failed_count": 2,
+                        "simulation_replay_acceptance_missing_event_count": 1,
+                        "simulation_replay_acceptance_missing_event_ids": [
+                            "discord_alert:missing"
+                        ],
+                        "simulation_replay_acceptance_updated_at": "2026-06-23T01:11:00Z",
+                        "simulation_replay_acceptance_replay_url": "http://127.0.0.1:9200/api/consolidation/replay/events",
+                    }
+                )
+                return await database.get_runtime_state()
+
+        runtime = asyncio.run(run_case())
+
+        self.assertEqual(runtime["simulation_replay_acceptance_status"], "failed")
+        self.assertEqual(runtime["simulation_replay_acceptance_expected_count"], 3)
+        self.assertEqual(runtime["simulation_replay_acceptance_passed_count"], 1)
+        self.assertEqual(runtime["simulation_replay_acceptance_failed_count"], 2)
+        self.assertEqual(runtime["simulation_replay_acceptance_missing_event_count"], 1)
+        self.assertEqual(
+            runtime["simulation_replay_acceptance_missing_event_ids"],
+            ["discord_alert:missing"],
+        )
+        self.assertEqual(
+            runtime["simulation_replay_acceptance_replay_url"],
+            "http://127.0.0.1:9200/api/consolidation/replay/events",
+        )
 
 
 if __name__ == "__main__":
