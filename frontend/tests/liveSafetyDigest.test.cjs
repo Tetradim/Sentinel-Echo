@@ -51,6 +51,53 @@ test('live safety digest explains source policy blockers', () => {
   assert.match(digest.detail, /disabled is disabled/);
 });
 
+test('live safety digest explains metadata-only OCO blockers', () => {
+  const digest = summarizeLiveSafety({
+    ready_for_live: false,
+    blocking_issues: [
+      {
+        code: 'position_oco_unprotected',
+        summary: 'Open live positions are missing position-level OCO exit protection.',
+      },
+    ],
+    checks: {
+      exit_automation: {
+        metadata_only_open_position_count: 1,
+        metadata_only_open_position_ids: ['pos-live-metadata-only'],
+      },
+    },
+  });
+
+  assert.equal(digest.title, 'Live Blocked');
+  assert.match(digest.detail, /metadata-only OCO/);
+  assert.match(digest.detail, /pos-live-metadata-only/);
+  assert.match(digest.detail, /Broker child orders/);
+});
+
+test('live safety digest explains unprotected OCO position blockers', () => {
+  const digest = summarizeLiveSafety({
+    ready_for_live: false,
+    blocking_issues: [
+      {
+        code: 'position_oco_unprotected',
+        summary: 'Open live positions are missing position-level OCO exit protection.',
+      },
+    ],
+    checks: {
+      exit_automation: {
+        unprotected_open_position_count: 1,
+        unprotected_open_position_ids: ['pos-live-unprotected'],
+        metadata_only_open_position_count: 0,
+        metadata_only_open_position_ids: [],
+      },
+    },
+  });
+
+  assert.equal(digest.title, 'Live Blocked');
+  assert.match(digest.detail, /missing broker OCO child orders/);
+  assert.match(digest.detail, /pos-live-unprotected/);
+});
+
 test('live safety digest exposes armed state', () => {
   const digest = summarizeLiveSafety({
     ready_for_live: true,

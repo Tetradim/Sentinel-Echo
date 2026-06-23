@@ -158,6 +158,8 @@ def evaluate_live_readiness(
     alert_chain_attention_reasons = _list_of_strings(status.get("alert_chain_attention_reasons"))
     position_oco_unprotected_count = _nonnegative_int(status.get("position_oco_unprotected_count"))
     position_oco_unprotected_ids = _list_of_strings(status.get("position_oco_unprotected_ids"))
+    position_oco_metadata_only_count = _nonnegative_int(status.get("position_oco_metadata_only_count"))
+    position_oco_metadata_only_ids = _list_of_strings(status.get("position_oco_metadata_only_ids"))
     replay_acceptance_status = str(
         _status_or_runtime(status, runtime_state, "simulation_replay_acceptance_status", "not_provided")
         or "not_provided"
@@ -247,10 +249,15 @@ def evaluate_live_readiness(
             )
         )
     if position_oco_unprotected_count > 0:
+        position_oco_summary = (
+            "Open live positions have metadata-only OCO; broker child-order IDs are required."
+            if position_oco_metadata_only_count > 0 or position_oco_metadata_only_ids
+            else "Open live positions are missing position-level OCO exit protection."
+        )
         blocking.append(
             _issue(
                 "position_oco_unprotected",
-                "Open live positions are missing position-level OCO exit protection.",
+                position_oco_summary,
             )
         )
     if shutdown_triggered:
@@ -330,6 +337,8 @@ def evaluate_live_readiness(
             "broker_cancel_supported": bool(capabilities.get("supports_cancel_order")),
             "unprotected_open_position_count": position_oco_unprotected_count,
             "unprotected_open_position_ids": position_oco_unprotected_ids,
+            "metadata_only_open_position_count": position_oco_metadata_only_count,
+            "metadata_only_open_position_ids": position_oco_metadata_only_ids,
         },
         "runtime": {
             "shutdown_triggered": shutdown_triggered,

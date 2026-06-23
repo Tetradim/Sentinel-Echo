@@ -764,6 +764,38 @@ class LiveReadinessTests(unittest.TestCase):
         self.assertEqual(result["checks"]["exit_automation"]["unprotected_open_position_count"], 1)
         self.assertEqual(result["checks"]["exit_automation"]["unprotected_open_position_ids"], ["pos-live-1"])
 
+    def test_live_readiness_reports_metadata_only_position_oco_ids(self):
+        from live_readiness import evaluate_live_readiness
+
+        result = evaluate_live_readiness(
+            READY_SETTINGS,
+            {"shutdown_triggered": False},
+            status={
+                **READY_REPLAY_STATUS,
+                "broker_connected": True,
+                "discord_connected": True,
+                "position_oco_unprotected_count": 1,
+                "position_oco_unprotected_ids": ["pos-live-metadata-only"],
+                "position_oco_metadata_only_count": 1,
+                "position_oco_metadata_only_ids": ["pos-live-metadata-only"],
+            },
+            env=READY_ENV,
+        )
+
+        self.assertIn("position_oco_unprotected", result["blocking_codes"])
+        self.assertTrue(
+            any(
+                issue["code"] == "position_oco_unprotected"
+                and "metadata-only OCO" in issue["summary"]
+                for issue in result["blocking_issues"]
+            )
+        )
+        self.assertEqual(result["checks"]["exit_automation"]["metadata_only_open_position_count"], 1)
+        self.assertEqual(
+            result["checks"]["exit_automation"]["metadata_only_open_position_ids"],
+            ["pos-live-metadata-only"],
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

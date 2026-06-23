@@ -384,6 +384,67 @@ class OperatorRouteContractTests(unittest.TestCase):
             ["pos-live-unprotected"],
         )
 
+    def test_position_oco_summary_blocks_live_position_with_metadata_only_oco_plan(self):
+        from routes import operator as operator_route
+
+        summary = operator_route._summarize_position_oco_protection(
+            [
+                {
+                    "id": "pos-live-metadata-only",
+                    "status": "open",
+                    "remaining_quantity": 1,
+                    "simulated": False,
+                    "broker": "alpaca",
+                    "oco_exit_protected": True,
+                    "oco_exit_plan": {
+                        "status": "armed",
+                        "take_profit": {
+                            "client_order_id": "consolidation-take-profit-alert-pos",
+                        },
+                        "stop_loss": {
+                            "client_order_id": "consolidation-stop-loss-alert-pos",
+                        },
+                    },
+                }
+            ]
+        )
+
+        self.assertEqual(summary["position_oco_unprotected_count"], 1)
+        self.assertEqual(summary["position_oco_unprotected_ids"], ["pos-live-metadata-only"])
+        self.assertEqual(summary["position_oco_metadata_only_count"], 1)
+        self.assertEqual(summary["position_oco_metadata_only_ids"], ["pos-live-metadata-only"])
+
+    def test_position_oco_summary_accepts_live_position_with_broker_child_order_ids(self):
+        from routes import operator as operator_route
+
+        summary = operator_route._summarize_position_oco_protection(
+            [
+                {
+                    "id": "pos-live-protected",
+                    "status": "open",
+                    "remaining_quantity": 1,
+                    "simulated": False,
+                    "broker": "alpaca",
+                    "oco_exit_plan": {
+                        "status": "submitted",
+                        "take_profit": {
+                            "order_id": "broker-take-profit-order",
+                            "client_order_id": "consolidation-take-profit-alert-pos",
+                        },
+                        "stop_loss": {
+                            "order_id": "broker-stop-loss-order",
+                            "client_order_id": "consolidation-stop-loss-alert-pos",
+                        },
+                    },
+                }
+            ]
+        )
+
+        self.assertEqual(summary["position_oco_unprotected_count"], 0)
+        self.assertEqual(summary["position_oco_unprotected_ids"], [])
+        self.assertEqual(summary["position_oco_metadata_only_count"], 0)
+        self.assertEqual(summary["position_oco_metadata_only_ids"], [])
+
     def test_operator_live_arm_block_audit_normalizes_malformed_blocking_issues(self):
         from fastapi import HTTPException
         from routes import operator as operator_route

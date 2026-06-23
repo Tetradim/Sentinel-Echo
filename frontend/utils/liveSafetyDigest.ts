@@ -31,6 +31,12 @@ export interface LiveReadinessPayload {
         reasons?: string[];
       }[];
     };
+    exit_automation?: {
+      unprotected_open_position_count?: number;
+      unprotected_open_position_ids?: string[];
+      metadata_only_open_position_count?: number;
+      metadata_only_open_position_ids?: string[];
+    };
   };
 }
 
@@ -81,6 +87,24 @@ function formatSourcePolicyBlockers(readiness: LiveReadinessPayload | null | und
   return `No live source: ${details.join('; ')}.`;
 }
 
+function formatMetadataOnlyOcoBlocker(readiness: LiveReadinessPayload | null | undefined): string | null {
+  const exitAutomation = readiness?.checks?.exit_automation;
+  const count = Number(exitAutomation?.metadata_only_open_position_count || 0);
+  const ids = exitAutomation?.metadata_only_open_position_ids || [];
+  if (count <= 0 && ids.length <= 0) return null;
+  const idList = ids.length > 0 ? `: ${ids.join(', ')}` : '';
+  return `Live positions have metadata-only OCO${idList}. Broker child orders are required before live arming.`;
+}
+
+function formatUnprotectedOcoBlocker(readiness: LiveReadinessPayload | null | undefined): string | null {
+  const exitAutomation = readiness?.checks?.exit_automation;
+  const count = Number(exitAutomation?.unprotected_open_position_count || 0);
+  const ids = exitAutomation?.unprotected_open_position_ids || [];
+  if (count <= 0 && ids.length <= 0) return null;
+  const idList = ids.length > 0 ? `: ${ids.join(', ')}` : '';
+  return `Live positions are missing broker OCO child orders${idList}.`;
+}
+
 export function summarizeLiveSafety(readiness: LiveReadinessPayload | null | undefined): LiveSafetyDigest {
   const blockers = readiness?.blocking_issues || [];
   const runtime = readiness?.checks?.runtime || {};
@@ -107,9 +131,15 @@ export function summarizeLiveSafety(readiness: LiveReadinessPayload | null | und
     const sourcePolicyDetail = firstBlocker?.code === 'no_live_source'
       ? formatSourcePolicyBlockers(readiness)
       : null;
+    const metadataOnlyOcoDetail = firstBlocker?.code === 'position_oco_unprotected'
+      ? formatMetadataOnlyOcoBlocker(readiness)
+      : null;
+    const unprotectedOcoDetail = firstBlocker?.code === 'position_oco_unprotected'
+      ? formatUnprotectedOcoBlocker(readiness)
+      : null;
     return {
       title: 'Live Blocked',
-      detail: sourcePolicyDetail || firstBlocker?.summary || 'Readiness checks are blocking live arming.',
+      detail: sourcePolicyDetail || metadataOnlyOcoDetail || unprotectedOcoDetail || firstBlocker?.summary || 'Readiness checks are blocking live arming.',
       tone: 'blocked',
       blockerCount: blockers.length,
       canArm: false,

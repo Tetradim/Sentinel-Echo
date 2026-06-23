@@ -134,3 +134,11 @@
 - Wired operator test alerts, Discord simulated buys, and paper-shadow buys to persist `oco_exit_plan` and `oco_exit_protected` metadata only for simulated/shadow positions.
 - Audit checkpoint: live broker-filled positions are not marked OCO-protected by this metadata-only plan; readiness should continue to block unprotected live positions until actual child-order submission/cancellation proof exists.
 - Verification: `python -m unittest discover backend/tests` passed 332 tests.
+
+## 2026-06-23 02:05 UTC
+
+- Hardened live position OCO readiness so `oco_exit_protected` and deterministic `client_order_id` metadata no longer count as live broker child-order proof.
+- Added metadata-only OCO diagnostics to the operator readiness summary and live-readiness checks, including affected live position IDs.
+- Updated the operator UI live safety digest to distinguish metadata-only OCO from fully missing broker OCO child orders.
+- Audit checkpoint after 5 fixes: live readiness remains blocked unless live positions expose actual broker child-order IDs for both take-profit and stop-loss legs.
+- Verification: `python -m unittest discover backend/tests` passed 335 tests; `npm run test:ui` passed 101 frontend tests.

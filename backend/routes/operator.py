@@ -57,9 +57,9 @@ def _is_live_open_position(position: dict[str, Any]) -> bool:
     return not broker.endswith(":paper_shadow")
 
 
-def _extract_order_id(value: Any) -> str:
+def _extract_broker_order_id(value: Any) -> str:
     if isinstance(value, dict):
-        for key in ("order_id", "id", "client_order_id"):
+        for key in ("broker_order_id", "order_id", "id"):
             order_id = _clean_text(value.get(key))
             if order_id:
                 return order_id
@@ -67,39 +67,74 @@ def _extract_order_id(value: Any) -> str:
     return _clean_text(value)
 
 
+def _extract_client_order_id(value: Any) -> str:
+    if isinstance(value, dict):
+        return _clean_text(value.get("client_order_id"))
+    return ""
+
+
 def _position_has_oco_exit_proof(position: dict[str, Any]) -> bool:
-    if coerce_bool(position.get("oco_exit_protected"), default=False):
-        return True
     plan = _dict_or_empty(position.get("oco_exit_plan") or position.get("exit_plan"))
     plan_status = _clean_text(plan.get("status")).lower()
     if plan_status and plan_status not in {"active", "armed", "protected", "submitted"}:
         return False
 
     take_profit_order_id = (
-        _extract_order_id(plan.get("take_profit"))
-        or _extract_order_id(plan.get("take_profit_order"))
+        _extract_broker_order_id(plan.get("take_profit"))
+        or _extract_broker_order_id(plan.get("take_profit_order"))
         or _clean_text(plan.get("take_profit_order_id"))
         or _clean_text(position.get("take_profit_order_id"))
     )
     stop_loss_order_id = (
-        _extract_order_id(plan.get("stop_loss"))
-        or _extract_order_id(plan.get("stop_loss_order"))
+        _extract_broker_order_id(plan.get("stop_loss"))
+        or _extract_broker_order_id(plan.get("stop_loss_order"))
         or _clean_text(plan.get("stop_loss_order_id"))
         or _clean_text(position.get("stop_loss_order_id"))
     )
     return bool(take_profit_order_id and stop_loss_order_id)
 
 
+def _position_has_metadata_only_oco(position: dict[str, Any]) -> bool:
+    if _position_has_oco_exit_proof(position):
+        return False
+    if coerce_bool(position.get("oco_exit_protected"), default=False):
+        return True
+
+    plan = _dict_or_empty(position.get("oco_exit_plan") or position.get("exit_plan"))
+    take_profit_client_id = (
+        _extract_client_order_id(plan.get("take_profit"))
+        or _extract_client_order_id(plan.get("take_profit_order"))
+        or _clean_text(plan.get("take_profit_client_order_id"))
+        or _clean_text(position.get("take_profit_client_order_id"))
+    )
+    stop_loss_client_id = (
+        _extract_client_order_id(plan.get("stop_loss"))
+        or _extract_client_order_id(plan.get("stop_loss_order"))
+        or _clean_text(plan.get("stop_loss_client_order_id"))
+        or _clean_text(position.get("stop_loss_client_order_id"))
+    )
+    return bool(take_profit_client_id or stop_loss_client_id)
+
+
 def _summarize_position_oco_protection(positions: list[dict[str, Any]]) -> dict[str, Any]:
+    live_positions = [position for position in positions if _is_live_open_position(position)]
     unprotected_ids = [
         _clean_text(position.get("id")) or _clean_text(position.get("_id"))
-        for position in positions
-        if _is_live_open_position(position) and not _position_has_oco_exit_proof(position)
+        for position in live_positions
+        if not _position_has_oco_exit_proof(position)
     ]
     unprotected_ids = [position_id for position_id in unprotected_ids if position_id]
+    metadata_only_ids = [
+        _clean_text(position.get("id")) or _clean_text(position.get("_id"))
+        for position in live_positions
+        if _position_has_metadata_only_oco(position)
+    ]
+    metadata_only_ids = [position_id for position_id in metadata_only_ids if position_id]
     return {
         "position_oco_unprotected_count": len(unprotected_ids),
         "position_oco_unprotected_ids": unprotected_ids,
+        "position_oco_metadata_only_count": len(metadata_only_ids),
+        "position_oco_metadata_only_ids": metadata_only_ids,
     }
 
 
