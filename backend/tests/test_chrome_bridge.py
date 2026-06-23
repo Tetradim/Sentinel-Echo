@@ -51,6 +51,8 @@ class ChromeBridgeRouteTests(unittest.TestCase):
         discord_route._chrome_bridge_seen_event_order.clear()
         discord_route._chrome_bridge_seen_alert_fingerprints.clear()
         discord_route._chrome_bridge_seen_alert_order.clear()
+        import risk
+        risk._seen_fingerprints.clear()
         bridge_health._last_heartbeat = None
         bridge_health._last_attention_key = None
         self.temp_dir = tempfile.TemporaryDirectory()
@@ -290,6 +292,37 @@ class ChromeBridgeRouteTests(unittest.TestCase):
         self.assertEqual(second["status"], "duplicate")
         self.assertEqual(second["skip_reason"], "duplicate bridge alert")
         self.assertEqual(len(fake_db.alerts), 1)
+
+    def test_chrome_bridge_respects_shared_duplicate_alert_detector(self):
+        from routes import discord as discord_route
+        from risk import is_duplicate_alert
+        from utils import parse_alert
+
+        fake_db = FakeChromeBridgeDb(
+            {
+                "auto_trading_enabled": False,
+                "source_overrides": {
+                    "chrome-alerts": {},
+                },
+            }
+        )
+        discord_route.set_db(fake_db)
+        self.assertFalse(is_duplicate_alert(parse_alert("BTO SPY 500C 6/21 @ 1.25")))
+
+        request = types.SimpleNamespace(client=types.SimpleNamespace(host="127.0.0.1"))
+        payload = discord_route.ChromeBridgeMessage(
+            event_id="chrome-cross-ingestion-duplicate",
+            channel_id="chrome-alerts",
+            channel_name="chrome-alerts",
+            author_name="Analyst",
+            content="BTO SPY 500C 6/21 @ 1.25",
+        )
+
+        result = asyncio.run(discord_route.ingest_chrome_bridge_message(payload, request))
+
+        self.assertEqual(result["status"], "skipped")
+        self.assertEqual(result["skip_reason"], "duplicate alert")
+        self.assertEqual(fake_db.alerts, [])
 
     def test_chrome_bridge_canonicalizes_nested_discord_message_event_ids(self):
         from routes import discord as discord_route

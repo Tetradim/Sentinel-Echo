@@ -11,6 +11,7 @@ from bridge_contract import CHROME_BRIDGE_CONTRACT_VERSION
 from bot_event_bus import publish_event
 from bridge_health import evaluate_bridge_health, record_bridge_heartbeat
 from operator_audit import record_operator_event
+from risk import is_duplicate_alert
 from risk import calculate_position_size
 from source_config import (
     apply_source_quantity_limits,
@@ -463,7 +464,7 @@ async def _ingest_chrome_bridge_message_locked(payload: ChromeBridgeMessage):
             insert_alert=insert_alert_adapter,
             process_trade=process_trade_adapter,
             update_status=update_status_adapter,
-            is_duplicate_alert=lambda parsed: False,
+            is_duplicate_alert=is_duplicate_alert,
             increment_alerts_processed=_increment_chrome_bridge_alert_count,
         ),
         bot_user=None,
