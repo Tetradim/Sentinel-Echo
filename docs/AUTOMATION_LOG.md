@@ -142,3 +142,10 @@
 - Updated the operator UI live safety digest to distinguish metadata-only OCO from fully missing broker OCO child orders.
 - Audit checkpoint after 5 fixes: live readiness remains blocked unless live positions expose actual broker child-order IDs for both take-profit and stop-loss legs.
 - Verification: `python -m unittest discover backend/tests` passed 335 tests; `npm run test:ui` passed 101 frontend tests.
+
+## 2026-06-23 02:14 UTC
+
+- Added legacy Alpaca and Tradier cancel-order support so broker capabilities, readiness checks, and the live broker client contract agree for OCO cancellation requirements.
+- Added an explicit `require_cancel_order_support()` guard and optional broker-factory requirement for future live OCO flows that must fail closed when the active broker client cannot cancel orders.
+- Regression coverage now verifies Alpaca uses the documented delete-order endpoint, Tradier uses the documented cancel-order endpoint, and missing cancel support is rejected before OCO-dependent execution.
+- Verification: `python -m unittest backend.tests.test_order_execution` passed 19 tests; `python -m unittest discover backend/tests` passed 339 tests.

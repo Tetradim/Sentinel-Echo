@@ -232,6 +232,28 @@ class OrderExecutionTests(unittest.TestCase):
         self.assertEqual(broker_config.broker_type, BrokerType.ALPACA)
         self.assertEqual(broker_config.api_key.get_secret_value(), "real-key")
 
+    def test_configured_broker_client_rejects_missing_cancel_support_when_required(self):
+        from order_execution import BrokerConfigurationError, get_configured_broker_client
+
+        class BrokerWithoutCancel:
+            async def get_order_status(self, order_id):
+                return {"order_id": order_id}
+
+        settings = {
+            "active_broker": "alpaca",
+            "broker_configs": {
+                "alpaca": {
+                    "broker_type": "alpaca",
+                    "api_key": "real-key",
+                    "api_secret": "real-secret",
+                }
+            },
+        }
+
+        with patch("broker_clients.get_broker_client", return_value=BrokerWithoutCancel()):
+            with self.assertRaises(BrokerConfigurationError):
+                get_configured_broker_client(settings, "alpaca", require_cancel_order=True)
+
     def test_secretstr_values_are_materialized_for_broker_clients(self):
         from models import BrokerConfig, BrokerType
         from order_execution import materialize_secret_values
@@ -273,6 +295,15 @@ class OrderExecutionTests(unittest.TestCase):
 
         with self.assertRaises(BrokerConfigurationError):
             require_order_status_support(BrokerWithoutStatus(), require=True)
+
+    def test_live_oco_execution_rejects_broker_without_cancel_support(self):
+        from order_execution import BrokerConfigurationError, require_cancel_order_support
+
+        class BrokerWithoutCancel:
+            pass
+
+        with self.assertRaises(BrokerConfigurationError):
+            require_cancel_order_support(BrokerWithoutCancel(), require=True)
 
     def test_legacy_alpaca_order_payload_includes_client_order_id(self):
         from broker_clients import AlpacaClient
@@ -392,6 +423,50 @@ class OrderExecutionTests(unittest.TestCase):
             "https://paper-api.alpaca.markets/v2/orders/order-123",
         )
 
+    def test_legacy_alpaca_cancel_order_sends_delete_request(self):
+        from broker_clients import AlpacaClient
+        from models import BrokerConfig, BrokerType
+
+        class FakeResponse:
+            status = 204
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, exc_type, exc_val, exc_tb):
+                return False
+
+        class FakeSession:
+            def __init__(self):
+                self.deletes = []
+
+            def delete(self, url, *, headers=None):
+                self.deletes.append({"url": url, "headers": headers})
+                return FakeResponse()
+
+        async def fake_get_session():
+            return fake_session
+
+        fake_session = FakeSession()
+        client = AlpacaClient(
+            BrokerConfig(
+                broker_type=BrokerType.ALPACA,
+                api_key="real-key",
+                api_secret="real-secret",
+                base_url="https://paper-api.alpaca.markets",
+            )
+        )
+        client._get_session = fake_get_session
+
+        result = asyncio.run(client.cancel_order("order-123"))
+
+        self.assertTrue(result["cancel_requested"])
+        self.assertEqual(result["status"], "cancel_requested")
+        self.assertEqual(
+            fake_session.deletes[0]["url"],
+            "https://paper-api.alpaca.markets/v2/orders/order-123",
+        )
+
     def test_legacy_tradier_get_order_status_maps_fill_fields(self):
         from broker_clients import TradierClient
         from models import BrokerConfig, BrokerType
@@ -443,6 +518,49 @@ class OrderExecutionTests(unittest.TestCase):
         self.assertEqual(status["avg_fill_price"], 1.45)
         self.assertEqual(
             fake_session.gets[0]["url"],
+            "https://api.tradier.com/v1/accounts/acct-123/orders/order-456",
+        )
+
+    def test_legacy_tradier_cancel_order_sends_delete_request(self):
+        from broker_clients import TradierClient
+        from models import BrokerConfig, BrokerType
+
+        class FakeResponse:
+            status = 200
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, exc_type, exc_val, exc_tb):
+                return False
+
+        class FakeSession:
+            def __init__(self):
+                self.deletes = []
+
+            def delete(self, url, *, headers=None):
+                self.deletes.append({"url": url, "headers": headers})
+                return FakeResponse()
+
+        async def fake_get_session():
+            return fake_session
+
+        fake_session = FakeSession()
+        client = TradierClient(
+            BrokerConfig(
+                broker_type=BrokerType.TRADIER,
+                access_token="real-token",
+                account_id="acct-123",
+            )
+        )
+        client._get_session = fake_get_session
+
+        result = asyncio.run(client.cancel_order("order-456"))
+
+        self.assertTrue(result["cancel_requested"])
+        self.assertEqual(result["status"], "cancel_requested")
+        self.assertEqual(
+            fake_session.deletes[0]["url"],
             "https://api.tradier.com/v1/accounts/acct-123/orders/order-456",
         )
 

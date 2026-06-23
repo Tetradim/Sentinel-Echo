@@ -186,6 +186,13 @@ def require_order_status_support(client: Any, *, require: bool) -> None:
         )
 
 
+def require_cancel_order_support(client: Any, *, require: bool) -> None:
+    if require and not hasattr(client, "cancel_order"):
+        raise BrokerConfigurationError(
+            "Live OCO execution requires broker cancel-order support; use paper mode or a supported broker."
+        )
+
+
 async def close_broker_client(client: Any) -> None:
     """Close a temporary broker client when it exposes a sync or async close hook."""
     close = getattr(client, "close", None)
@@ -201,6 +208,7 @@ def get_configured_broker_client(
     broker_id: Optional[str] = None,
     *,
     require_order_status: bool = False,
+    require_cancel_order: bool = False,
 ):
     """Create the legacy broker client with decrypted credentials."""
     from broker_clients import get_broker_client
@@ -213,4 +221,5 @@ def get_configured_broker_client(
     broker_config = BrokerConfig(broker_type=broker_type, **broker_config_data)
     client = get_broker_client(broker_type, broker_config)
     require_order_status_support(client, require=require_order_status)
+    require_cancel_order_support(client, require=require_cancel_order)
     return client

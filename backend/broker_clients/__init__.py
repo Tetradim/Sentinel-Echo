@@ -463,6 +463,32 @@ class AlpacaClient(BaseBrokerClient):
                 'reason': str(e),
             }
 
+    async def cancel_order(self, order_id: str) -> dict:
+        try:
+            session = await self._get_session()
+            async with session.delete(
+                f"{self.config.base_url}/v2/orders/{order_id}",
+                headers=self._get_headers(),
+            ) as resp:
+                if resp.status == 204:
+                    return {'status': 'cancel_requested', 'cancel_requested': True}
+                try:
+                    data = await resp.json()
+                except Exception:
+                    data = {}
+                return {
+                    'status': 'cancel_failed',
+                    'cancel_requested': False,
+                    'reason': data.get('message', f'Alpaca cancel failed: {resp.status}'),
+                }
+        except Exception as e:
+            logger.error(f"Alpaca order cancel failed: {e}")
+            return {
+                'status': 'cancel_failed',
+                'cancel_requested': False,
+                'reason': str(e),
+            }
+
 
 class TDAmeritadeClient(BaseBrokerClient):
     def _get_headers(self):
@@ -632,6 +658,32 @@ class TradierClient(BaseBrokerClient):
                 'status': 'error',
                 'filled_qty': 0,
                 'avg_fill_price': 0.0,
+                'reason': str(e),
+            }
+
+    async def cancel_order(self, order_id: str) -> dict:
+        try:
+            session = await self._get_session()
+            async with session.delete(
+                f'https://api.tradier.com/v1/accounts/{self.config.account_id}/orders/{order_id}',
+                headers=self._get_headers(),
+            ) as resp:
+                if resp.status == 200:
+                    return {'status': 'cancel_requested', 'cancel_requested': True}
+                try:
+                    data = await resp.json()
+                except Exception:
+                    data = {}
+                return {
+                    'status': 'cancel_failed',
+                    'cancel_requested': False,
+                    'reason': _tradier_error_reason(data, f'Tradier cancel failed: {resp.status}'),
+                }
+        except Exception as e:
+            logger.error(f"Tradier order cancel failed: {e}")
+            return {
+                'status': 'cancel_failed',
+                'cancel_requested': False,
                 'reason': str(e),
             }
 
