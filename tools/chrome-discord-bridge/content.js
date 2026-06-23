@@ -330,12 +330,19 @@ function recordDirectForwardResult(kind, payload, result) {
 
 function stableEventId(node) {
   const listId = node.getAttribute("data-list-item-id");
-  if (listId) return listId;
+  if (listId) return canonicalMessageEventId(listId);
   const id = node.id;
-  if (id) return id;
+  if (id) return canonicalMessageEventId(id);
   const content = contentFromNode(node);
   if (!content) return "";
   return `dom:${channelIdFromLocation()}:${hashText(`${authorNameFromNode(node)}:${content}`)}`;
+}
+
+function canonicalMessageEventId(value) {
+  const raw = String(value || "");
+  const match = raw.match(/chat-messages-(\d+)-(\d+)/);
+  if (match) return `chat-messages-${match[1]}-${match[2]}`;
+  return raw;
 }
 
 function rememberSeen(eventId) {
