@@ -138,20 +138,20 @@ function publishHeartbeat(status = "ok", details = {}) {
   chrome.storage.local.get(
     { lastForwardAt: "", lastForwardStatus: "" },
     (settings) => {
-      chrome.runtime.sendMessage({
-        type: "discord-bridge:bridge-heartbeat",
-        payload: {
-          status,
-          bridge_enabled: enabled,
-          url: location.href,
-          channel_id: channelIdFromLocation(),
-          channel_url: channelUrlFromLocation(),
-          channel_name: channelNameFromPage(),
-          observed_at: new Date().toISOString(),
-          last_forward_at: settings.lastForwardAt || "",
-          last_forward_status: settings.lastForwardStatus || "",
-          details,
-        },
+      const payload = {
+        status,
+        bridge_enabled: enabled,
+        url: location.href,
+        channel_id: channelIdFromLocation(),
+        channel_url: channelUrlFromLocation(),
+        channel_name: channelNameFromPage(),
+        observed_at: new Date().toISOString(),
+        last_forward_at: settings.lastForwardAt || "",
+        last_forward_status: settings.lastForwardStatus || "",
+        details,
+      };
+      sendBridgeRuntimeMessage("discord-bridge:bridge-heartbeat", payload, "heartbeat").catch((error) => {
+        console.warn(BRIDGE_LOG_PREFIX, errorMessage(error));
       });
     },
   );
@@ -209,19 +209,123 @@ function captureMessage(node) {
 
   if (!payload.content && payload.embeds.length === 0) return;
 
-  chrome.runtime.sendMessage({ type: "discord-bridge:discord-message", payload }, (response) => {
-    if (chrome.runtime.lastError) {
-      console.warn(BRIDGE_LOG_PREFIX, chrome.runtime.lastError.message);
-      publishHeartbeat("forward_error", { error: chrome.runtime.lastError.message });
-      return;
-    }
-    if (!response || !response.ok) {
-      console.warn(BRIDGE_LOG_PREFIX, response && response.error ? response.error : "forward failed");
-      publishHeartbeat("forward_error", { error: response && response.error ? response.error : "forward failed" });
-      return;
-    }
+  sendBridgeRuntimeMessage("discord-bridge:discord-message", payload, "message").then(() => {
     publishHeartbeat("ok", { last_event_id: payload.event_id });
+  }).catch((error) => {
+    const message = errorMessage(error);
+    console.warn(BRIDGE_LOG_PREFIX, message);
+    publishHeartbeat("forward_error", { error: message });
   });
+}
+
+function sendBridgeRuntimeMessage(type, payload, kind) {
+  return new Promise((resolve, reject) => {
+    chrome.runtime.sendMessage({ type, payload }, (response) => {
+      if (chrome.runtime.lastError) {
+        console.warn(
+          BRIDGE_LOG_PREFIX,
+          directFallbackSummary(kind),
+          chrome.runtime.lastError.message,
+        );
+        forwardPayloadDirectly(payload, kind).then(resolve).catch(reject);
+        return;
+      }
+      if (!response || !response.ok) {
+        reject(new Error(response && response.error ? response.error : "forward failed"));
+        return;
+      }
+      resolve(response.result);
+    });
+  });
+}
+
+async function forwardPayloadDirectly(payload, kind) {
+  const targets = targetsForDirectPayload(payload);
+  if (targets.length === 0) {
+    throw new Error("no matching bridge target");
+  }
+
+  const successes = [];
+  const failures = [];
+  for (const target of targets) {
+    try {
+      const body = await forwardPayloadDirectlyToTarget(target, payload, kind);
+      successes.push({ id: target.id, name: target.name, status: body.status || "accepted", body });
+    } catch (error) {
+      failures.push({ id: target.id, name: target.name, error: errorMessage(error) });
+    }
+  }
+  if (successes.length === 0 && failures.length > 0) {
+    throw new Error(failures.map((failure) => `${failure.name}: ${failure.error}`).join("; "));
+  }
+
+  const result = {
+    status: failures.length > 0 ? "partial" : (kind === "heartbeat" ? "healthy" : "accepted"),
+    targets: successes,
+    failures,
+  };
+  await recordDirectForwardResult(kind, payload, result);
+  return result;
+}
+
+function targetsForDirectPayload(payload) {
+  if (payload && canonicalDiscordChannelUrl(payload.url || "")) {
+    return targetsForDiscordChannel(bridgeSettings, payload.url, payload.channel_id);
+  }
+  return enabledBridgeTargets(bridgeSettings);
+}
+
+function directFallbackSummary(kind) {
+  return kind === "heartbeat"
+    ? "runtime message failed; falling back to direct heartbeat forward"
+    : "runtime message failed; falling back to direct message forward";
+}
+
+async function forwardPayloadDirectlyToTarget(target, payload, kind) {
+  const headers = { "Content-Type": "application/json" };
+  if (target.apiKey) {
+    headers["X-API-Key"] = target.apiKey;
+  }
+  const url = kind === "heartbeat" ? target.heartbeatUrl || heartbeatUrlFor(target.messageUrl) : target.messageUrl;
+  const response = await fetch(url, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({
+      ...payload,
+      bridge_target_id: target.id,
+      bridge_target_name: target.name,
+    }),
+  });
+  const textBody = await response.text();
+  let body = {};
+  if (textBody) {
+    try {
+      body = JSON.parse(textBody);
+    } catch {
+      body = { text: textBody };
+    }
+  }
+  if (!response.ok) {
+    throw new Error(body.detail || body.text || `${kind} request failed with HTTP ${response.status}`);
+  }
+  return body;
+}
+
+function recordDirectForwardResult(kind, payload, result) {
+  const now = new Date().toISOString();
+  const updates = kind === "heartbeat"
+    ? {
+      lastHeartbeatStatus: result.status,
+      lastHeartbeatAt: now,
+      lastHeartbeatTargets: result.targets,
+    }
+    : {
+      lastForwardStatus: result.status,
+      lastForwardAt: now,
+      lastForwardEventId: payload.event_id,
+      lastForwardTargets: result.targets,
+    };
+  return new Promise((resolve) => chrome.storage.local.set(updates, resolve));
 }
 
 function stableEventId(node) {
@@ -325,4 +429,8 @@ function hashText(value) {
     hash = Math.imul(hash, 16777619);
   }
   return (hash >>> 0).toString(16);
+}
+
+function errorMessage(error) {
+  return String(error && error.message ? error.message : error || "unknown error");
 }
