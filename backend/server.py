@@ -19,7 +19,7 @@ import asyncio
 
 # Import models
 from models import Alert, Settings
-from order_execution import build_client_order_id
+from order_execution import build_client_order_id, build_oco_exit_plan
 from paper_shadow import (
     build_entry_shadow_records,
     build_exit_shadow_records,
@@ -255,13 +255,24 @@ async def process_trade(alert: Alert, parsed: dict):
                 quantity=quantity,
                 broker=settings.active_broker.value,
             )
+            shadow_position_data = shadow_position.model_dump(mode="json")
+            shadow_oco_exit_plan = build_oco_exit_plan(
+                settings_raw,
+                alert_id=alert.id,
+                position_id=shadow_position.id,
+                entry_price=alert.entry_price,
+                quantity=quantity,
+            )
+            if shadow_oco_exit_plan:
+                shadow_position_data["oco_exit_plan"] = shadow_oco_exit_plan
+                shadow_position_data["oco_exit_protected"] = True
             if USE_SQLITE:
                 from database_sqlite import insert_trade, insert_position
                 insert_trade(shadow_trade.model_dump(mode="json"))
-                insert_position(shadow_position.model_dump(mode="json"))
+                insert_position(shadow_position_data)
             else:
                 sync_mongo_db.trades.insert_one(shadow_trade.model_dump())
-                sync_mongo_db.positions.insert_one(shadow_position.model_dump())
+                sync_mongo_db.positions.insert_one(shadow_position_data)
 
         if settings.simulation_mode:
             # Simulated — no broker call, no fill monitoring needed
@@ -285,13 +296,24 @@ async def process_trade(alert: Alert, parsed: dict):
                 trade_ids=[trade.id],
                 highest_price=alert.entry_price
             )
+            position_data = position.model_dump()
+            oco_exit_plan = build_oco_exit_plan(
+                settings_raw,
+                alert_id=alert.id,
+                position_id=position.id,
+                entry_price=alert.entry_price,
+                quantity=quantity,
+            )
+            if oco_exit_plan:
+                position_data["oco_exit_plan"] = oco_exit_plan
+                position_data["oco_exit_protected"] = True
             if USE_SQLITE:
                 from database_sqlite import insert_trade, insert_position
                 insert_trade(trade.model_dump())
-                insert_position(position.model_dump())
+                insert_position(position_data)
             else:
                 sync_mongo_db.trades.insert_one(trade.model_dump())
-                sync_mongo_db.positions.insert_one(position.model_dump())
+                sync_mongo_db.positions.insert_one(position_data)
 
             await notify_trade_filled(
                 trade.id, trade.ticker, trade.strike, trade.option_type,

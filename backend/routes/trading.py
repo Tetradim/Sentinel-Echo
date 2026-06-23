@@ -8,6 +8,7 @@ from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from models import Trade, Position
+from order_execution import build_oco_exit_plan
 from operator_audit import record_operator_event
 from settings_flags import coerce_bool
 from datetime import datetime, timezone
@@ -250,10 +251,21 @@ async def create_test_alert_records(database, *, message: str = "Test alert crea
         trade_ids=[trade.id],
         highest_price=test_alert.entry_price,
     )
+    position_data = position.model_dump(mode="json")
+    oco_exit_plan = build_oco_exit_plan(
+        settings,
+        alert_id=test_alert.id,
+        position_id=position.id,
+        entry_price=test_alert.entry_price,
+        quantity=1,
+    )
+    if oco_exit_plan:
+        position_data["oco_exit_plan"] = oco_exit_plan
+        position_data["oco_exit_protected"] = True
 
     await database.insert_alert(test_alert.model_dump(mode="json"))
     await database.insert_trade(trade.model_dump(mode="json"))
-    await database.insert_position(position.model_dump(mode="json"))
+    await database.insert_position(position_data)
 
     return {
         "message": message,

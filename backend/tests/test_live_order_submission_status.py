@@ -29,6 +29,7 @@ class FakeSyncMongo:
         self.settings = FakeCollection(settings)
         self.trades = FakeCollection()
         self.alerts = FakeCollection()
+        self.positions = FakeCollection()
 
 
 class FakeRuntimeDb:
@@ -307,6 +308,99 @@ class LiveOrderSubmissionStatusTests(unittest.TestCase):
             self.restore_server(server, originals)
 
         self.assertEqual(FakeBrokerClient.orders[0]["price"], 4.90)
+
+    def test_simulated_buy_position_includes_oco_exit_plan_when_guards_are_enabled(self):
+        from models import Alert
+        import server
+
+        settings = {
+            "id": "main_settings",
+            "active_broker": "alpaca",
+            "broker_configs": {"alpaca": {"broker_type": "alpaca"}},
+            "simulation_mode": True,
+            "default_quantity": 2,
+            "max_position_size": 1000.0,
+            "take_profit_enabled": True,
+            "take_profit_percentage": 50.0,
+            "stop_loss_enabled": True,
+            "stop_loss_percentage": 25.0,
+            "trailing_stop_enabled": True,
+            "trailing_stop_type": "percent",
+            "trailing_stop_percent": 10.0,
+        }
+        fake_mongo = FakeSyncMongo(settings)
+        fake_db = FakeRuntimeDb()
+        originals = self.patch_server(server, fake_sync_mongo=fake_mongo, fake_db=fake_db)
+        try:
+            asyncio.run(
+                server.process_trade(
+                    Alert(
+                        id="alert-sim-oco",
+                        ticker="SPY",
+                        strike=500.0,
+                        option_type="CALL",
+                        expiration="6/21",
+                        entry_price=1.20,
+                    ),
+                    {"alert_type": "buy"},
+                )
+            )
+        finally:
+            self.restore_server(server, originals)
+
+        position = fake_mongo.positions.inserted[0]
+        plan = position["oco_exit_plan"]
+        self.assertTrue(position["oco_exit_protected"])
+        self.assertEqual(plan["status"], "armed")
+        self.assertEqual(plan["quantity"], 2)
+        self.assertEqual(plan["take_profit"]["trigger_price"], 1.80)
+        self.assertEqual(plan["stop_loss"]["trigger_price"], 0.90)
+        self.assertIn(position["id"], plan["take_profit"]["client_order_id"])
+        self.assertIn(position["id"], plan["stop_loss"]["client_order_id"])
+
+    def test_paper_shadow_buy_position_includes_oco_exit_plan_when_guards_are_enabled(self):
+        from models import Alert
+        import server
+
+        settings = {
+            "id": "main_settings",
+            "active_broker": "alpaca",
+            "broker_configs": {"alpaca": {"broker_type": "alpaca"}},
+            "simulation_mode": False,
+            "default_quantity": 1,
+            "max_position_size": 1000.0,
+            "take_profit_enabled": True,
+            "take_profit_percentage": 50.0,
+            "stop_loss_enabled": True,
+            "stop_loss_percentage": 25.0,
+        }
+        fake_mongo = FakeSyncMongo(settings)
+        fake_db = FakeRuntimeDb()
+        originals = self.patch_server(server, fake_sync_mongo=fake_mongo, fake_db=fake_db)
+        try:
+            asyncio.run(
+                server.process_trade(
+                    Alert(
+                        id="alert-shadow-oco",
+                        ticker="SPY",
+                        strike=500.0,
+                        option_type="CALL",
+                        expiration="6/21",
+                        entry_price=1.20,
+                    ),
+                    {"alert_type": "buy", "_source_config": {"paper_shadow": True}},
+                )
+            )
+        finally:
+            self.restore_server(server, originals)
+
+        shadow_position = fake_mongo.positions.inserted[0]
+        plan = shadow_position["oco_exit_plan"]
+        self.assertTrue(shadow_position["simulated"])
+        self.assertEqual(shadow_position["broker"], "alpaca:paper_shadow")
+        self.assertTrue(shadow_position["oco_exit_protected"])
+        self.assertEqual(plan["take_profit"]["trigger_price"], 1.80)
+        self.assertEqual(plan["stop_loss"]["trigger_price"], 0.90)
 
     def test_live_buy_blocks_when_correlation_check_fails(self):
         from models import Alert

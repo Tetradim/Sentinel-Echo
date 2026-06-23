@@ -22,6 +22,57 @@ except ModuleNotFoundError:
 
 
 class OrderExecutionTests(unittest.TestCase):
+    def test_build_oco_exit_plan_creates_deterministic_take_profit_and_stop_loss_orders(self):
+        from order_execution import build_client_order_id, build_oco_exit_plan
+
+        plan = build_oco_exit_plan(
+            {
+                "take_profit_enabled": True,
+                "take_profit_percentage": 50,
+                "stop_loss_enabled": True,
+                "stop_loss_percentage": 25,
+                "stop_loss_order_type": "limit",
+                "trailing_stop_enabled": True,
+                "trailing_stop_type": "percent",
+                "trailing_stop_percent": 10,
+            },
+            alert_id="alert/ABC 123",
+            position_id="position:456",
+            entry_price=1.20,
+            quantity=2,
+        )
+
+        self.assertEqual(plan["status"], "armed")
+        self.assertEqual(plan["oco_group_id"], build_client_order_id("alert/ABC 123", "oco", "position:456"))
+        self.assertEqual(plan["entry_price"], 1.20)
+        self.assertEqual(plan["quantity"], 2)
+        self.assertEqual(plan["take_profit"]["trigger_price"], 1.80)
+        self.assertEqual(plan["take_profit"]["order_type"], "limit")
+        self.assertEqual(plan["take_profit"]["client_order_id"], build_client_order_id("alert/ABC 123", "take-profit", "position:456"))
+        self.assertEqual(plan["take_profit"]["oco_group_id"], plan["oco_group_id"])
+        self.assertEqual(plan["stop_loss"]["trigger_price"], 0.90)
+        self.assertEqual(plan["stop_loss"]["order_type"], "limit")
+        self.assertEqual(plan["stop_loss"]["client_order_id"], build_client_order_id("alert/ABC 123", "stop-loss", "position:456"))
+        self.assertEqual(plan["stop_loss"]["oco_group_id"], plan["oco_group_id"])
+        self.assertEqual(
+            plan["trailing_stop"],
+            {"enabled": True, "type": "percent", "percent": 10.0, "cents": None},
+        )
+
+    def test_build_oco_exit_plan_returns_empty_when_both_guards_are_not_enabled(self):
+        from order_execution import build_oco_exit_plan
+
+        self.assertEqual(
+            build_oco_exit_plan(
+                {"take_profit_enabled": True, "stop_loss_enabled": False},
+                alert_id="alert-1",
+                position_id="pos-1",
+                entry_price=1.00,
+                quantity=1,
+            ),
+            {},
+        )
+
     def test_build_client_order_id_is_deterministic_and_broker_safe(self):
         from order_execution import build_client_order_id
 

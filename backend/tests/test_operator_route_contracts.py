@@ -209,6 +209,35 @@ class OperatorRouteContractTests(unittest.TestCase):
         self.assertEqual(fake_db.inserted_events[0]["category"], "test_lab")
         self.assertEqual(fake_db.inserted_events[0]["action"], "test_alert_created")
 
+    def test_operator_test_alert_positions_include_oco_exit_plan_when_guards_are_enabled(self):
+        from routes import operator as operator_route
+
+        fake_db = FakeTradingDb()
+        fake_db.settings.update(
+            {
+                "take_profit_enabled": True,
+                "take_profit_percentage": 40,
+                "stop_loss_enabled": True,
+                "stop_loss_percentage": 20,
+                "trailing_stop_enabled": True,
+                "trailing_stop_type": "percent",
+                "trailing_stop_percent": 12,
+            }
+        )
+        operator_route.set_db(fake_db)
+
+        asyncio.run(operator_route.create_operator_test_alert())
+
+        position = fake_db.inserted_positions[0]
+        plan = position["oco_exit_plan"]
+        self.assertTrue(position["oco_exit_protected"])
+        self.assertEqual(plan["status"], "armed")
+        self.assertEqual(plan["take_profit"]["trigger_price"], 1.75)
+        self.assertEqual(plan["stop_loss"]["trigger_price"], 1.0)
+        self.assertIn(position["id"], plan["take_profit"]["client_order_id"])
+        self.assertIn(position["id"], plan["stop_loss"]["client_order_id"])
+        self.assertTrue(plan["trailing_stop"]["enabled"])
+
     def test_operator_events_return_newest_first_with_limit(self):
         from routes import operator as operator_route
 

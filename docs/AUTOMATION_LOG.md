@@ -126,3 +126,11 @@
 - Researched standard options contract multiplier behavior. Key production takeaway: preview surfaces should show estimated premium dollars, not only contract counts.
 - Extended `/discord/parse-preview` execution output with `estimated_premium_cost` and `uncapped_premium_cost` for buy and average-down alerts, using the standard 100x options multiplier.
 - Added regression coverage proving source `max_contracts` caps both preview quantity and estimated premium cost while still reporting the uncapped cost.
+
+## 2026-06-23 01:55 UTC
+
+- Added deterministic OCO exit-plan metadata for simulated/operator/paper-shadow entry positions when take-profit and stop-loss guards are enabled.
+- Added a shared `build_oco_exit_plan()` helper with deterministic take-profit, stop-loss, trailing-stop, and OCO group IDs so replay evidence can tie both exit legs to the same position.
+- Wired operator test alerts, Discord simulated buys, and paper-shadow buys to persist `oco_exit_plan` and `oco_exit_protected` metadata only for simulated/shadow positions.
+- Audit checkpoint: live broker-filled positions are not marked OCO-protected by this metadata-only plan; readiness should continue to block unprotected live positions until actual child-order submission/cancellation proof exists.
+- Verification: `python -m unittest discover backend/tests` passed 332 tests.

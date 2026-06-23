@@ -8,6 +8,7 @@ from typing import Any, Dict, Optional
 
 from broker_capabilities import missing_broker_config_fields, normalize_broker_id
 from models import BrokerConfig, BrokerType
+from settings_flags import coerce_bool
 from utils.credentials import decrypt_broker_config
 
 
@@ -42,6 +43,97 @@ def _client_order_id_token(value: Any, *, fallback: str) -> str:
     token = re.sub(r"[^A-Za-z0-9_-]+", "-", str(value or "").strip())
     token = token.strip("-_")
     return token or fallback
+
+
+def build_oco_exit_plan(
+    settings: Any,
+    *,
+    alert_id: Any,
+    position_id: Any,
+    entry_price: Any,
+    quantity: Any,
+) -> Dict[str, Any]:
+    """Build deterministic position-level OCO exit metadata from risk settings."""
+    settings_data = settings if isinstance(settings, dict) else {}
+    if not (
+        coerce_bool(settings_data.get("take_profit_enabled"), default=False)
+        and coerce_bool(settings_data.get("stop_loss_enabled"), default=False)
+    ):
+        return {}
+
+    entry = _positive_float(entry_price)
+    contracts = _positive_int(quantity)
+    if entry is None or contracts <= 0:
+        return {}
+
+    take_profit_pct = _positive_float(settings_data.get("take_profit_percentage")) or 50.0
+    stop_loss_pct = _positive_float(settings_data.get("stop_loss_percentage")) or 25.0
+    stop_loss_order_type = str(settings_data.get("stop_loss_order_type") or "market").strip().lower()
+    if stop_loss_order_type not in {"market", "limit"}:
+        stop_loss_order_type = "market"
+
+    trailing_stop_enabled = coerce_bool(settings_data.get("trailing_stop_enabled"), default=False)
+    trailing_stop_type = str(settings_data.get("trailing_stop_type") or "percent").strip().lower()
+    if trailing_stop_type not in {"percent", "premium"}:
+        trailing_stop_type = "percent"
+
+    trailing_percent = None
+    trailing_cents = None
+    if trailing_stop_enabled:
+        if trailing_stop_type == "premium":
+            trailing_cents = _positive_float(settings_data.get("trailing_stop_cents")) or 50.0
+        else:
+            trailing_percent = _positive_float(settings_data.get("trailing_stop_percent")) or 10.0
+
+    oco_group_id = build_client_order_id(alert_id, "oco", position_id)
+    return {
+        "status": "armed",
+        "oco_group_id": oco_group_id,
+        "entry_price": entry,
+        "quantity": contracts,
+        "take_profit": {
+            "side": "SELL",
+            "order_type": "limit",
+            "trigger_price": round(entry * (1 + take_profit_pct / 100), 2),
+            "percentage": take_profit_pct,
+            "client_order_id": build_client_order_id(alert_id, "take-profit", position_id),
+            "oco_group_id": oco_group_id,
+        },
+        "stop_loss": {
+            "side": "SELL",
+            "order_type": stop_loss_order_type,
+            "trigger_price": round(max(entry * (1 - stop_loss_pct / 100), 0.01), 2),
+            "percentage": stop_loss_pct,
+            "client_order_id": build_client_order_id(alert_id, "stop-loss", position_id),
+            "oco_group_id": oco_group_id,
+        },
+        "trailing_stop": {
+            "enabled": trailing_stop_enabled,
+            "type": trailing_stop_type,
+            "percent": trailing_percent,
+            "cents": trailing_cents,
+        },
+    }
+
+
+def _positive_float(value: Any) -> Optional[float]:
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        return None
+    if parsed <= 0:
+        return None
+    return parsed
+
+
+def _positive_int(value: Any) -> int:
+    if isinstance(value, bool):
+        return 0
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return 0
+    return max(parsed, 0)
 
 
 def materialize_secret_values(value: Any) -> Any:
