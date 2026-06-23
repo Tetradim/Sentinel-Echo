@@ -24,6 +24,7 @@ from types import SimpleNamespace
 from typing import Any, Dict, Mapping
 from utils import AVG_DOWN_KEYWORDS, BUY_KEYWORDS, SELL_KEYWORDS, parse_alert
 from openclaw_discord_config import DiscordRuntimeConfig, resolve_saved_or_runtime_discord_config
+import asyncio
 import threading
 import logging
 import os
@@ -58,6 +59,7 @@ discord_bot_thread = None
 _chrome_bridge_seen_event_ids: set[str] = set()
 _chrome_bridge_seen_event_order: list[str] = []
 _CHROME_BRIDGE_MAX_SEEN = 1000
+_chrome_bridge_ingest_lock = asyncio.Lock()
 _LOCAL_CLIENT_HOSTS = {"127.0.0.1", "::1", "localhost"}
 
 
@@ -313,6 +315,15 @@ async def ingest_chrome_bridge_message(
     if not db:
         raise HTTPException(status_code=503, detail="database not initialized")
 
+    payload.event_id = _canonical_chrome_bridge_event_id(payload.event_id)
+    async with _chrome_bridge_ingest_lock:
+        return await _ingest_chrome_bridge_message_locked(payload)
+
+
+async def _ingest_chrome_bridge_message_locked(payload: ChromeBridgeMessage):
+    if await _chrome_bridge_event_already_recorded(payload.event_id):
+        return _chrome_bridge_duplicate_response(payload)
+
     if _mark_chrome_bridge_seen(payload.event_id):
         publish_event(
             "signal.duplicate",
@@ -329,15 +340,7 @@ async def ingest_chrome_bridge_message(
             dedupe_key=f"chrome-discord:{payload.event_id}",
             target_bots=["consolidation", "sentinel-edge"],
         )
-        return {
-            "status": "duplicate",
-            "event_id": payload.event_id,
-            "alert_inserted": False,
-            "alert_id": "",
-            "trade_requested": False,
-            "trade_request_reason": "",
-            "skip_reason": "duplicate bridge event",
-        }
+        return _chrome_bridge_duplicate_response(payload)
 
     synthetic_message = _chrome_bridge_to_message(payload)
     alert_text = build_discord_alert_text(synthetic_message).strip()
@@ -676,6 +679,44 @@ async def _record_chrome_bridge_alert_audit(
             "decision": ingestion_result,
         },
     )
+
+
+def _canonical_chrome_bridge_event_id(event_id: str) -> str:
+    raw_event_id = str(event_id or "").strip()
+    match = re.search(r"chat-messages-(\d+)-(\d+)", raw_event_id)
+    if match:
+        return f"chat-messages-{match.group(1)}-{match.group(2)}"
+    return raw_event_id
+
+
+async def _chrome_bridge_event_already_recorded(event_id: str) -> bool:
+    if not db or not hasattr(db, "get_operator_events"):
+        return False
+    try:
+        events = await db.get_operator_events(500)
+    except Exception as exc:
+        logger.warning("Unable to check persisted chrome bridge duplicate event: %s", exc)
+        return False
+    canonical_event_id = _canonical_chrome_bridge_event_id(event_id)
+    for event in events:
+        if event.get("action") != "bridge_alert_decision":
+            continue
+        details = event.get("details") if isinstance(event.get("details"), dict) else {}
+        if _canonical_chrome_bridge_event_id(str(details.get("event_id") or "")) == canonical_event_id:
+            return True
+    return False
+
+
+def _chrome_bridge_duplicate_response(payload: ChromeBridgeMessage) -> dict:
+    return {
+        "status": "duplicate",
+        "event_id": payload.event_id,
+        "alert_inserted": False,
+        "alert_id": "",
+        "trade_requested": False,
+        "trade_request_reason": "",
+        "skip_reason": "duplicate bridge event",
+    }
 
 
 def _mark_chrome_bridge_seen(event_id: str) -> bool:

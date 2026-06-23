@@ -33,6 +33,9 @@ class FakeChromeBridgeDb:
         self.operator_events.append(event)
         return event["id"]
 
+    async def get_operator_events(self, limit=100):
+        return list(reversed(self.operator_events))[:limit]
+
 
 class FakeRawChromeBridgeDb(FakeChromeBridgeDb):
     async def get_settings(self):
@@ -244,6 +247,80 @@ class ChromeBridgeRouteTests(unittest.TestCase):
         self.assertEqual(first["status"], "accepted")
         self.assertEqual(second["status"], "duplicate")
         self.assertEqual(len(fake_db.alerts), 1)
+
+    def test_chrome_bridge_canonicalizes_nested_discord_message_event_ids(self):
+        from routes import discord as discord_route
+
+        fake_db = FakeChromeBridgeDb(
+            {
+                "auto_trading_enabled": False,
+                "source_overrides": {
+                    "chrome-alerts": {},
+                },
+            }
+        )
+        discord_route.set_db(fake_db)
+
+        request = types.SimpleNamespace(client=types.SimpleNamespace(host="127.0.0.1"))
+        nested = discord_route.ChromeBridgeMessage(
+            event_id="chat-messages___chat-messages-111-222",
+            channel_id="chrome-alerts",
+            channel_name="chrome-alerts",
+            author_name="Analyst",
+            content="BTO SPY 500C 6/21 @ 1.25",
+        )
+        canonical = discord_route.ChromeBridgeMessage(
+            event_id="chat-messages-111-222",
+            channel_id="chrome-alerts",
+            channel_name="chrome-alerts",
+            author_name="Analyst",
+            content="BTO SPY 500C 6/21 @ 1.25",
+        )
+
+        first = asyncio.run(discord_route.ingest_chrome_bridge_message(nested, request))
+        second = asyncio.run(discord_route.ingest_chrome_bridge_message(canonical, request))
+
+        self.assertEqual(first["event_id"], "chat-messages-111-222")
+        self.assertEqual(fake_db.operator_events[-1]["details"]["event_id"], "chat-messages-111-222")
+        self.assertEqual(second["status"], "duplicate")
+        self.assertEqual(len(fake_db.alerts), 1)
+
+    def test_chrome_bridge_rejects_persisted_duplicate_event_after_restart(self):
+        from routes import discord as discord_route
+
+        fake_db = FakeChromeBridgeDb(
+            {
+                "auto_trading_enabled": False,
+                "source_overrides": {
+                    "chrome-alerts": {},
+                },
+            }
+        )
+        fake_db.operator_events.append(
+            {
+                "id": "prior-event",
+                "action": "bridge_alert_decision",
+                "details": {
+                    "event_id": "chat-messages-111-333",
+                },
+            }
+        )
+        discord_route.set_db(fake_db)
+
+        request = types.SimpleNamespace(client=types.SimpleNamespace(host="127.0.0.1"))
+        payload = discord_route.ChromeBridgeMessage(
+            event_id="chat-messages___chat-messages-111-333",
+            channel_id="chrome-alerts",
+            channel_name="chrome-alerts",
+            author_name="Analyst",
+            content="BTO SPY 500C 6/21 @ 1.25",
+        )
+
+        result = asyncio.run(discord_route.ingest_chrome_bridge_message(payload, request))
+
+        self.assertEqual(result["status"], "duplicate")
+        self.assertEqual(result["event_id"], "chat-messages-111-333")
+        self.assertEqual(fake_db.alerts, [])
 
     def test_chrome_bridge_rejects_non_local_clients_by_default(self):
         from fastapi import HTTPException
