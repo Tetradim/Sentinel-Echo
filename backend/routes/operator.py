@@ -11,6 +11,7 @@ from readiness_status import readiness_ready_for_live, status_flag
 from reconciliation import build_alert_chain_report, build_reconciliation_rows, summarize_reconciliation_rows
 from routes.trading import create_test_alert_records
 from settings_flags import coerce_bool
+from trailing_stop_engine import evaluate_trailing_stop as build_trailing_stop_decision
 
 router = APIRouter(tags=["Operator"])
 
@@ -108,6 +109,12 @@ class OperatorSimulateExitRequest(BaseModel):
     exit_price: float = Field(default=1.8, gt=0)
 
 
+class OperatorTrailingStopRequest(BaseModel):
+    position_id: Optional[str] = None
+    current_price: float = Field(gt=0)
+    sell_percentage: float = Field(default=100, ge=1, le=100)
+
+
 class LiveArmRequest(BaseModel):
     duration_minutes: int = Field(default=60, ge=1, le=480)
     confirmation: str
@@ -186,6 +193,84 @@ async def simulate_exit(request: OperatorSimulateExitRequest):
         details=result,
     )
     return {**result, "event_id": event["id"]}
+
+
+@router.post("/operator/trailing-stop/evaluate")
+async def evaluate_trailing_stop(request: OperatorTrailingStopRequest):
+    """Evaluate one mark against a position trailing stop and sell when it triggers in simulation."""
+    position_id = request.position_id
+    if not position_id:
+        positions = await db.get_positions()
+        first_open = next(
+            (
+                position for position in positions
+                if position.get("status") in {"open", "partial"} and int(position.get("remaining_quantity") or 0) > 0
+            ),
+            None,
+        )
+        if not first_open:
+            raise HTTPException(status_code=404, detail="No open position is available for trailing-stop evaluation.")
+        position_id = first_open["id"]
+
+    position = await db.get_position_by_id(position_id)
+    if not position:
+        raise HTTPException(status_code=404, detail="Position not found.")
+
+    settings = _dict_or_empty(await db.get_settings())
+    decision = build_trailing_stop_decision(
+        position,
+        settings,
+        current_price=request.current_price,
+    )
+    await db.update_position(
+        position_id,
+        {
+            "$set": {
+                "current_price": decision["current_price"],
+                "highest_price": decision["highest_price"],
+            }
+        },
+    )
+
+    if decision["triggered"]:
+        simulation_mode = coerce_bool(settings.get("simulation_mode"), default=True)
+        simulated_position = coerce_bool(position.get("simulated"), default=False)
+        if not simulation_mode and not simulated_position:
+            event = await record_operator_event(
+                db,
+                "position",
+                "trailing_stop_live_blocked",
+                f"Trailing stop triggered for position {position_id}, but live auto-sell is not supported.",
+                severity="warning",
+                details={"decision": decision},
+            )
+            return {"decision": {**decision, "action": "blocked_live"}, "sell_result": None, "event_id": event["id"]}
+
+        from routes import trading as trading_route
+
+        sell_result = await trading_route.sell_position_from_operator(
+            position_id,
+            sell_percentage=request.sell_percentage,
+            exit_price=request.current_price,
+        )
+        event = await record_operator_event(
+            db,
+            "position",
+            "trailing_stop_triggered",
+            f"Trailing stop sold position {position_id}.",
+            severity="warning",
+            details={"decision": decision, "sell_result": sell_result},
+        )
+        return {"decision": decision, "sell_result": sell_result, "event_id": event["id"]}
+
+    event = await record_operator_event(
+        db,
+        "position",
+        "trailing_stop_evaluated",
+        f"Trailing stop evaluated for position {position_id}.",
+        details={"decision": decision},
+    )
+    return {"decision": decision, "sell_result": None, "event_id": event["id"]}
 
 
 @router.get("/operator/live-readiness")

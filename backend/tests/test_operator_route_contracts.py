@@ -69,6 +69,11 @@ class FakeTradingDb:
         self.settings_updates = []
         self.runtime_updates = []
         self.runtime_state = {}
+        self.settings = {
+            "active_broker": "ibkr",
+            "simulation_mode": True,
+            "auto_shutdown_enabled": False,
+        }
 
     async def get_trades(self, limit=50):
         return [dict(self.trade)]
@@ -128,11 +133,7 @@ class FakeTradingDb:
         return dict(self.runtime_state)
 
     async def get_settings(self):
-        return {
-            "active_broker": "ibkr",
-            "simulation_mode": True,
-            "auto_shutdown_enabled": False,
-        }
+        return dict(self.settings)
 
 
 class FakeRawTradingDb(FakeTradingDb):
@@ -756,6 +757,44 @@ class OperatorRouteContractTests(unittest.TestCase):
         self.assertEqual(fake_db.inserted_trades[0]["status"], "simulated")
         self.assertTrue(fake_db.inserted_trades[0]["simulated"])
         self.assertEqual(fake_db.runtime_updates[-1]["shutdown_reason"], "Settings are malformed")
+
+    def test_operator_trailing_stop_check_sells_simulated_position_when_triggered(self):
+        from routes import operator as operator_route
+        from routes import settings as settings_route
+        from routes import trading as trading_route
+
+        fake_db = FakeTradingDb()
+        fake_db.position["highest_price"] = 2.50
+        fake_db.settings = {
+            "active_broker": "ibkr",
+            "simulation_mode": True,
+            "auto_shutdown_enabled": False,
+            "trailing_stop_enabled": True,
+            "trailing_stop_type": "premium",
+            "trailing_stop_cents": 0.10,
+        }
+        operator_route.set_db(fake_db)
+        settings_route.set_db(fake_db)
+        trading_route.set_db(fake_db)
+
+        response = asyncio.run(
+            operator_route.evaluate_trailing_stop(
+                operator_route.OperatorTrailingStopRequest(
+                    position_id="pos-1",
+                    current_price=2.40,
+                    sell_percentage=100,
+                )
+            )
+        )
+
+        self.assertEqual(response["decision"]["action"], "triggered")
+        self.assertEqual(response["decision"]["trailing_stop_level"], 2.40)
+        self.assertEqual(response["sell_result"]["sold_quantity"], 4)
+        self.assertEqual(fake_db.position["status"], "closed")
+        self.assertEqual(fake_db.position["remaining_quantity"], 0)
+        self.assertEqual(fake_db.inserted_trades[0]["side"], "SELL")
+        self.assertEqual(fake_db.inserted_trades[0]["exit_price"], 2.40)
+        self.assertEqual(fake_db.inserted_events[-1]["action"], "trailing_stop_triggered")
 
     def test_test_alert_endpoint_creates_simulated_records(self):
         from routes import trading as trading_route
