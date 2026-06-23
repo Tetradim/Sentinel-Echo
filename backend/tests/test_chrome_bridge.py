@@ -49,6 +49,8 @@ class ChromeBridgeRouteTests(unittest.TestCase):
 
         discord_route._chrome_bridge_seen_event_ids.clear()
         discord_route._chrome_bridge_seen_event_order.clear()
+        discord_route._chrome_bridge_seen_alert_fingerprints.clear()
+        discord_route._chrome_bridge_seen_alert_order.clear()
         bridge_health._last_heartbeat = None
         bridge_health._last_attention_key = None
         self.temp_dir = tempfile.TemporaryDirectory()
@@ -246,6 +248,47 @@ class ChromeBridgeRouteTests(unittest.TestCase):
 
         self.assertEqual(first["status"], "accepted")
         self.assertEqual(second["status"], "duplicate")
+        self.assertEqual(len(fake_db.alerts), 1)
+
+    def test_chrome_bridge_dedupes_same_alert_with_different_dom_event_ids(self):
+        from routes import discord as discord_route
+
+        fake_db = FakeChromeBridgeDb(
+            {
+                "auto_trading_enabled": False,
+                "source_overrides": {
+                    "chrome-alerts": {},
+                },
+            }
+        )
+        discord_route.set_db(fake_db)
+
+        request = types.SimpleNamespace(client=types.SimpleNamespace(host="127.0.0.1"))
+        first_payload = discord_route.ChromeBridgeMessage(
+            event_id="chat-messages-123-optimistic",
+            channel_id="chrome-alerts",
+            channel_name="chrome-alerts",
+            channel_url="https://discord.com/channels/1/chrome-alerts",
+            author_id="analyst-1",
+            author_name="Analyst",
+            content="BTO SPY 500C 6/21 @ 1.25",
+        )
+        second_payload = discord_route.ChromeBridgeMessage(
+            event_id="chat-messages-123-server",
+            channel_id="chrome-alerts",
+            channel_name="chrome-alerts",
+            channel_url="https://discord.com/channels/1/chrome-alerts",
+            author_id="analyst-1",
+            author_name="Analyst",
+            content="BTO SPY 500C 6/21 @ 1.25",
+        )
+
+        first = asyncio.run(discord_route.ingest_chrome_bridge_message(first_payload, request))
+        second = asyncio.run(discord_route.ingest_chrome_bridge_message(second_payload, request))
+
+        self.assertEqual(first["status"], "accepted")
+        self.assertEqual(second["status"], "duplicate")
+        self.assertEqual(second["skip_reason"], "duplicate bridge alert")
         self.assertEqual(len(fake_db.alerts), 1)
 
     def test_chrome_bridge_canonicalizes_nested_discord_message_event_ids(self):

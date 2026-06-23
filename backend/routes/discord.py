@@ -24,6 +24,7 @@ from types import SimpleNamespace
 from typing import Any, Dict, Mapping
 from utils import AVG_DOWN_KEYWORDS, BUY_KEYWORDS, SELL_KEYWORDS, parse_alert
 from openclaw_discord_config import DiscordRuntimeConfig, resolve_saved_or_runtime_discord_config
+from datetime import datetime, timezone
 import asyncio
 import threading
 import logging
@@ -58,7 +59,10 @@ discord_bot = None
 discord_bot_thread = None
 _chrome_bridge_seen_event_ids: set[str] = set()
 _chrome_bridge_seen_event_order: list[str] = []
+_chrome_bridge_seen_alert_fingerprints: dict[str, datetime] = {}
+_chrome_bridge_seen_alert_order: list[str] = []
 _CHROME_BRIDGE_MAX_SEEN = 1000
+_CHROME_BRIDGE_ALERT_DUPLICATE_WINDOW_SECONDS = 120
 _chrome_bridge_ingest_lock = asyncio.Lock()
 _LOCAL_CLIENT_HOSTS = {"127.0.0.1", "::1", "localhost"}
 
@@ -346,6 +350,11 @@ async def _ingest_chrome_bridge_message_locked(payload: ChromeBridgeMessage):
     alert_text = build_discord_alert_text(synthetic_message).strip()
     if not alert_text:
         raise HTTPException(status_code=400, detail="message content or embed text is required")
+    alert_fingerprint = _chrome_bridge_alert_fingerprint(payload, alert_text)
+    if await _chrome_bridge_alert_already_recorded(alert_fingerprint):
+        return _chrome_bridge_duplicate_response(payload, skip_reason="duplicate bridge alert")
+    if _mark_chrome_bridge_alert_seen(alert_fingerprint):
+        return _chrome_bridge_duplicate_response(payload, skip_reason="duplicate bridge alert")
 
     settings = _dict_or_empty(await db.get_settings() if db else {})
     stored_patterns = await db.get_discord_patterns() if hasattr(db, "get_discord_patterns") else {}
@@ -707,7 +716,53 @@ async def _chrome_bridge_event_already_recorded(event_id: str) -> bool:
     return False
 
 
-def _chrome_bridge_duplicate_response(payload: ChromeBridgeMessage) -> dict:
+async def _chrome_bridge_alert_already_recorded(fingerprint: str) -> bool:
+    if not fingerprint or not db or not hasattr(db, "get_operator_events"):
+        return False
+    try:
+        events = await db.get_operator_events(500)
+    except Exception as exc:
+        logger.warning("Unable to check persisted chrome bridge duplicate alert: %s", exc)
+        return False
+    for event in events:
+        if event.get("action") != "bridge_alert_decision":
+            continue
+        if _operator_event_is_outside_bridge_alert_duplicate_window(event):
+            continue
+        details = event.get("details") if isinstance(event.get("details"), dict) else {}
+        channel = details.get("channel") if isinstance(details.get("channel"), dict) else {}
+        author = details.get("author") if isinstance(details.get("author"), dict) else {}
+        bridge_target = details.get("bridge_target") if isinstance(details.get("bridge_target"), dict) else {}
+        candidate = _bridge_alert_fingerprint_from_parts(
+            bridge_target_id=str(bridge_target.get("id") or ""),
+            channel_key=str(channel.get("url") or channel.get("id") or ""),
+            author_key=str(author.get("id") or author.get("name") or ""),
+            raw_text=str(details.get("raw_text") or ""),
+        )
+        if candidate and candidate == fingerprint:
+            return True
+    return False
+
+
+def _operator_event_is_outside_bridge_alert_duplicate_window(event: dict[str, Any]) -> bool:
+    raw_timestamp = str(event.get("timestamp") or "").strip()
+    if not raw_timestamp:
+        return False
+    try:
+        timestamp = datetime.fromisoformat(raw_timestamp.replace("Z", "+00:00"))
+    except ValueError:
+        return False
+    if timestamp.tzinfo is None:
+        timestamp = timestamp.replace(tzinfo=timezone.utc)
+    age_seconds = (datetime.now(timezone.utc) - timestamp).total_seconds()
+    return age_seconds > _CHROME_BRIDGE_ALERT_DUPLICATE_WINDOW_SECONDS
+
+
+def _chrome_bridge_duplicate_response(
+    payload: ChromeBridgeMessage,
+    *,
+    skip_reason: str = "duplicate bridge event",
+) -> dict:
     return {
         "status": "duplicate",
         "event_id": payload.event_id,
@@ -715,7 +770,7 @@ def _chrome_bridge_duplicate_response(payload: ChromeBridgeMessage) -> dict:
         "alert_id": "",
         "trade_requested": False,
         "trade_request_reason": "",
-        "skip_reason": "duplicate bridge event",
+        "skip_reason": skip_reason,
     }
 
 
@@ -728,6 +783,63 @@ def _mark_chrome_bridge_seen(event_id: str) -> bool:
         old_event_id = _chrome_bridge_seen_event_order.pop(0)
         _chrome_bridge_seen_event_ids.discard(old_event_id)
     return False
+
+
+def _mark_chrome_bridge_alert_seen(fingerprint: str) -> bool:
+    if not fingerprint:
+        return False
+    _prune_chrome_bridge_alert_fingerprints()
+    if fingerprint in _chrome_bridge_seen_alert_fingerprints:
+        return True
+    _chrome_bridge_seen_alert_fingerprints[fingerprint] = datetime.now(timezone.utc)
+    _chrome_bridge_seen_alert_order.append(fingerprint)
+    while len(_chrome_bridge_seen_alert_order) > _CHROME_BRIDGE_MAX_SEEN:
+        old_fingerprint = _chrome_bridge_seen_alert_order.pop(0)
+        _chrome_bridge_seen_alert_fingerprints.pop(old_fingerprint, None)
+    return False
+
+
+def _prune_chrome_bridge_alert_fingerprints() -> None:
+    now = datetime.now(timezone.utc)
+    while _chrome_bridge_seen_alert_order:
+        fingerprint = _chrome_bridge_seen_alert_order[0]
+        recorded_at = _chrome_bridge_seen_alert_fingerprints.get(fingerprint)
+        if recorded_at is None:
+            _chrome_bridge_seen_alert_order.pop(0)
+            continue
+        if (now - recorded_at).total_seconds() <= _CHROME_BRIDGE_ALERT_DUPLICATE_WINDOW_SECONDS:
+            break
+        _chrome_bridge_seen_alert_order.pop(0)
+        _chrome_bridge_seen_alert_fingerprints.pop(fingerprint, None)
+
+
+def _chrome_bridge_alert_fingerprint(payload: ChromeBridgeMessage, raw_text: str) -> str:
+    return _bridge_alert_fingerprint_from_parts(
+        bridge_target_id=str(payload.bridge_target_id or ""),
+        channel_key=str(payload.channel_url or payload.channel_id or ""),
+        author_key=_chrome_bridge_author_id(payload),
+        raw_text=raw_text,
+    )
+
+
+def _bridge_alert_fingerprint_from_parts(
+    *,
+    bridge_target_id: str,
+    channel_key: str,
+    author_key: str,
+    raw_text: str,
+) -> str:
+    normalized_text = re.sub(r"\s+", " ", str(raw_text or "")).strip().lower()
+    if not normalized_text:
+        return ""
+    return "|".join(
+        [
+            str(bridge_target_id or "").strip().lower(),
+            str(channel_key or "").strip().lower(),
+            str(author_key or "").strip().lower(),
+            normalized_text,
+        ]
+    )
 
 
 def _chrome_bridge_channel_ids(settings: Dict[str, Any], channel_id: str) -> list[str]:
