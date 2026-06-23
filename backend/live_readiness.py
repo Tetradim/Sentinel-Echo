@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import os
 import math
+import json
 from typing import Any, Dict, Iterable, List
 
 from broker_capabilities import (
@@ -262,7 +263,12 @@ def evaluate_live_readiness(
                 "Alert chain report has nondeterministic attention items.",
             )
         )
-    if replay_acceptance_status == "failed" or replay_acceptance_failed_count > 0:
+    if (
+        replay_acceptance_status == "failed"
+        or replay_acceptance_failed_count > 0
+        or replay_acceptance_missing_event_count > 0
+        or bool(replay_acceptance_missing_event_ids)
+    ):
         blocking.append(
             _issue(
                 "simulation_replay_acceptance_failed",
@@ -353,6 +359,15 @@ def evaluate_live_readiness(
 
 
 def _list_of_strings(value: Any) -> list[str]:
+    if isinstance(value, str):
+        text = value.strip()
+        if not text:
+            return []
+        try:
+            decoded = json.loads(text)
+        except json.JSONDecodeError:
+            decoded = []
+        value = decoded
     if not isinstance(value, (list, tuple, set)):
         return []
     result = []
