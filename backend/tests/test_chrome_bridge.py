@@ -401,6 +401,39 @@ class ChromeBridgeRouteTests(unittest.TestCase):
         self.assertTrue(source["parser_confidence_allowed"])
         self.assertTrue(source["metadata_policy_passed"])
 
+    def test_chrome_bridge_audit_uses_author_name_identity_when_dom_lacks_author_id(self):
+        from routes import discord as discord_route
+        import bot_event_bus
+
+        fake_db = FakeChromeBridgeDb(
+            {
+                "auto_trading_enabled": False,
+                "source_overrides": {
+                    "chrome-alerts": {},
+                },
+            }
+        )
+        discord_route.set_db(fake_db)
+
+        request = types.SimpleNamespace(client=types.SimpleNamespace(host="127.0.0.1"))
+        payload = discord_route.ChromeBridgeMessage(
+            event_id="chrome-author-name-identity",
+            channel_id="chrome-alerts",
+            channel_name="chrome-alerts",
+            channel_url="https://discord.com/channels/1/chrome-alerts",
+            author_name="OpenClaw",
+            content="BTO SPY 500C 6/21 @ 1.25",
+        )
+
+        result = asyncio.run(discord_route.ingest_chrome_bridge_message(payload, request))
+        details = fake_db.operator_events[-1]["details"]
+        bus_event = bot_event_bus.event_bus.recent(event_type="signal.observed")[0]
+
+        self.assertEqual(result["status"], "accepted")
+        self.assertEqual(details["author"]["id"], "name:OpenClaw")
+        self.assertEqual(bus_event["payload"]["author_id"], "name:OpenClaw")
+        self.assertTrue(details["source"]["author_id_allowed"])
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -785,6 +785,92 @@ class ReconciliationTests(unittest.TestCase):
             ["accepted bridge alert missing source identity proof"],
         )
 
+    def test_alert_chain_report_accepts_author_name_identity_when_author_ids_are_unrestricted(self):
+        from reconciliation import build_alert_chain_report
+
+        class FakeAcceptedBridgeWithAuthorNameIdentityDb:
+            async def get_alerts(self, limit=100):
+                return [
+                    {
+                        "id": "alert-author-name-identity",
+                        "ticker": "SPY",
+                        "alert_type": "buy",
+                        "trade_executed": True,
+                        "processed": True,
+                    }
+                ]
+
+            async def get_trades(self, limit=100):
+                return [
+                    {
+                        "id": "trade-author-name-identity",
+                        "alert_id": "alert-author-name-identity",
+                        "ticker": "SPY",
+                        "status": "filled",
+                        "simulated": True,
+                    }
+                ]
+
+            async def get_positions(self, status=None):
+                return [
+                    {
+                        "id": "position-author-name-identity",
+                        "ticker": "SPY",
+                        "status": "open",
+                        "trade_ids": ["trade-author-name-identity"],
+                    }
+                ]
+
+            async def get_operator_events(self, limit=100):
+                return [
+                    {
+                        "id": "event-author-name-identity",
+                        "timestamp": "2026-06-22T15:00:00Z",
+                        "action": "bridge_alert_decision",
+                        "details": {
+                            "contract_version": "chrome.discord.message.v1",
+                            "event_id": "bridge-author-name-identity",
+                            "raw_text": "BTO SPY 500C 6/21 @ 1.25",
+                            "capture_path": "C:/captures/2026-06-22.txt",
+                            "channel": {
+                                "id": "chrome-alerts",
+                                "url": "https://discord.com/channels/1/chrome-alerts",
+                            },
+                            "author": {
+                                "name": "OpenClaw",
+                            },
+                            "parsed": {"ticker": "SPY"},
+                            "decision": {
+                                "status": "accepted",
+                                "alert_inserted": True,
+                                "alert_id": "alert-author-name-identity",
+                                "trade_requested": True,
+                                "trade_request_reason": "auto trading enabled",
+                            },
+                            "source": {
+                                "key": "chrome-alerts",
+                                "override_matched": True,
+                                "min_parser_confidence": "medium",
+                                "parser_confidence_allowed": True,
+                                "channel_url_allowed": True,
+                                "author_id_allowed": True,
+                                "metadata_policy_passed": True,
+                            },
+                            "parser": {
+                                "confidence": "medium",
+                            },
+                        },
+                    }
+                ]
+
+        report = asyncio.run(build_alert_chain_report(FakeAcceptedBridgeWithAuthorNameIdentityDb()))
+        row = report["rows"][0]
+
+        self.assertEqual(row["status"], "reconciled")
+        self.assertEqual(row["author_name"], "OpenClaw")
+        self.assertEqual(row["attention_reason"], "")
+        self.assertTrue(row["deterministic"])
+
     def test_alert_chain_report_flags_accepted_bridge_alert_without_source_metadata_policy_proof(self):
         from reconciliation import build_alert_chain_report
 

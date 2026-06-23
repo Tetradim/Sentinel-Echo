@@ -52,7 +52,10 @@ def _has_chrome_bridge_contract_proof(details: dict[str, Any]) -> bool:
 
 
 def _has_source_identity_proof(channel: dict[str, Any], author: dict[str, Any]) -> bool:
-    return bool(_clean_text(channel.get("url")) and _clean_text(author.get("id")))
+    return bool(
+        _clean_text(channel.get("url"))
+        and (_clean_text(author.get("id")) or _clean_text(author.get("name")))
+    )
 
 
 def _has_source_metadata_policy_proof(source: dict[str, Any]) -> bool:

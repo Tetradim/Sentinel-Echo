@@ -561,9 +561,19 @@ def _chrome_bridge_preflight_skip_reason(
     return source_skip_reason(parsed, source_config) or source_metadata_skip_reason(
         source_config,
         channel_url=payload.channel_url,
-        author_id=payload.author_id,
+        author_id=_chrome_bridge_author_id(payload),
         parser_confidence=parser_metadata.get("confidence"),
     )
+
+
+def _chrome_bridge_author_id(payload: ChromeBridgeMessage) -> str:
+    raw_author_id = str(payload.author_id or "").strip()
+    if raw_author_id:
+        return raw_author_id
+    author_name = str(payload.author_name or "").strip()
+    if author_name:
+        return f"name:{author_name}"
+    return "chrome-observed-user"
 
 
 def _publish_chrome_bridge_signal(
@@ -589,7 +599,7 @@ def _publish_chrome_bridge_signal(
             "observed_at": payload.observed_at,
             "bridge_target_id": payload.bridge_target_id,
             "bridge_target_name": payload.bridge_target_name,
-            "author_id": payload.author_id,
+            "author_id": _chrome_bridge_author_id(payload),
             "author_name": payload.author_name,
             "raw_text": alert_text,
             "parsed": parsed,
@@ -638,7 +648,7 @@ async def _record_chrome_bridge_alert_audit(
                 "message_url": payload.url,
             },
             "author": {
-                "id": payload.author_id,
+                "id": _chrome_bridge_author_id(payload),
                 "name": payload.author_name,
             },
             "bridge_target": {
@@ -659,7 +669,7 @@ async def _record_chrome_bridge_alert_audit(
                 **source_metadata_policy_report(
                     source_config,
                     channel_url=payload.channel_url,
-                    author_id=payload.author_id,
+                    author_id=_chrome_bridge_author_id(payload),
                     parser_confidence=parser_metadata.get("confidence"),
                 ),
             },
@@ -713,7 +723,7 @@ def _chrome_bridge_to_message(payload: ChromeBridgeMessage):
         content=payload.content,
         embeds=embeds,
         author=SimpleNamespace(
-            id=payload.author_id or payload.author_name or "chrome-observed-user",
+            id=_chrome_bridge_author_id(payload),
             name=payload.author_name,
             display_name=payload.author_name,
         ),
