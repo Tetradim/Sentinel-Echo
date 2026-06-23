@@ -28,7 +28,15 @@ class FakeReconciliationDb:
                         "id": "mike",
                         "name": "MikeInvesting",
                     },
-                    "parsed": {"ticker": "SPY"},
+                    "parsed": {
+                        "alert_type": "buy",
+                        "ticker": "SPY",
+                        "strike": 500.0,
+                        "option_type": "CALL",
+                        "expiration": "6/21",
+                        "entry_price": 1.25,
+                        "sell_percentage": None,
+                    },
                     "decision": {
                         "status": "accepted",
                         "alert_inserted": True,
@@ -769,6 +777,13 @@ class ReconciliationTests(unittest.TestCase):
         self.assertEqual(accepted["position_id"], "position-1")
         self.assertEqual(accepted["status"], "attention")
         self.assertEqual(accepted["attention_reason"], "order pending fill")
+        self.assertEqual(accepted["ticker"], "SPY")
+        self.assertEqual(accepted["alert_type"], "buy")
+        self.assertEqual(accepted["strike"], 500.0)
+        self.assertEqual(accepted["option_type"], "CALL")
+        self.assertEqual(accepted["expiration"], "6/21")
+        self.assertEqual(accepted["entry_price"], 1.25)
+        self.assertIsNone(accepted["sell_percentage"])
 
         skipped = by_key["bridge:bridge-skipped"]
         self.assertEqual(skipped["status"], "blocked")

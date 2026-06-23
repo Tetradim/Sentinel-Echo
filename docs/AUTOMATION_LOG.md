@@ -149,3 +149,10 @@
 - Added an explicit `require_cancel_order_support()` guard and optional broker-factory requirement for future live OCO flows that must fail closed when the active broker client cannot cancel orders.
 - Regression coverage now verifies Alpaca uses the documented delete-order endpoint, Tradier uses the documented cancel-order endpoint, and missing cancel support is rejected before OCO-dependent execution.
 - Verification: `python -m unittest backend.tests.test_order_execution` passed 19 tests; `python -m unittest discover backend/tests` passed 339 tests.
+
+## 2026-06-23 02:24 UTC
+
+- Extended deterministic alert-chain reconciliation rows with parsed option identity: alert action, strike, option type, expiration, entry price, and sell percentage.
+- Updated the operator alert-chain digest so bridge proof rows display the parsed contract label, not only the ticker.
+- Regression coverage now proves the bridge chain report and UI digest expose `SPY 500 CALL 6/21` from the parsed alert evidence.
+- Verification: `python -m unittest backend.tests.test_reconciliation` passed 13 tests; `node --test tests/alertChainDigest.test.cjs` passed 2 tests; `python -m unittest discover backend/tests` passed 339 tests; `npm run test:ui` passed 101 frontend tests.

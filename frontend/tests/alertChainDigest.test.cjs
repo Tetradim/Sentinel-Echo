@@ -42,6 +42,10 @@ test('alert chain digest summarizes deterministic proof stages', () => {
         parser_confidence: 'medium',
         min_parser_confidence: 'medium',
         ticker: 'SPY',
+        strike: 500,
+        option_type: 'CALL',
+        expiration: '6/21',
+        entry_price: 1.25,
         alert_id: 'alert-1',
         trade_id: 'trade-1',
         position_id: 'position-1',
@@ -66,7 +70,7 @@ test('alert chain digest summarizes deterministic proof stages', () => {
   assert.equal(digest.stageCounts.seen, 2);
   assert.equal(digest.stageCounts.placed, 1);
   assert.equal(digest.stageCounts.reconciled, 1);
-  assert.equal(digest.rows[0].tickerLabel, 'SPY');
+  assert.equal(digest.rows[0].tickerLabel, 'SPY 500 CALL 6/21');
   assert.equal(digest.rows[0].sourceEvidenceLabel, 'chrome-alerts / mike / source chrome-alerts verified / parser medium>=medium');
   assert.equal(digest.rows[1].deterministic, false);
   assert.equal(digest.rows[1].attentionReason, 'accepted bridge alert missing alert id');

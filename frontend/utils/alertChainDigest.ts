@@ -13,6 +13,12 @@ export interface AlertChainReportRow {
   observed_at?: string;
   alert_id?: string;
   ticker?: string;
+  alert_type?: unknown;
+  strike?: unknown;
+  option_type?: unknown;
+  expiration?: unknown;
+  entry_price?: unknown;
+  sell_percentage?: unknown;
   status?: string;
   attention_reason?: string;
   decision_reason?: string;
@@ -110,6 +116,14 @@ function buildSourceEvidenceLabel(row: AlertChainReportRow): string {
   return [channel, author, sourceProof, parserProof].filter(Boolean).join(' / ') || formatSource(row.source);
 }
 
+function buildContractLabel(row: AlertChainReportRow): string {
+  const ticker = cleanString(row.ticker).toUpperCase();
+  const strike = cleanString(row.strike);
+  const optionType = cleanString(row.option_type).toUpperCase();
+  const expiration = cleanString(row.expiration);
+  return [ticker, strike, optionType, expiration].filter(Boolean).join(' ') || 'Unknown';
+}
+
 function buildRow(row: AlertChainReportRow): AlertChainRowDigest {
   const tradeId = cleanString(row.trade_id);
   const positionId = cleanString(row.position_id);
@@ -122,7 +136,7 @@ function buildRow(row: AlertChainReportRow): AlertChainRowDigest {
 
   return {
     key: cleanString(row.chain_key) || cleanString(row.alert_id) || cleanString(row.event_id) || 'alert-chain',
-    tickerLabel: cleanString(row.ticker).toUpperCase() || 'Unknown',
+    tickerLabel: buildContractLabel(row),
     status: cleanString(row.status) || 'unknown',
     sourceLabel: formatSource(row.source),
     attentionReason: cleanString(row.attention_reason),

@@ -47,6 +47,16 @@ def _clean_text(value: Any) -> str:
     return str(value or "").strip()
 
 
+def _first_value(*values: Any, default: Any = "") -> Any:
+    for value in values:
+        if value is None:
+            continue
+        if isinstance(value, str) and not value.strip():
+            continue
+        return value
+    return default
+
+
 def _chain_status(*, skipped: bool, attention_reason: str, deterministic_reason: str) -> tuple[str, bool]:
     if skipped:
         return "blocked", bool(deterministic_reason)
@@ -126,6 +136,33 @@ async def build_reconciliation_rows(db, *, limit: int = 100) -> List[Dict[str, A
                 "alert_id": alert.get("id", ""),
                 "ticker": alert.get("ticker", trade.get("ticker") if trade else ""),
                 "alert_type": alert.get("alert_type") or alert.get("action") or "",
+                "strike": _first_value(
+                    alert.get("strike"),
+                    (trade or {}).get("strike"),
+                    (position or {}).get("strike"),
+                    default=None,
+                ),
+                "option_type": _first_value(
+                    alert.get("option_type"),
+                    (trade or {}).get("option_type"),
+                    (position or {}).get("option_type"),
+                ),
+                "expiration": _first_value(
+                    alert.get("expiration"),
+                    (trade or {}).get("expiration"),
+                    (position or {}).get("expiration"),
+                ),
+                "entry_price": _first_value(
+                    alert.get("entry_price"),
+                    (trade or {}).get("entry_price"),
+                    (position or {}).get("entry_price"),
+                    default=None,
+                ),
+                "sell_percentage": _first_value(
+                    alert.get("sell_percentage"),
+                    (trade or {}).get("sell_percentage"),
+                    default=None,
+                ),
                 "processed": bool(alert.get("processed", False)),
                 "trade_executed": bool(alert.get("trade_executed", False)),
                 "trade_id": trade.get("id") if trade else "",
@@ -231,6 +268,26 @@ async def build_alert_chain_report(db, *, limit: int = 100) -> Dict[str, Any]:
                 "min_parser_confidence": _clean_text(source.get("min_parser_confidence")),
                 "alert_id": alert_id,
                 "ticker": _clean_text(parsed.get("ticker") or reconciliation.get("ticker")),
+                "alert_type": _clean_text(
+                    _first_value(parsed.get("alert_type"), reconciliation.get("alert_type"))
+                ),
+                "strike": _first_value(parsed.get("strike"), reconciliation.get("strike"), default=None),
+                "option_type": _clean_text(
+                    _first_value(parsed.get("option_type"), reconciliation.get("option_type"))
+                ),
+                "expiration": _clean_text(
+                    _first_value(parsed.get("expiration"), reconciliation.get("expiration"))
+                ),
+                "entry_price": _first_value(
+                    parsed.get("entry_price"),
+                    reconciliation.get("entry_price"),
+                    default=None,
+                ),
+                "sell_percentage": _first_value(
+                    parsed.get("sell_percentage"),
+                    reconciliation.get("sell_percentage"),
+                    default=None,
+                ),
                 "seen": True,
                 "parsed": bool(parsed),
                 "accepted": not skipped,
@@ -264,6 +321,15 @@ async def build_alert_chain_report(db, *, limit: int = 100) -> Dict[str, Any]:
                 "observed_at": "",
                 "alert_id": alert_id,
                 "ticker": _clean_text(reconciliation.get("ticker")),
+                "alert_type": _clean_text(reconciliation.get("alert_type")),
+                "strike": _first_value(reconciliation.get("strike"), default=None),
+                "option_type": _clean_text(reconciliation.get("option_type")),
+                "expiration": _clean_text(reconciliation.get("expiration")),
+                "entry_price": _first_value(reconciliation.get("entry_price"), default=None),
+                "sell_percentage": _first_value(
+                    reconciliation.get("sell_percentage"),
+                    default=None,
+                ),
                 "seen": True,
                 "parsed": bool(_clean_text(reconciliation.get("ticker"))),
                 "accepted": True,
