@@ -17,6 +17,17 @@ DEFAULT_SOURCE_CONFIG = {
     "allowed_actions": [],
     "ticker_allowlist": [],
     "ticker_blocklist": [],
+    "sr_watch_enabled": False,
+    "sr_watch_replace_orb": True,
+    "sr_watch_auto_act": False,
+    "sr_watch_strict_gating": False,
+    "sr_watch_strict_0dte_exits": True,
+    "sr_watch_stop_trading_after_time_enabled": False,
+    "sr_watch_stop_trading_after_time": "15:30",
+    "sr_watch_scale_in_sizing_mode": "buying_power_fraction",
+    "sr_watch_scale_in_fraction": 0.25,
+    "sr_watch_break_even_stop_enabled": False,
+    "sr_watch_pre_close_trailing_enabled": False,
 }
 
 ALLOWED_ALERT_ACTIONS = {"buy", "sell", "trim", "close", "average_down"}
@@ -83,6 +94,28 @@ def normalize_source_config(source_config: Dict[str, Any]) -> Dict[str, Any]:
         config.get("ticker_blocklist"),
         "ticker_blocklist",
     )
+    config["sr_watch_enabled"] = bool(config.get("sr_watch_enabled", False))
+    config["sr_watch_replace_orb"] = bool(config.get("sr_watch_replace_orb", True))
+    config["sr_watch_auto_act"] = bool(config.get("sr_watch_auto_act", False))
+    config["sr_watch_strict_gating"] = bool(config.get("sr_watch_strict_gating", False))
+    config["sr_watch_strict_0dte_exits"] = bool(config.get("sr_watch_strict_0dte_exits", True))
+    config["sr_watch_stop_trading_after_time_enabled"] = bool(
+        config.get("sr_watch_stop_trading_after_time_enabled", False)
+    )
+    config["sr_watch_stop_trading_after_time"] = _normalize_market_time(
+        config.get("sr_watch_stop_trading_after_time"),
+        default="15:30",
+    )
+    config["sr_watch_scale_in_sizing_mode"] = _normalize_scale_in_sizing_mode(
+        config.get("sr_watch_scale_in_sizing_mode")
+    )
+    config["sr_watch_scale_in_fraction"] = _bounded_positive_float(
+        config.get("sr_watch_scale_in_fraction"),
+        default=0.25,
+        maximum=1.0,
+    )
+    config["sr_watch_break_even_stop_enabled"] = bool(config.get("sr_watch_break_even_stop_enabled", False))
+    config["sr_watch_pre_close_trailing_enabled"] = bool(config.get("sr_watch_pre_close_trailing_enabled", False))
     return config
 
 
@@ -247,3 +280,30 @@ def _optional_positive_int_field(value: Any, field_name: str) -> Optional[int]:
     if parsed <= 0:
         raise ValueError(f"{field_name} must be greater than 0")
     return parsed
+
+
+def _bounded_positive_float(value: Any, *, default: float, maximum: float) -> float:
+    parsed = _optional_positive_float(value)
+    if parsed is None:
+        return default
+    return min(parsed, maximum)
+
+
+def _normalize_scale_in_sizing_mode(value: Any) -> str:
+    mode = str(value or "buying_power_fraction").strip().lower()
+    return mode if mode in {"buying_power_fraction", "contract_fraction"} else "buying_power_fraction"
+
+
+def _normalize_market_time(value: Any, *, default: str) -> str:
+    raw = str(value or default).strip()
+    parts = raw.split(":", 1)
+    if len(parts) != 2:
+        return default
+    try:
+        hour = int(parts[0])
+        minute = int(parts[1])
+    except ValueError:
+        return default
+    if hour < 0 or hour > 23 or minute < 0 or minute > 59:
+        return default
+    return f"{hour:02d}:{minute:02d}"

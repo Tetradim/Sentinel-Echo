@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timezone
+import inspect
 from typing import Any, Callable, Optional
 
 from discord_alert_text import build_discord_alert_text
@@ -26,6 +27,7 @@ class DiscordIngestionDeps:
     update_status: Callable[[str, Any], Any]
     is_duplicate_alert: Callable[[dict], bool] = lambda parsed: False
     increment_alerts_processed: Optional[Callable[[], Any]] = None
+    sr_pre_entry_gate: Optional[Callable[[Alert, dict, dict], Any]] = None
 
 
 async def handle_discord_message(
@@ -89,6 +91,14 @@ async def handle_discord_message(
     if source_config.get("require_manual_confirm"):
         skip_reason = "manual confirmation required"
     elif _auto_trading_enabled(settings):
+        sr_gate = await _run_sr_pre_entry_gate(alert, parsed, source_config, deps)
+        if not sr_gate["allowed"]:
+            return DiscordIngestionResult(
+                parsed=parsed,
+                alert_inserted=True,
+                trade_requested=False,
+                skip_reason=f"sr watch blocked: {sr_gate['reason']}",
+            )
         await deps.process_trade(alert, parsed)
         trade_requested = True
 
@@ -104,6 +114,47 @@ def _auto_trading_enabled(settings: dict) -> bool:
     return bool(settings.get("auto_trading_enabled", False)) and not bool(
         settings.get("shutdown_triggered", False)
     )
+
+
+async def _run_sr_pre_entry_gate(
+    alert: Alert,
+    parsed: dict,
+    source_config: dict,
+    deps: DiscordIngestionDeps,
+) -> dict:
+    if not source_config.get("sr_watch_enabled"):
+        return {"allowed": True, "reason": ""}
+
+    if str(parsed.get("alert_type") or "").strip().lower() not in {"buy", "average_down"}:
+        return {"allowed": True, "reason": ""}
+
+    gate = getattr(deps, "sr_pre_entry_gate", None)
+    if gate is None:
+        reason = "sr watch gate unavailable"
+        if source_config.get("sr_watch_strict_gating"):
+            return {"allowed": False, "reason": reason}
+        parsed["_sr_watch_gate_error"] = reason
+        return {"allowed": True, "reason": reason}
+
+    try:
+        result = gate(alert, parsed, source_config)
+        if inspect.isawaitable(result):
+            result = await result
+    except Exception as exc:
+        reason = f"sr watch gate error: {exc}"
+        if source_config.get("sr_watch_strict_gating"):
+            return {"allowed": False, "reason": reason}
+        parsed["_sr_watch_gate_error"] = reason
+        return {"allowed": True, "reason": reason}
+
+    parsed["_sr_watch_gate"] = result
+    if isinstance(result, bool):
+        return {"allowed": result, "reason": "gate returned false" if not result else ""}
+    if isinstance(result, dict):
+        allowed = bool(result.get("allowed", True))
+        reason = str(result.get("reason") or "gate returned blocked").strip()
+        return {"allowed": allowed, "reason": reason}
+    return {"allowed": True, "reason": ""}
 
 
 def _same_user(left, right) -> bool:

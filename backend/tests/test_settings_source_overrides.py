@@ -62,6 +62,17 @@ class SourceOverrideRouteTests(unittest.TestCase):
                     "max_contracts": 3,
                     "require_manual_confirm": True,
                     "paper_shadow": True,
+                    "sr_watch_enabled": False,
+                    "sr_watch_replace_orb": True,
+                    "sr_watch_auto_act": False,
+                    "sr_watch_strict_gating": False,
+                    "sr_watch_strict_0dte_exits": True,
+                    "sr_watch_stop_trading_after_time_enabled": False,
+                    "sr_watch_stop_trading_after_time": "15:30",
+                    "sr_watch_scale_in_sizing_mode": "buying_power_fraction",
+                    "sr_watch_scale_in_fraction": 0.25,
+                    "sr_watch_break_even_stop_enabled": False,
+                    "sr_watch_pre_close_trailing_enabled": False,
                 }
             },
         )
