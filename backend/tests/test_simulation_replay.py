@@ -95,7 +95,7 @@ class SimulationReplayTests(unittest.TestCase):
         self.assertEqual(result["execution_preview"]["quantity"], 0)
         self.assertFalse(result["execution_preview"]["would_request_trade"])
 
-    def test_preview_treats_malformed_settings_as_safe_defaults(self):
+    def test_preview_treats_malformed_settings_as_operational_defaults(self):
         from simulation_replay import build_replay_preview
 
         replay = {
@@ -120,11 +120,12 @@ class SimulationReplayTests(unittest.TestCase):
         preview = build_replay_preview(replay, "settings")
 
         self.assertEqual(preview["parsed_count"], 1)
-        self.assertEqual(preview["would_request_trade_count"], 0)
+        self.assertEqual(preview["would_request_trade_count"], 1)
         result = preview["results"][0]
         self.assertTrue(result["would_insert_alert"])
-        self.assertFalse(result["would_request_trade"])
-        self.assertEqual(result["execution_preview"]["reason"], "auto trading disabled")
+        self.assertTrue(result["would_request_trade"])
+        self.assertIsNone(result["execution_preview"]["reason"])
+        self.assertTrue(result["execution_preview"]["auto_trading_enabled"])
         self.assertTrue(result["execution_preview"]["simulation_mode"])
 
     def test_preview_parses_string_trading_flags_without_truthy_fallback(self):

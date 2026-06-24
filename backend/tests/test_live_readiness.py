@@ -49,19 +49,57 @@ READY_REPLAY_STATUS = {
 }
 
 
+READY_GATE_STATUS = {
+    "readiness_gates": {
+        "paper_mode_burn_in": {"status": "passed", "updated_at": "2026-06-24T18:00:00Z"},
+        "partial_fill_broker_behavior": {"status": "passed", "updated_at": "2026-06-24T18:00:00Z"},
+        "disconnect_reconnect_drill": {"status": "passed", "updated_at": "2026-06-24T18:00:00Z"},
+        "market_transition_validation": {"status": "passed", "updated_at": "2026-06-24T18:00:00Z"},
+        "multi_session_paper_monitoring": {
+            "status": "passed",
+            "updated_at": "2026-06-24T18:00:00Z",
+            "evidence": {"session_count": 2},
+        },
+        "live_monitoring_evidence": {"status": "passed", "updated_at": "2026-06-24T18:00:00Z"},
+        "controlled_operator_access_review": {"status": "passed", "updated_at": "2026-06-24T18:00:00Z"},
+        "operator_signoff": {"status": "passed", "updated_at": "2026-06-24T18:00:00Z"},
+    }
+}
+
+
+READY_STATUS = {**READY_REPLAY_STATUS, **READY_GATE_STATUS}
+
+
 class LiveReadinessTests(unittest.TestCase):
     def test_ready_settings_pass_live_readiness(self):
+        from live_readiness import evaluate_live_readiness
+
+        env = {**READY_ENV, "CONSOLIDATION_BOT_ROLE": "live_executioner"}
+        result = evaluate_live_readiness(
+            READY_SETTINGS,
+            {"shutdown_triggered": False},
+            status={**READY_STATUS, "broker_connected": True, "discord_connected": True},
+            env=env,
+        )
+
+        self.assertTrue(result["ready_for_live"])
+        self.assertEqual(result["blocking_issues"], [])
+        self.assertEqual(result["checks"]["role"]["active_role"], "live_executioner")
+
+    def test_ready_settings_block_live_by_default_without_explicit_execution_role(self):
         from live_readiness import evaluate_live_readiness
 
         result = evaluate_live_readiness(
             READY_SETTINGS,
             {"shutdown_triggered": False},
-            status={**READY_REPLAY_STATUS, "broker_connected": True, "discord_connected": True},
+            status={**READY_STATUS, "broker_connected": True, "discord_connected": True},
             env=READY_ENV,
         )
 
-        self.assertTrue(result["ready_for_live"])
-        self.assertEqual(result["blocking_issues"], [])
+        self.assertFalse(result["ready_for_live"])
+        self.assertIn("consolidation_role_not_live_executioner", result["blocking_codes"])
+        self.assertEqual(result["checks"]["role"]["active_role"], "paper_shadow")
+        self.assertFalse(result["checks"]["role"]["live_execution_allowed"])
 
     def test_broker_enum_value_is_normalized_for_readiness(self):
         from live_readiness import evaluate_live_readiness
@@ -73,13 +111,69 @@ class LiveReadinessTests(unittest.TestCase):
         result = evaluate_live_readiness(
             settings,
             {"shutdown_triggered": False},
-            status={**READY_REPLAY_STATUS, "broker_connected": True, "discord_connected": True},
-            env=READY_ENV,
+            status={**READY_STATUS, "broker_connected": True, "discord_connected": True},
+            env={**READY_ENV, "CONSOLIDATION_BOT_ROLE": "live_executioner"},
         )
 
         self.assertTrue(result["ready_for_live"])
         self.assertEqual(result["checks"]["broker"]["active_broker"], "alpaca")
         self.assertNotIn("active_broker_not_configured", result["blocking_codes"])
+
+    def test_readiness_blocks_each_missing_live_evidence_gate(self):
+        from live_readiness import evaluate_live_readiness
+
+        result = evaluate_live_readiness(
+            READY_SETTINGS,
+            {"shutdown_triggered": False},
+            status={**READY_REPLAY_STATUS, "broker_connected": True, "discord_connected": True},
+            env={**READY_ENV, "CONSOLIDATION_BOT_ROLE": "live_executioner"},
+        )
+
+        expected_codes = {
+            "paper_burn_in_missing",
+            "partial_fill_drill_missing",
+            "reconnect_drill_missing",
+            "market_transition_validation_missing",
+            "multi_session_monitoring_missing",
+            "live_monitoring_evidence_missing",
+            "operator_access_review_missing",
+            "operator_signoff_missing",
+        }
+        self.assertFalse(result["ready_for_live"])
+        self.assertTrue(expected_codes.issubset(set(result["blocking_codes"])))
+        self.assertEqual(
+            set(result["checks"]["readiness_gates"]["missing_gate_keys"]),
+            set(READY_GATE_STATUS["readiness_gates"].keys()),
+        )
+
+    def test_multi_session_monitoring_requires_two_sessions(self):
+        from live_readiness import evaluate_live_readiness
+
+        gates = dict(READY_GATE_STATUS["readiness_gates"])
+        gates["multi_session_paper_monitoring"] = {
+            "status": "passed",
+            "updated_at": "2026-06-24T18:00:00Z",
+            "evidence": {"session_count": 1},
+        }
+
+        result = evaluate_live_readiness(
+            READY_SETTINGS,
+            {"shutdown_triggered": False},
+            status={
+                **READY_REPLAY_STATUS,
+                "readiness_gates": gates,
+                "broker_connected": True,
+                "discord_connected": True,
+            },
+            env={**READY_ENV, "CONSOLIDATION_BOT_ROLE": "live_executioner"},
+        )
+
+        self.assertFalse(result["ready_for_live"])
+        self.assertIn("multi_session_monitoring_missing", result["blocking_codes"])
+        self.assertEqual(
+            result["checks"]["readiness_gates"]["states"]["multi_session_paper_monitoring"]["session_count"],
+            1,
+        )
 
     def test_readiness_reports_core_blockers(self):
         from live_readiness import evaluate_live_readiness
@@ -424,6 +518,19 @@ class LiveReadinessTests(unittest.TestCase):
         self.assertFalse(result["checks"]["signal_ingestion"]["chrome_bridge_healthy"])
         self.assertFalse(result["ready_for_live"])
 
+    def test_live_readiness_blocks_missing_broker_connection_proof(self):
+        from live_readiness import evaluate_live_readiness
+
+        result = evaluate_live_readiness(
+            READY_SETTINGS,
+            {"shutdown_triggered": False},
+            status={**READY_REPLAY_STATUS, "discord_connected": True},
+            env=READY_ENV,
+        )
+
+        self.assertIn("broker_not_connected", result["blocking_codes"])
+        self.assertFalse(result["ready_for_live"])
+
     def test_discord_connected_flag_requires_configured_token_and_channel(self):
         from live_readiness import evaluate_live_readiness
 
@@ -531,12 +638,12 @@ class LiveReadinessTests(unittest.TestCase):
             READY_SETTINGS,
             {"shutdown_triggered": False},
             status={
-                **READY_REPLAY_STATUS,
+                **READY_STATUS,
                 "broker_connected": True,
                 "discord_connected": False,
                 "chrome_bridge_healthy": True,
             },
-            env=READY_ENV,
+            env={**READY_ENV, "CONSOLIDATION_BOT_ROLE": "live_executioner"},
         )
         codes = {issue["code"] for issue in result["blocking_issues"]}
 

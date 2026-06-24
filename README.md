@@ -9,16 +9,18 @@ It also includes a preview-only bridge to the Sentinel Simulation Engine so reco
 This project can place broker orders when all of the following are true:
 
 - `SIMULATION_MODE=false`
+- `CONSOLIDATION_BOT_ROLE=live_executioner`
 - auto trading is enabled
 - a source override allows automatic live execution
 - the active broker is configured
 - the active broker supports order-status polling
 - no runtime shutdown is active
 
-Defaults are intentionally safer:
+Defaults keep the bot operational while preserving live-money gates:
 
 - `SIMULATION_MODE=true`
-- `auto_trading_enabled=false`
+- `CONSOLIDATION_BOT_ROLE` defaults to `paper_shadow`, which blocks live arming and broker submission
+- `auto_trading_enabled=true`
 - Discord intake only starts when a token and channel IDs are configured
 - setup diagnostics report missing live-trading prerequisites
 - parser preview and Simulation Engine replay preview do not mutate trading state
@@ -236,9 +238,35 @@ Discord intake starts when token and channel IDs are available from explicit Con
 | Variable | Purpose |
 | --- | --- |
 | `SIMULATION_MODE` | Keep true until live execution is proven safe. |
+| `CONSOLIDATION_BOT_ROLE` | Deployment role gate. Defaults to `paper_shadow`; live arming and live broker submission require `live_executioner`. Supported non-live roles are `portfolio_ops`, `paper_shadow`, and `replay_audit`. |
 | `DEFAULT_QUANTITY` | Default contracts for buys. |
 | `MAX_POSITION_SIZE` | Max premium allocation per position. |
 | `PRICE_BUFFER` | Entry price buffer default. |
+
+### Alpaca Paper Bootstrap
+
+For local broker smoke testing, put Alpaca paper credentials and `CREDENTIAL_KEY`
+in ignored `.env.local`, then run:
+
+```bash
+python backend/alpaca_paper_settings.py --env-file .env.local
+```
+
+The bootstrap only accepts `https://paper-api.alpaca.markets` or its `/v2`
+endpoint, normalizes the saved broker base URL for the existing adapter, stores
+credentials through the repo encryption helper when `CREDENTIAL_KEY` is present,
+and keeps `simulation_mode=true` plus `auto_trading_enabled=true`.
+
+After bootstrapping, run the configured broker preflight:
+
+```bash
+python backend/broker_readiness_preflight.py --env-file .env.local --broker alpaca
+```
+
+The preflight is read-only. It refuses unsafe execution flags, checks the saved
+broker connection, and counts open orders without submitting, replacing, or
+cancelling orders. Any open broker order blocks the preflight until it is
+reconciled or cancelled by an operator-owned workflow.
 
 ### Simulation Engine Bridge
 
@@ -787,7 +815,7 @@ All routes below are under `/api`.
 | Runtime status | In-memory plus persisted settings/runtime fields where implemented. |
 | Launcher logs | Desktop `Consolidation-Discord-Bot.log`. |
 
-Broker credentials are encrypted before persistence when `CREDENTIAL_KEY` is set. Without it, the code warns that credentials may be stored in plaintext.
+Broker credentials are encrypted before persistence only when `CREDENTIAL_KEY` is a valid 32-byte hex key. Missing or malformed keys block live readiness and live broker order submission; legacy plaintext setup flows may still run for compatibility, so configure this key before storing production broker secrets.
 
 ## Project Structure
 
@@ -894,15 +922,65 @@ UI audit script:
 
 ### Live Trading Readiness Check
 
-1. Keep `SIMULATION_MODE=true`.
-2. Configure Discord token and channel IDs.
-3. Configure source overrides.
-4. Configure broker credentials.
-5. Call `/api/diagnostics/setup`.
-6. Resolve every warning.
-7. Confirm broker supports order status.
-8. Verify parse preview on real alert samples.
-9. Only then consider changing simulation and auto-trading settings.
+Consolidation keeps live-readiness evidence as explicit gates. Auto trading can
+stay enabled for paper/live-readiness testing, but `/api/operator/live-readiness`
+does not report ready until every gate has current evidence.
+
+1. Configure Discord token and channel IDs.
+2. Configure source overrides for the alert channels that may request trades.
+3. Configure Alpaca paper or another broker with order-status and cancel support.
+4. Confirm `auto_trading_enabled=true`.
+5. Keep paper validation isolated from real-money accounts.
+6. Call `POST /api/broker/check/alpaca` or the active broker check route.
+7. Call `GET /api/operator/live-readiness`.
+8. Run drill endpoints and record evidence until all readiness gates pass.
+
+Readiness gate endpoints:
+
+| Method | Path | Purpose |
+| --- | --- | --- |
+| `GET` | `/api/operator/readiness-gates` | Return required gate definitions and latest evidence state. |
+| `POST` | `/api/operator/readiness-gates/{gate_key}/evidence` | Record operator or drill evidence for a gate. |
+| `POST` | `/api/operator/drills/partial-fill` | Apply a synthetic broker partial-fill update through reconciliation. |
+| `POST` | `/api/operator/drills/reconnect` | Close and recreate the active broker client and verify both connections. |
+| `POST` | `/api/operator/monitoring/paper-session-snapshot` | Record a healthy paper-monitoring snapshot and promote multi-session or market-transition gates when evidence is sufficient. |
+
+Current local Alpaca paper status on 2026-06-24:
+
+| Gate | Status |
+| --- | --- |
+| Paper-mode burn-in | Passed from current paper-session evidence. |
+| Partial-fill broker behavior | Passed through `/api/operator/drills/partial-fill`. |
+| Disconnect/reconnect drill | Passed through `/api/operator/drills/reconnect`. |
+| Live monitoring evidence | Passed with API, Discord, and Alpaca paper health visible. |
+| Controlled operator access review | Passed for local API-key protected testing. |
+| Operator signoff | Passed from explicit operator authorization in the test thread. |
+| Market-transition validation | Open until a healthy open/closed market-state transition is observed. |
+| Multi-session paper monitoring | Open until healthy snapshots exist for at least two distinct market sessions. |
+
+The live-readiness loop should keep recording paper-session snapshots across
+market boundaries. Do not mark the two open gates passed manually; let the
+monitoring endpoint promote them only after the evidence exists.
+
+## Refactor Plan
+
+Near-term refactors should preserve Consolidation as a standalone Discord
+options execution bot and avoid absorbing Sentinel Edge or Sentinel Pulse roles.
+
+1. Extract operator readiness gates from `routes/operator.py` into a small
+   `readiness_evidence.py` service so route handlers stay thin.
+2. Split broker drills into `broker_drills.py`, keeping Alpaca paper checks,
+   reconnect checks, and synthetic partial-fill drills reusable from tests and
+   scheduled monitoring.
+3. Move paper-session monitoring into a dedicated service that can query a
+   broker market clock, normalize sessions, and reject stale or unhealthy
+   snapshots consistently.
+4. Keep live-readiness rules centralized in `live_readiness.py`; route, health,
+   and arming code should only supply status/evidence.
+5. Add a durable operator monitoring table or collection if readiness evidence
+   grows beyond append-only event scans.
+6. Keep README and diagnostics aligned: every blocking code should have an
+   operator-visible remediation step.
 
 ## Known Limitations
 
@@ -914,6 +992,8 @@ UI audit script:
 - Runtime bot status and notification log reset when the process restarts.
 - Simulation Engine replay preview is read-only and does not insert alerts or trades.
 - Some frontend strike-selection data is a workbench/mock chain rather than live option chain data.
+- Market-transition and multi-session paper-monitoring gates require real
+  market-time evidence and cannot be completed instantly.
 
 ## Roadmap Candidates
 

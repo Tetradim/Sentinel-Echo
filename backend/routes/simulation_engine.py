@@ -17,6 +17,20 @@ def set_db(database):
     db = database
 
 
+def _dict_or_empty(value: Any) -> dict[str, Any]:
+    return value if isinstance(value, dict) else {}
+
+
+def _replay_with_request_expectations(replay: dict[str, Any], body: dict[str, Any]) -> tuple[dict[str, Any], str]:
+    body_expected = _dict_or_empty(body.get("expected_results") or body.get("expectations"))
+    if not body_expected:
+        return replay, "engine"
+    merged = dict(replay)
+    engine_expected = _dict_or_empty(replay.get("expected_results") or replay.get("expectations"))
+    merged["expected_results"] = {**engine_expected, **body_expected}
+    return merged, "request_body"
+
+
 @router.get("/replay-events")
 async def get_simulation_engine_replay_events(
     channel_id: str | None = None,
@@ -48,7 +62,9 @@ async def preview_simulation_engine_replay(body: dict[str, Any] = Body(default_f
     except SimulationReplayError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 
+    replay, expectation_source = _replay_with_request_expectations(replay, body)
     preview = build_replay_preview(replay, settings or {})
+    preview["acceptance_expectation_source"] = expectation_source
     preview["replay_url"] = normalize_replay_url(body.get("replay_url"))
     if db and hasattr(db, "update_runtime_state"):
         acceptance = preview.get("acceptance") if isinstance(preview.get("acceptance"), dict) else {}

@@ -112,7 +112,7 @@ async def handle_discord_message(
 
 
 def _auto_trading_enabled(settings: dict) -> bool:
-    return coerce_bool(settings.get("auto_trading_enabled"), default=False) and not coerce_bool(
+    return coerce_bool(settings.get("auto_trading_enabled"), default=True) and not coerce_bool(
         settings.get("shutdown_triggered"),
         default=False,
     )

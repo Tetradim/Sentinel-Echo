@@ -92,16 +92,17 @@ class AlertFilter:
         ticker = parsed['ticker']
         signal_type = parsed.get('signal_type', 'BTO')
         
-        # If Edge not available, allow all
+        # Consolidation is not the decision brain. If Edge cannot evaluate the
+        # signal, the alert must stay blocked until an external decision exists.
         if not self.enabled:
             return FilteredAlert(
                 original=parsed,
                 ticker=ticker,
                 signal_type=signal_type,
-                confidence=50.0,
-                confidence_level="MEDIUM",
+                confidence=0.0,
+                confidence_level="NONE",
                 recommendation="HOLD",
-                should_execute=True,
+                should_execute=False,
                 skip_reason="Edge not connected",
             )
         
@@ -125,15 +126,14 @@ class AlertFilter:
             
         except Exception as e:
             logger.error(f"[AlertFilter] Error processing {ticker}: {e}")
-            # On error, allow execution but log
             return FilteredAlert(
                 original=parsed,
                 ticker=ticker,
                 signal_type=signal_type,
-                confidence=50.0,
-                confidence_level="MEDIUM",
+                confidence=0.0,
+                confidence_level="NONE",
                 recommendation="HOLD",
-                should_execute=True,
+                should_execute=False,
                 skip_reason=f"Edge error: {e}",
             )
     

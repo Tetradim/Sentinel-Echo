@@ -109,6 +109,7 @@ async def _apply_fill(
             context.trade_id,
             {
                 "status": trade_status,
+                "side": "BUY",
                 "quantity": filled_qty,
                 "entry_price": fill_price,
                 "executed_at": executed_at,
@@ -118,6 +119,26 @@ async def _apply_fill(
         position_id = _entry_position_id(context)
         existing_position = await _get_position_by_id(db, position_id)
         if existing_position:
+            if context.trade_id not in (existing_position.get("trade_ids") or []):
+                position_status = await _add_to_existing_position(
+                    db,
+                    position_id,
+                    existing_position,
+                    context.trade_id,
+                    filled_qty,
+                    fill_price,
+                )
+                await _update_alert_status(
+                    db,
+                    context,
+                    trade_executed=True,
+                    trade_result=_fill_trade_result(trade_status),
+                )
+                return ReconciliationResult(
+                    trade_status=trade_status,
+                    position_status=position_status,
+                    position_id=position_id,
+                )
             await _update_alert_status(
                 db,
                 context,
@@ -252,6 +273,46 @@ def _entry_position(
         "trade_ids": [context.trade_id],
         "highest_price": fill_price,
     }
+
+
+async def _add_to_existing_position(
+    db,
+    position_id: str,
+    position: dict,
+    trade_id: str,
+    quantity: int,
+    fill_price: float,
+) -> str:
+    remaining_before = max(0, int(position.get("remaining_quantity") or position.get("quantity") or 0))
+    original_before = max(remaining_before, int(position.get("original_quantity") or remaining_before))
+    new_remaining = remaining_before + quantity
+    new_original = original_before + quantity
+    current_basis = float(position.get("entry_price") or 0.0) * remaining_before * 100
+    added_cost = fill_price * quantity * 100
+    new_total_cost = current_basis + added_cost
+    new_entry_price = new_total_cost / (new_remaining * 100)
+    current_price = fill_price
+    highest_price = max(float(position.get("highest_price") or 0.0), current_price)
+    initial_entry_price = position.get("initial_entry_price") or position.get("entry_price")
+
+    await db.update_position(
+        position_id,
+        {
+            "$set": {
+                "entry_price": new_entry_price,
+                "current_price": current_price,
+                "original_quantity": new_original,
+                "remaining_quantity": new_remaining,
+                "total_cost": round(new_total_cost, 2),
+                "average_down_count": int(position.get("average_down_count") or 0) + 1,
+                "initial_entry_price": initial_entry_price,
+                "highest_price": highest_price,
+                "status": "open",
+            },
+            "$push": {"trade_ids": trade_id},
+        },
+    )
+    return "open"
 
 
 def _filled_quantity(update: BrokerOrderUpdate, context: OrderContext) -> int:

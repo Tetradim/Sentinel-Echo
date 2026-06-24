@@ -1,11 +1,16 @@
 """Operator lab, safety controls, reconciliation, and event log endpoints."""
+from datetime import datetime, timezone
+import inspect
 from typing import Any, Optional
+from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field
 
+from fill_reconciliation import BrokerOrderUpdate, OrderContext, reconcile_order_update
 from live_arming import arm_live_trading, disarm_live_trading
-from live_readiness import evaluate_live_readiness
+from live_readiness import evaluate_live_readiness, required_readiness_gate_definitions
+from order_execution import BrokerConfigurationError, close_broker_client, get_configured_broker_client
 from operator_audit import record_operator_event
 from readiness_status import readiness_ready_for_live, status_flag
 from reconciliation import build_alert_chain_report, build_reconciliation_rows, summarize_reconciliation_rows
@@ -43,6 +48,140 @@ def _positive_int(value: Any) -> int:
         return max(int(value or 0), 0)
     except (TypeError, ValueError):
         return 0
+
+
+def _pending_trade_order_id(trade: dict[str, Any]) -> str:
+    return (
+        _clean_text(trade.get("order_id"))
+        or _clean_text(trade.get("broker_order_id"))
+        or _extract_broker_order_id(trade.get("broker_order"))
+    )
+
+
+def _broker_id_text(value: Any) -> str:
+    return _clean_text(getattr(value, "value", value)).lower()
+
+
+def _pending_live_broker_orders(
+    trades: list[Any],
+    *,
+    active_broker: str,
+) -> list[dict[str, str]]:
+    pending_statuses = {"pending", "submitted", "unconfirmed"}
+    orders: list[dict[str, str]] = []
+    seen_order_ids: set[str] = set()
+    for value in trades:
+        if not isinstance(value, dict):
+            continue
+        status = _clean_text(value.get("status")).lower()
+        order_id = _pending_trade_order_id(value)
+        if status not in pending_statuses or not order_id:
+            continue
+        if coerce_bool(value.get("simulated"), default=False):
+            continue
+        broker = _broker_id_text(value.get("broker"))
+        if broker.endswith(":paper_shadow"):
+            continue
+        if broker and broker != active_broker:
+            continue
+        if order_id in seen_order_ids:
+            continue
+        seen_order_ids.add(order_id)
+        orders.append(
+            {
+                "trade_id": _clean_text(value.get("id") or value.get("_id")),
+                "order_id": order_id,
+                "source": "local_registry",
+            }
+        )
+    return orders
+
+
+def _pending_live_broker_trades(
+    trades: list[Any],
+    *,
+    active_broker: str,
+) -> list[dict[str, Any]]:
+    pending_order_ids = {
+        order["order_id"]
+        for order in _pending_live_broker_orders(trades, active_broker=active_broker)
+    }
+    pending_trades: list[dict[str, Any]] = []
+    seen_order_ids: set[str] = set()
+    for value in trades:
+        if not isinstance(value, dict):
+            continue
+        order_id = _pending_trade_order_id(value)
+        if not order_id or order_id not in pending_order_ids or order_id in seen_order_ids:
+            continue
+        seen_order_ids.add(order_id)
+        pending_trades.append(value)
+    return pending_trades
+
+
+def _order_context_from_trade(trade: dict[str, Any], *, order_id: str) -> OrderContext:
+    return OrderContext(
+        trade_id=_clean_text(trade.get("id") or trade.get("_id")),
+        order_id=order_id,
+        side=_clean_text(trade.get("side") or "BUY").upper() or "BUY",
+        ticker=_clean_text(trade.get("ticker")),
+        strike=float(trade.get("strike") or 0.0),
+        option_type=_clean_text(trade.get("option_type")),
+        expiration=_clean_text(trade.get("expiration")),
+        requested_quantity=max(int(trade.get("quantity") or 1), 1),
+        broker=_clean_text(trade.get("broker")),
+        position_id=_clean_text(trade.get("position_id")) or None,
+        alert_id=_clean_text(trade.get("alert_id")) or None,
+        alert_price=float(trade.get("entry_price") or trade.get("exit_price") or 0.0) or None,
+        simulated=coerce_bool(trade.get("simulated"), default=False),
+    )
+
+
+def _broker_update_from_status(status_data: dict[str, Any]) -> BrokerOrderUpdate:
+    return BrokerOrderUpdate(
+        status=_clean_text(status_data.get("status") or "unknown").lower(),
+        filled_qty=_positive_int(status_data.get("filled_qty")),
+        avg_fill_price=float(status_data.get("avg_fill_price") or 0.0),
+        reason=_clean_text(status_data.get("reason")),
+    )
+
+
+def _broker_open_order_cancellation_targets(orders: Any) -> list[dict[str, str]]:
+    if not isinstance(orders, list):
+        return []
+
+    terminal_statuses = {"filled", "cancelled", "canceled", "expired", "rejected", "failed", "done", "closed"}
+    targets: list[dict[str, str]] = []
+    for value in orders:
+        if not isinstance(value, dict):
+            continue
+        order_id = _extract_broker_order_id(value)
+        if not order_id:
+            continue
+        status = _clean_text(value.get("status") or "open").lower()
+        if status in terminal_statuses:
+            continue
+        targets.append(
+            {
+                "trade_id": "",
+                "order_id": order_id,
+                "source": "broker_open_orders",
+                "broker_status": status or "open",
+            }
+        )
+    return targets
+
+
+def _dedupe_cancellation_targets(targets: list[dict[str, str]]) -> list[dict[str, str]]:
+    deduped: list[dict[str, str]] = []
+    seen_order_ids: set[str] = set()
+    for target in targets:
+        order_id = _clean_text(target.get("order_id"))
+        if not order_id or order_id in seen_order_ids:
+            continue
+        seen_order_ids.add(order_id)
+        deduped.append(target)
+    return deduped
 
 
 def _is_live_open_position(position: dict[str, Any]) -> bool:
@@ -156,6 +295,230 @@ class LiveArmRequest(BaseModel):
     reason: str = ""
 
 
+class ReadinessGateEvidenceRequest(BaseModel):
+    status: str = Field(default="passed")
+    summary: str = ""
+    evidence: dict[str, Any] = Field(default_factory=dict)
+    operator: str = "local_operator"
+
+
+class PaperSessionSnapshotRequest(BaseModel):
+    market_session: Optional[str] = None
+    market_is_open: Optional[bool] = None
+    note: str = ""
+
+
+def _readiness_gate_definition(gate_key: str) -> dict[str, str]:
+    definitions = required_readiness_gate_definitions()
+    gate = definitions.get(_clean_text(gate_key))
+    if not gate:
+        raise HTTPException(status_code=404, detail=f"Unknown readiness gate: {gate_key}")
+    return gate
+
+
+def _normalized_gate_status(status: Any) -> str:
+    normalized = _clean_text(status).lower().replace(" ", "_")
+    allowed = {"passed", "failed", "blocked", "pending"}
+    if normalized not in allowed:
+        raise HTTPException(status_code=400, detail=f"Readiness gate status must be one of: {', '.join(sorted(allowed))}.")
+    return normalized
+
+
+async def _record_readiness_gate_evidence(
+    gate_key: str,
+    request: ReadinessGateEvidenceRequest,
+    *,
+    default_summary: str = "",
+) -> dict[str, Any]:
+    gate = _readiness_gate_definition(gate_key)
+    status = _normalized_gate_status(request.status)
+    summary = _clean_text(request.summary) or default_summary or f"{gate['label']}: {status}"
+    event = await record_operator_event(
+        db,
+        "readiness_gate",
+        "evidence_recorded",
+        summary,
+        severity="info" if status == "passed" else "warning",
+        details={
+            "gate_key": gate_key,
+            "status": status,
+            "summary": summary,
+            "operator": _clean_text(request.operator) or "local_operator",
+            "evidence": _dict_or_empty(request.evidence),
+        },
+    )
+    return {
+        "gate_key": gate_key,
+        "label": gate["label"],
+        "status": status,
+        "summary": summary,
+        "updated_at": event.get("timestamp", ""),
+        "event_id": event["id"],
+    }
+
+
+def _readiness_gate_event_state(event: dict[str, Any]) -> tuple[str, dict[str, Any]] | None:
+    if _clean_text(event.get("category")) != "readiness_gate" or _clean_text(event.get("action")) != "evidence_recorded":
+        return None
+    details = _dict_or_empty(event.get("details"))
+    gate_key = _clean_text(details.get("gate_key"))
+    definitions = required_readiness_gate_definitions()
+    if gate_key not in definitions:
+        return None
+    return gate_key, {
+        "status": _clean_text(details.get("status")).lower() or "missing",
+        "updated_at": _clean_text(event.get("timestamp")),
+        "summary": _clean_text(details.get("summary") or event.get("summary")),
+        "operator": _clean_text(details.get("operator")),
+        "evidence": _dict_or_empty(details.get("evidence")),
+    }
+
+
+async def _readiness_gate_states_from_events(limit: int = 500) -> dict[str, dict[str, Any]]:
+    if not hasattr(db, "get_operator_events"):
+        return {}
+    events = await db.get_operator_events(limit)
+    events = events if isinstance(events, list) else []
+    states: dict[str, dict[str, Any]] = {}
+    for value in events:
+        if not isinstance(value, dict):
+            continue
+        state = _readiness_gate_event_state(value)
+        if not state:
+            continue
+        gate_key, gate_state = state
+        states.setdefault(gate_key, gate_state)
+    return states
+
+
+async def _broker_client_connected(client: Any) -> bool:
+    checker = getattr(client, "check_connection", None)
+    if not callable(checker):
+        return False
+    result = checker()
+    if inspect.isawaitable(result):
+        result = await result
+    return bool(result)
+
+
+def _now_id_fragment() -> str:
+    return datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S%f")
+
+
+def _current_market_session() -> str:
+    return datetime.now(timezone.utc).astimezone(ZoneInfo("America/New_York")).date().isoformat()
+
+
+def _bool_or_none(value: Any) -> bool | None:
+    if isinstance(value, bool):
+        return value
+    return None
+
+
+def _paper_session_snapshot_from_event(event: dict[str, Any]) -> dict[str, Any] | None:
+    if _clean_text(event.get("category")) != "readiness_monitor" or _clean_text(event.get("action")) != "paper_session_snapshot":
+        return None
+    details = _dict_or_empty(event.get("details"))
+    market_session = _clean_text(details.get("market_session"))
+    if not market_session:
+        return None
+    return {
+        "timestamp": _clean_text(event.get("timestamp")),
+        "market_session": market_session,
+        "market_is_open": _bool_or_none(details.get("market_is_open")),
+        "broker_connected": bool(details.get("broker_connected")),
+        "discord_connected": bool(details.get("discord_connected")),
+        "auto_trading_enabled": bool(details.get("auto_trading_enabled")),
+        "simulation_mode": bool(details.get("simulation_mode")),
+        "active_broker": _clean_text(details.get("active_broker")),
+        "note": _clean_text(details.get("note")),
+    }
+
+
+def _snapshot_counts_for_multi_session(snapshots: list[dict[str, Any]]) -> dict[str, Any]:
+    sessions = sorted(
+        {
+            snapshot["market_session"]
+            for snapshot in snapshots
+            if _snapshot_is_healthy(snapshot)
+        }
+    )
+    return {"session_count": len(sessions), "sessions": sessions}
+
+
+def _snapshot_is_healthy(snapshot: dict[str, Any]) -> bool:
+    return (
+        bool(snapshot.get("broker_connected"))
+        and bool(snapshot.get("discord_connected"))
+        and bool(snapshot.get("auto_trading_enabled"))
+        and not bool(snapshot.get("simulation_mode"))
+    )
+
+
+async def _paper_session_snapshots(limit: int = 500) -> list[dict[str, Any]]:
+    if not hasattr(db, "get_operator_events"):
+        return []
+    events = await db.get_operator_events(limit)
+    events = events if isinstance(events, list) else []
+    snapshots: list[dict[str, Any]] = []
+    for event in events:
+        if not isinstance(event, dict):
+            continue
+        snapshot = _paper_session_snapshot_from_event(event)
+        if snapshot:
+            snapshots.append(snapshot)
+    return snapshots
+
+
+def _transition_snapshot(previous_snapshots: list[dict[str, Any]], current_snapshot: dict[str, Any]) -> dict[str, Any] | None:
+    current_open = _bool_or_none(current_snapshot.get("market_is_open"))
+    if current_open is None or not _snapshot_is_healthy(current_snapshot):
+        return None
+    for snapshot in previous_snapshots:
+        if not _snapshot_is_healthy(snapshot):
+            continue
+        previous_open = _bool_or_none(snapshot.get("market_is_open"))
+        if previous_open is None or previous_open == current_open:
+            continue
+        return snapshot
+    return None
+
+
+async def _partial_fill_drill_position(settings: dict[str, Any]) -> dict[str, Any]:
+    positions = await db.get_positions() if hasattr(db, "get_positions") else []
+    positions = positions if isinstance(positions, list) else []
+    for position in positions:
+        if not isinstance(position, dict):
+            continue
+        if _clean_text(position.get("status") or "open").lower() not in {"open", "partial"}:
+            continue
+        if _positive_int(position.get("remaining_quantity") or position.get("quantity")) >= 2:
+            return position
+
+    if not hasattr(db, "insert_position"):
+        raise HTTPException(status_code=409, detail="Database cannot create a partial-fill drill position.")
+    active_broker = _broker_id_text(settings.get("active_broker") or "alpaca")
+    position_id = f"partial-fill-drill-position-{_now_id_fragment()}"
+    position = {
+        "id": position_id,
+        "ticker": "SPY",
+        "strike": 500.0,
+        "option_type": "CALL",
+        "expiration": "2026-06-26",
+        "entry_price": 2.0,
+        "current_price": 2.0,
+        "original_quantity": 2,
+        "remaining_quantity": 2,
+        "realized_pnl": 0.0,
+        "status": "open",
+        "broker": active_broker,
+        "simulated": True,
+        "trade_ids": [],
+    }
+    await db.insert_position(position)
+    return position
+
+
 async def _live_readiness_payload():
     from routes.health import get_bot_status
     from bridge_health import evaluate_bridge_health
@@ -172,7 +535,16 @@ async def _live_readiness_payload():
     status["reconciliation_unresolved_reasons"] = reconciliation["unresolved_reasons"]
     status["alert_chain_attention_count"] = alert_chain_summary.get("attention_count", 0)
     status["alert_chain_attention_reasons"] = alert_chain_summary.get("attention_reasons", [])
+    status["alert_chain_live_blocking_attention_count"] = alert_chain_summary.get(
+        "live_blocking_attention_count",
+        alert_chain_summary.get("attention_count", 0),
+    )
+    status["alert_chain_live_blocking_attention_reasons"] = alert_chain_summary.get(
+        "live_blocking_attention_reasons",
+        alert_chain_summary.get("attention_reasons", []),
+    )
     status.update(position_oco)
+    status["readiness_gates"] = await _readiness_gate_states_from_events()
     return evaluate_live_readiness(settings, runtime, status=status)
 
 
@@ -180,6 +552,21 @@ async def _live_readiness_payload():
 async def get_operator_events(limit: int = Query(default=100, ge=1, le=500)):
     """Return recent operator-visible events."""
     return await db.get_operator_events(limit)
+
+
+@router.get("/operator/readiness-gates")
+async def get_readiness_gates():
+    """Return live-readiness gate definitions and latest recorded evidence state."""
+    return {
+        "definitions": required_readiness_gate_definitions(),
+        "states": await _readiness_gate_states_from_events(),
+    }
+
+
+@router.post("/operator/readiness-gates/{gate_key}/evidence")
+async def record_readiness_gate_evidence(gate_key: str, request: ReadinessGateEvidenceRequest):
+    """Record operator/drill evidence for a specific live-readiness gate."""
+    return await _record_readiness_gate_evidence(gate_key, request)
 
 
 @router.post("/operator/test-alert")
@@ -348,10 +735,236 @@ async def live_disarm():
     return {"runtime": runtime}
 
 
+@router.post("/operator/drills/reconnect")
+async def run_reconnect_drill():
+    """Verify the active broker can be closed and reconnected, then record readiness evidence."""
+    settings = await db.get_settings()
+    settings = settings if isinstance(settings, dict) else {}
+    active_broker = _broker_id_text(settings.get("active_broker") or "ibkr")
+    before_connected = False
+    after_connected = False
+    errors: list[str] = []
+
+    first_client = None
+    second_client = None
+    try:
+        first_client = get_configured_broker_client(settings, active_broker)
+        before_connected = await _broker_client_connected(first_client)
+    except Exception as exc:  # pragma: no cover - exercised in integration failure paths
+        errors.append(f"initial connection failed: {exc}")
+    finally:
+        if first_client is not None:
+            result = close_broker_client(first_client)
+            if inspect.isawaitable(result):
+                await result
+
+    try:
+        second_client = get_configured_broker_client(settings, active_broker)
+        after_connected = await _broker_client_connected(second_client)
+    except Exception as exc:  # pragma: no cover - exercised in integration failure paths
+        errors.append(f"reconnect failed: {exc}")
+    finally:
+        if second_client is not None:
+            result = close_broker_client(second_client)
+            if inspect.isawaitable(result):
+                await result
+
+    status = "passed" if before_connected and after_connected and not errors else "failed"
+    evidence = {
+        "active_broker": active_broker,
+        "before_connected": before_connected,
+        "after_connected": after_connected,
+        "errors": errors,
+    }
+    recorded = await _record_readiness_gate_evidence(
+        "disconnect_reconnect_drill",
+        ReadinessGateEvidenceRequest(
+            status=status,
+            summary=f"Broker reconnect drill {status}.",
+            evidence=evidence,
+            operator="operator_drill",
+        ),
+    )
+    return {
+        **recorded,
+        "active_broker": active_broker,
+        "before_connected": before_connected,
+        "after_connected": after_connected,
+        "errors": errors,
+    }
+
+
+@router.post("/operator/drills/partial-fill")
+async def run_partial_fill_drill():
+    """Apply a synthetic broker partial-fill update through reconciliation and record readiness evidence."""
+    settings = await db.get_settings()
+    settings = settings if isinstance(settings, dict) else {}
+    active_broker = _broker_id_text(settings.get("active_broker") or "alpaca")
+    position = await _partial_fill_drill_position(settings)
+    position_id = _clean_text(position.get("id") or position.get("_id"))
+    if not position_id:
+        raise HTTPException(status_code=409, detail="Partial-fill drill position has no id.")
+
+    requested_quantity = max(2, _positive_int(position.get("remaining_quantity") or position.get("quantity")))
+    drill_id = _now_id_fragment()
+    trade_id = f"partial-fill-drill-trade-{drill_id}"
+    order_id = f"partial-fill-drill-order-{drill_id}"
+    if hasattr(db, "insert_trade"):
+        await db.insert_trade(
+            {
+                "id": trade_id,
+                "position_id": position_id,
+                "ticker": _clean_text(position.get("ticker")) or "SPY",
+                "strike": float(position.get("strike") or 0.0),
+                "option_type": _clean_text(position.get("option_type")) or "CALL",
+                "expiration": _clean_text(position.get("expiration")),
+                "side": "SELL",
+                "quantity": requested_quantity,
+                "status": "pending",
+                "order_id": order_id,
+                "broker": active_broker,
+                "simulated": True,
+            }
+        )
+
+    result = await reconcile_order_update(
+        db,
+        OrderContext(
+            trade_id=trade_id,
+            order_id=order_id,
+            side="SELL",
+            ticker=_clean_text(position.get("ticker")) or "SPY",
+            strike=float(position.get("strike") or 0.0),
+            option_type=_clean_text(position.get("option_type")) or "CALL",
+            expiration=_clean_text(position.get("expiration")),
+            requested_quantity=requested_quantity,
+            broker=active_broker,
+            position_id=position_id,
+            alert_price=float(position.get("entry_price") or 2.0),
+            simulated=True,
+        ),
+        BrokerOrderUpdate(status="partial", filled_qty=1, avg_fill_price=float(position.get("current_price") or 2.4)),
+    )
+
+    status = "passed" if result.trade_status == "partial" and result.position_status == "partial" else "failed"
+    evidence = {
+        "active_broker": active_broker,
+        "position_id": position_id,
+        "trade_id": trade_id,
+        "order_id": order_id,
+        "broker_update": {"status": "partial", "filled_qty": 1},
+        "reconciliation": {
+            "trade_status": result.trade_status,
+            "position_status": result.position_status,
+            "position_id": result.position_id,
+            "message": result.message,
+        },
+    }
+    recorded = await _record_readiness_gate_evidence(
+        "partial_fill_broker_behavior",
+        ReadinessGateEvidenceRequest(
+            status=status,
+            summary=f"Partial-fill reconciliation drill {status}.",
+            evidence=evidence,
+            operator="operator_drill",
+        ),
+    )
+    return {
+        **recorded,
+        "active_broker": active_broker,
+        "reconciliation": evidence["reconciliation"],
+        "position_id": position_id,
+        "trade_id": trade_id,
+        "order_id": order_id,
+    }
+
+
+@router.post("/operator/monitoring/paper-session-snapshot")
+async def record_paper_session_snapshot(request: PaperSessionSnapshotRequest = PaperSessionSnapshotRequest()):
+    """Record a paper monitoring snapshot and promote session/transition gates when evidence is sufficient."""
+    from routes.health import get_bot_status
+
+    settings = await db.get_settings()
+    settings = settings if isinstance(settings, dict) else {}
+    status = dict(get_bot_status())
+    market_session = _clean_text(request.market_session) or _current_market_session()
+    active_broker = _broker_id_text(settings.get("active_broker") or status.get("active_broker") or "alpaca")
+    snapshot_details = {
+        "market_session": market_session,
+        "market_is_open": request.market_is_open,
+        "active_broker": active_broker,
+        "broker_connected": status_flag(status, "broker_connected"),
+        "discord_connected": status_flag(status, "discord_connected"),
+        "auto_trading_enabled": coerce_bool(settings.get("auto_trading_enabled"), default=True),
+        "simulation_mode": coerce_bool(settings.get("simulation_mode"), default=True),
+        "note": _clean_text(request.note),
+    }
+
+    previous_snapshots = await _paper_session_snapshots()
+    event = await record_operator_event(
+        db,
+        "readiness_monitor",
+        "paper_session_snapshot",
+        "Paper session snapshot recorded.",
+        details=snapshot_details,
+    )
+    current_snapshot = {
+        "timestamp": event.get("timestamp", ""),
+        **snapshot_details,
+    }
+    snapshots = [current_snapshot, *previous_snapshots]
+    session_summary = _snapshot_counts_for_multi_session(snapshots)
+    recorded_gate_keys: list[str] = []
+
+    if session_summary["session_count"] >= 2:
+        recorded = await _record_readiness_gate_evidence(
+            "multi_session_paper_monitoring",
+            ReadinessGateEvidenceRequest(
+                status="passed",
+                summary="Paper monitoring covered at least two market sessions.",
+                evidence={
+                    "session_count": session_summary["session_count"],
+                    "sessions": session_summary["sessions"],
+                },
+                operator="paper_session_monitor",
+            ),
+        )
+        recorded_gate_keys.append(recorded["gate_key"])
+
+    previous_transition_snapshot = _transition_snapshot(previous_snapshots, current_snapshot)
+    if previous_transition_snapshot:
+        recorded = await _record_readiness_gate_evidence(
+            "market_transition_validation",
+            ReadinessGateEvidenceRequest(
+                status="passed",
+                summary="Market open/closed transition was observed during paper monitoring.",
+                evidence={
+                    "from_timestamp": previous_transition_snapshot.get("timestamp"),
+                    "to_timestamp": current_snapshot.get("timestamp"),
+                    "from_market_is_open": previous_transition_snapshot.get("market_is_open"),
+                    "to_market_is_open": current_snapshot.get("market_is_open"),
+                    "from_market_session": previous_transition_snapshot.get("market_session"),
+                    "to_market_session": current_snapshot.get("market_session"),
+                },
+                operator="paper_session_monitor",
+            ),
+        )
+        recorded_gate_keys.append(recorded["gate_key"])
+
+    return {
+        "snapshot_event_id": event["id"],
+        "snapshot": snapshot_details,
+        "session_count": session_summary["session_count"],
+        "sessions": session_summary["sessions"],
+        "recorded_gate_keys": recorded_gate_keys,
+    }
+
+
 @router.post("/operator/panic-stop")
 async def panic_stop():
     """Disable automated live trading and set runtime shutdown state."""
     from broker_capabilities import get_broker_capabilities, normalize_broker_id
+    from order_execution import BrokerConfigurationError, close_broker_client, get_configured_broker_client
     from routes.health import update_bot_status
 
     settings = await db.get_settings()
@@ -378,7 +991,67 @@ async def panic_stop():
     if not capabilities.get("supports_cancel_order"):
         warnings.append(f"Broker '{active_broker}' does not advertise automated cancellation support.")
     else:
-        warnings.append("No pending order registry is available; broker cancellations were not attempted.")
+        pending_orders = []
+        get_trades = getattr(db, "get_trades", None)
+        if not callable(get_trades):
+            warnings.append("No pending order registry is available; broker cancellations were not attempted.")
+        else:
+            trades = await get_trades(limit=1000)
+            trades = trades if isinstance(trades, list) else []
+            pending_orders.extend(_pending_live_broker_orders(trades, active_broker=active_broker))
+
+        broker_client = None
+        try:
+            broker_client = get_configured_broker_client(
+                settings,
+                active_broker,
+                require_cancel_order=True,
+            )
+            list_open_orders = getattr(broker_client, "list_open_orders", None)
+            if callable(list_open_orders):
+                broker_orders = list_open_orders()
+                if inspect.isawaitable(broker_orders):
+                    broker_orders = await broker_orders
+                pending_orders.extend(_broker_open_order_cancellation_targets(broker_orders))
+            else:
+                warnings.append("Broker client does not expose open-order discovery; only local pending orders were considered.")
+
+            pending_orders = _dedupe_cancellation_targets(pending_orders)
+            if not pending_orders:
+                warnings.append("No pending live broker orders were found locally or at the broker.")
+
+            for pending_order in pending_orders:
+                order_id = pending_order["order_id"]
+                attempt = dict(pending_order)
+                try:
+                    result = broker_client.cancel_order(order_id)
+                    if inspect.isawaitable(result):
+                        result = await result
+                    result = result if isinstance(result, dict) else {}
+                    attempt.update(
+                        {
+                            "status": _clean_text(result.get("status")) or "cancel_requested",
+                            "cancel_requested": coerce_bool(
+                                result.get("cancel_requested"),
+                                default=True,
+                            ),
+                        }
+                    )
+                except Exception as exc:  # pragma: no cover - exercised via integration failure paths
+                    attempt.update(
+                        {
+                            "status": "cancel_failed",
+                            "cancel_requested": False,
+                            "error": str(exc),
+                        }
+                    )
+                    warnings.append(f"Broker cancellation failed for order {order_id}: {exc}")
+                cancellation_attempts.append(attempt)
+        except BrokerConfigurationError as exc:
+            warnings.append(f"Broker cancellation was not attempted: {exc}")
+        finally:
+            if broker_client is not None:
+                await close_broker_client(broker_client)
 
     event = await record_operator_event(
         db,
@@ -399,6 +1072,83 @@ async def panic_stop():
         "shutdown_reason": runtime.get("shutdown_reason", ""),
         "cancellation_attempts": cancellation_attempts,
         "warnings": warnings,
+        "event_id": event["id"],
+    }
+
+
+@router.post("/operator/refresh-broker-orders")
+async def refresh_broker_orders():
+    """Refresh pending local broker orders from the active broker and reconcile terminal states."""
+    settings = await db.get_settings()
+    settings = settings if isinstance(settings, dict) else {}
+    active_broker = _broker_id_text(settings.get("active_broker") or "ibkr")
+    trades = await db.get_trades(limit=1000) if hasattr(db, "get_trades") else []
+    trades = trades if isinstance(trades, list) else []
+    pending_trades = _pending_live_broker_trades(trades, active_broker=active_broker)
+
+    checked = []
+    reconciled = []
+    errors = []
+    broker_client = None
+    try:
+        broker_client = get_configured_broker_client(
+            settings,
+            active_broker,
+            require_order_status=True,
+        )
+        for trade in pending_trades:
+            order_id = _pending_trade_order_id(trade)
+            trade_id = _clean_text(trade.get("id") or trade.get("_id"))
+            status_reader = getattr(broker_client, "get_order_status", None)
+            if not callable(status_reader):
+                errors.append({"trade_id": trade_id, "order_id": order_id, "error": "broker lacks order status"})
+                continue
+            status_data = status_reader(order_id)
+            if inspect.isawaitable(status_data):
+                status_data = await status_data
+            status_data = status_data if isinstance(status_data, dict) else {"status": "unknown"}
+            status = _clean_text(status_data.get("status") or "unknown").lower()
+            row = {"trade_id": trade_id, "order_id": order_id, "status": status}
+            checked.append(row)
+            if status in {"filled", "partial", "rejected", "cancelled", "canceled", "expired", "unknown", "error", "unconfirmed"}:
+                try:
+                    result = await reconcile_order_update(
+                        db,
+                        _order_context_from_trade(trade, order_id=order_id),
+                        _broker_update_from_status(status_data),
+                    )
+                    reconciled.append({**row, "trade_status": result.trade_status, "message": result.message})
+                except Exception as exc:
+                    errors.append({"trade_id": trade_id, "order_id": order_id, "error": str(exc)})
+    except BrokerConfigurationError as exc:
+        errors.append({"error": str(exc), "broker": active_broker})
+    finally:
+        if broker_client is not None:
+            result = close_broker_client(broker_client)
+            if inspect.isawaitable(result):
+                await result
+
+    event = await record_operator_event(
+        db,
+        "reconciliation",
+        "broker_order_refresh",
+        "Refreshed pending local broker orders from the active broker.",
+        severity="warning" if errors else "info",
+        details={
+            "active_broker": active_broker,
+            "checked": checked,
+            "reconciled": reconciled,
+            "errors": errors,
+        },
+    )
+    return {
+        "active_broker": active_broker,
+        "checked_count": len(checked),
+        "reconciled_count": len(reconciled),
+        "error_count": len(errors),
+        "checked": checked,
+        "reconciled": reconciled,
+        "errors": errors,
         "event_id": event["id"],
     }
 

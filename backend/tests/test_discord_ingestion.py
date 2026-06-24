@@ -60,6 +60,25 @@ class DiscordIngestionTests(unittest.TestCase):
         self.assertEqual(deps.alerts[0].ticker, "SPY")
         self.assertEqual(deps.trades[0][1]["ticker"], "SPY")
 
+    def test_missing_auto_trading_setting_defaults_to_trade_request(self):
+        from discord_ingestion import handle_discord_message
+
+        deps = FakeDeps({"source_overrides": {}})
+
+        result = asyncio.run(
+            handle_discord_message(
+                message("BTO SPY 500C 6/21 @ 1.25"),
+                channel_ids=["123"],
+                deps=deps,
+                bot_user=types.SimpleNamespace(id="bot"),
+            )
+        )
+
+        self.assertTrue(result.alert_inserted)
+        self.assertTrue(result.trade_requested)
+        self.assertEqual(result.trade_request_reason, "auto trading enabled")
+        self.assertEqual(deps.trades[0][1]["ticker"], "SPY")
+
     def test_disabled_source_skips_before_insert_or_trade(self):
         from discord_ingestion import handle_discord_message
 

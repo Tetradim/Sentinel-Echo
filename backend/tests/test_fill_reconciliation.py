@@ -161,6 +161,78 @@ class FillReconciliationTests(unittest.TestCase):
         self.assertEqual(len(db.inserted_positions), 1)
         self.assertEqual(db.inserted_positions[0]["remaining_quantity"], 2)
 
+    def test_filled_average_down_buy_updates_existing_position(self):
+        from fill_reconciliation import BrokerOrderUpdate, OrderContext, reconcile_order_update
+
+        db = FakeLifecycleDb()
+        db.positions["position-1"] = {
+            "id": "position-1",
+            "ticker": "SPY",
+            "strike": 500.0,
+            "option_type": "CALL",
+            "expiration": "6/21",
+            "entry_price": 1.00,
+            "original_quantity": 4,
+            "remaining_quantity": 4,
+            "total_cost": 400.0,
+            "average_down_count": 0,
+            "initial_entry_price": None,
+            "trade_ids": ["trade-entry"],
+            "status": "open",
+            "broker": "alpaca",
+            "simulated": False,
+        }
+        context = OrderContext(
+            trade_id="trade-average-down",
+            order_id="order-average-down",
+            side="BUY",
+            ticker="SPY",
+            strike=500.0,
+            option_type="CALL",
+            expiration="6/21",
+            requested_quantity=2,
+            position_id="position-1",
+            broker="alpaca",
+            alert_id="alert-average-down",
+        )
+
+        result = asyncio.run(
+            reconcile_order_update(
+                db,
+                context,
+                BrokerOrderUpdate(status="filled", filled_qty=2, avg_fill_price=0.80),
+            )
+        )
+
+        self.assertEqual(result.trade_status, "executed")
+        self.assertEqual(result.position_status, "open")
+        self.assertEqual(len(db.inserted_positions), 0)
+        trade_update = db.trade_updates[0][1]
+        self.assertEqual(trade_update["side"], "BUY")
+        self.assertEqual(trade_update["quantity"], 2)
+        self.assertEqual(trade_update["entry_price"], 0.80)
+        position = db.positions["position-1"]
+        self.assertEqual(position["remaining_quantity"], 6)
+        self.assertEqual(position["original_quantity"], 6)
+        self.assertAlmostEqual(position["entry_price"], 0.9333333333)
+        self.assertEqual(position["total_cost"], 560.0)
+        self.assertEqual(position["average_down_count"], 1)
+        self.assertEqual(position["initial_entry_price"], 1.00)
+        self.assertIn("trade-average-down", position["trade_ids"])
+        self.assertEqual(
+            db.alert_updates,
+            [
+                (
+                    "alert-average-down",
+                    {
+                        "processed": True,
+                        "trade_executed": True,
+                        "trade_result": "filled",
+                    },
+                )
+            ],
+        )
+
     def test_filled_exit_order_reduces_remaining_quantity_and_closes_when_zero(self):
         from fill_reconciliation import BrokerOrderUpdate, OrderContext, reconcile_order_update
 

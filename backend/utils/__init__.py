@@ -42,7 +42,9 @@ OPTION_RE = re.compile(
 )
 EXPIRATION_RE = re.compile(r"\b(?P<expiration>\d{1,2}/\d{1,2}(?:/\d{2,4})?)\b")
 PRICE_PATTERNS = (
+    re.compile(r"@\s*\$?\.(?P<cents>\d{1,2})\b", re.IGNORECASE),
     re.compile(r"@\s*\$?(?P<price>\d+(?:\.\d+)?)", re.IGNORECASE),
+    re.compile(r"\b(?:ENTRY|PRICE|AT|FILL)\s*:?\s*\$?\.(?P<cents>\d{1,2})\b", re.IGNORECASE),
     re.compile(r"\b(?:ENTRY|PRICE|AT|FILL)\s*:?\s*\$?(?P<price>\d+(?:\.\d+)?)", re.IGNORECASE),
     re.compile(
         r"\$(?P<price>\d+(?:\.\d+)?)\s*(?:ENTRY|ENTRIES|FILL|FILLS|AVG|AVERAGE)\b",

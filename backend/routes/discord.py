@@ -235,7 +235,7 @@ async def test_discord_connection():
             "details": {
                 "bot_running": True,
                 "monitoring_channels": settings.get('discord_channel_ids', []) or ["All channels"],
-                "auto_trading_enabled": coerce_bool(settings.get('auto_trading_enabled'), default=False),
+                "auto_trading_enabled": coerce_bool(settings.get('auto_trading_enabled'), default=True),
                 "alerts_processed": bot_status.get('alerts_processed', 0)
             }
         }
@@ -1196,7 +1196,7 @@ def _build_preview_warnings(
         warnings.append("Paper-shadow recording is enabled for this source.")
     if source_config.get("require_manual_confirm"):
         warnings.append("Source requires manual confirmation before trade execution.")
-    if not coerce_bool(settings.get("auto_trading_enabled"), default=False):
+    if not coerce_bool(settings.get("auto_trading_enabled"), default=True):
         warnings.append("Auto trading is disabled; preview will not request a trade.")
     if coerce_bool(settings.get("shutdown_triggered"), default=False):
         warnings.append("Runtime shutdown is active; preview will not request a trade.")
@@ -1222,7 +1222,7 @@ def _build_execution_preview(
     skip_reason: str | None,
     parser_metadata: Dict[str, Any] | None = None,
 ) -> Dict[str, Any]:
-    auto_trading_enabled = coerce_bool(settings.get("auto_trading_enabled"), default=False)
+    auto_trading_enabled = coerce_bool(settings.get("auto_trading_enabled"), default=True)
     shutdown_triggered = coerce_bool(settings.get("shutdown_triggered"), default=False)
     simulation_mode = coerce_bool(settings.get("simulation_mode"), default=True) or bool(
         source_config.get("paper_only", False)

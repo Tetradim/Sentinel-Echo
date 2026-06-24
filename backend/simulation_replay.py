@@ -187,7 +187,7 @@ def _build_execution_preview(
     source_config: dict[str, Any],
     skip_reason: str | None,
 ) -> dict[str, Any]:
-    auto_trading_enabled = coerce_bool(settings.get("auto_trading_enabled"), default=False)
+    auto_trading_enabled = coerce_bool(settings.get("auto_trading_enabled"), default=True)
     shutdown_triggered = coerce_bool(settings.get("shutdown_triggered"), default=False)
     simulation_mode = coerce_bool(settings.get("simulation_mode"), default=True) or bool(
         source_config.get("paper_only", False)

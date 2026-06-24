@@ -31,7 +31,7 @@ logger = logging.getLogger(__name__)
 db = None
 
 _BOOLEAN_SETTING_DEFAULTS = {
-    "auto_trading_enabled": False,
+    "auto_trading_enabled": True,
     "premium_buffer_enabled": False,
     "simulation_mode": True,
     "averaging_down_enabled": False,
@@ -67,6 +67,10 @@ def _settings_response(settings: Dict[str, Any] | None) -> Dict[str, Any]:
     for field, default in _BOOLEAN_SETTING_DEFAULTS.items():
         if field in response:
             response[field] = coerce_bool(response.get(field), default=default)
+    discord_token = str(response.get("discord_token") or "").strip()
+    response["discord_token_configured"] = bool(discord_token)
+    if discord_token:
+        response["discord_token"] = "********"
     if response.get("broker_configs"):
         decrypted = decrypt_broker_configs(response["broker_configs"])
         response["broker_configs"] = mask_broker_configs(decrypted)
@@ -188,7 +192,7 @@ async def toggle_trading():
             details={"blocking_issues": blocked_readiness["blocking_issues"]},
         )
         raise HTTPException(status_code=409, detail=blocked_readiness)
-    current = coerce_bool((settings or {}).get("auto_trading_enabled"), default=False)
+    current = coerce_bool((settings or {}).get("auto_trading_enabled"), default=True)
     new_state = not current
     if new_state and not coerce_bool((settings or {}).get("simulation_mode"), default=True):
         from live_readiness import evaluate_live_readiness

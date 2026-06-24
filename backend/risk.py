@@ -15,8 +15,9 @@ Covers three gaps vs a professional system:
    accumulating 5 SPY calls from 5 separate alerts.
 
 3. Duplicate alert detection
-   A content fingerprint (ticker + strike + option_type + expiration + alert_type)
-   is stored with a timestamp.  If the same fingerprint arrives within
+   A content fingerprint (ticker + strike + option_type + expiration +
+   alert_type + price/percentage details) is stored with a timestamp.  If
+   the same fingerprint arrives within
    DUPLICATE_WINDOW_SECS it is silently dropped.  The window is intentionally
    short (60 s) so legitimate re-entries after a few minutes are still allowed.
 """
@@ -25,6 +26,8 @@ import hashlib
 import logging
 from datetime import datetime, timezone, timedelta
 from typing import Optional
+
+from settings_flags import coerce_bool
 
 logger = logging.getLogger(__name__)
 
@@ -47,12 +50,24 @@ def _alert_fingerprint(parsed: dict) -> str:
         str(parsed.get("ticker", "")).upper(),
         str(parsed.get("alert_type", "")).lower(),
     ]
-    if parsed.get("alert_type") == "buy":
+    if parsed.get("strike") or parsed.get("option_type") or parsed.get("expiration"):
         key_parts += [
             str(parsed.get("strike", "")),
             str(parsed.get("option_type", "")).upper(),
             str(parsed.get("expiration", "")),
         ]
+    entry_price = parsed.get("entry_price")
+    if entry_price not in (None, ""):
+        try:
+            key_parts.append(f"price={float(entry_price):.4f}")
+        except (TypeError, ValueError):
+            key_parts.append(f"price={entry_price}")
+    sell_percentage = parsed.get("sell_percentage")
+    if sell_percentage not in (None, ""):
+        try:
+            key_parts.append(f"sell_pct={float(sell_percentage):.4f}")
+        except (TypeError, ValueError):
+            key_parts.append(f"sell_pct={sell_percentage}")
     key = "|".join(key_parts)
     return hashlib.sha256(key.encode()).hexdigest()[:16]
 
@@ -115,8 +130,8 @@ def calculate_position_size(
         -> floor(1000 / 1500) = 0 -> 0 contracts (blocked)
     """
     if entry_price <= 0:
-        logger.warning("[risk] entry_price <= 0 - defaulting to 1 contract")
-        return 1
+        logger.warning("[risk] entry_price <= 0 - blocking trade")
+        return 0
 
     cost_per_contract = entry_price * 100.0
 
@@ -175,7 +190,8 @@ async def check_correlation(
         open_positions = await db.get_positions("open")
     except Exception as e:
         logger.error(f"[risk] correlation check db error: {e}")
-        # Fail open; don't block the trade due to a db hiccup
+        if not coerce_bool(settings.get("simulation_mode"), default=True):
+            return False, "Risk controls unavailable"
         return True, ""
 
     same_ticker = [

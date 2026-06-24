@@ -20,6 +20,23 @@ REPLAY_READY_RUNTIME = {
     "simulation_replay_acceptance_updated_at": "2026-06-22T23:04:00Z",
     "simulation_replay_acceptance_replay_url": "http://127.0.0.1:9200/api/consolidation/replay/events",
 }
+READINESS_GATE_READY_RUNTIME = {
+    **REPLAY_READY_RUNTIME,
+    "readiness_gates": {
+        "paper_mode_burn_in": {"status": "passed", "updated_at": "2026-06-24T18:00:00Z"},
+        "partial_fill_broker_behavior": {"status": "passed", "updated_at": "2026-06-24T18:00:00Z"},
+        "disconnect_reconnect_drill": {"status": "passed", "updated_at": "2026-06-24T18:00:00Z"},
+        "market_transition_validation": {"status": "passed", "updated_at": "2026-06-24T18:00:00Z"},
+        "multi_session_paper_monitoring": {
+            "status": "passed",
+            "updated_at": "2026-06-24T18:00:00Z",
+            "evidence": {"session_count": 2},
+        },
+        "live_monitoring_evidence": {"status": "passed", "updated_at": "2026-06-24T18:00:00Z"},
+        "controlled_operator_access_review": {"status": "passed", "updated_at": "2026-06-24T18:00:00Z"},
+        "operator_signoff": {"status": "passed", "updated_at": "2026-06-24T18:00:00Z"},
+    },
+}
 
 
 class FakeDiagnosticsDb:
@@ -152,7 +169,7 @@ class SetupDiagnosticsTests(unittest.TestCase):
             self.fail(f"status should treat malformed db state as empty instead of raising: {exc}")
 
         self.assertEqual(result["active_broker"], "ibkr")
-        self.assertFalse(result["auto_trading_enabled"])
+        self.assertTrue(result["auto_trading_enabled"])
         self.assertTrue(result["simulation_mode"])
         self.assertFalse(result["shutdown_triggered"])
         self.assertEqual(result["shutdown_reason"], "")
@@ -278,7 +295,7 @@ class SetupDiagnosticsTests(unittest.TestCase):
                     "bracket_order_enabled": True,
                     "shutdown_triggered": False,
                 },
-                runtime_state=REPLAY_READY_RUNTIME,
+                runtime_state=READINESS_GATE_READY_RUNTIME,
             )
         )
 
@@ -287,6 +304,60 @@ class SetupDiagnosticsTests(unittest.TestCase):
         self.assertFalse(result["readiness"]["ready_for_live"])
         self.assertFalse(result["ready_for_live"])
         self.assertIn("credential_key_missing", result["readiness"]["blocking_codes"])
+
+    def test_setup_diagnostics_blocks_live_ready_with_malformed_credential_key(self):
+        from routes import health as health_route
+
+        health_route.set_db(
+            FakeDiagnosticsDb(
+                {
+                    "discord_token": "discord-secret-token",
+                    "discord_channel_ids": ["123", "456"],
+                    "active_broker": "alpaca",
+                    "broker_configs": {
+                        "alpaca": {
+                            "api_key": "broker-secret-key",
+                            "api_secret": "broker-secret-secret",
+                        }
+                    },
+                    "source_overrides": {
+                        "alerts": {
+                            "paper_only": False,
+                            "require_manual_confirm": False,
+                            "paper_shadow": True,
+                        }
+                    },
+                    "auto_trading_enabled": True,
+                    "simulation_mode": False,
+                    "max_position_size": 1000.0,
+                    "take_profit_enabled": True,
+                    "take_profit_percentage": 50.0,
+                    "stop_loss_enabled": True,
+                    "stop_loss_percentage": 25.0,
+                    "bracket_order_enabled": True,
+                    "shutdown_triggered": False,
+                },
+                runtime_state=REPLAY_READY_RUNTIME,
+            )
+        )
+        health_route.update_bot_status("discord_connected", True)
+        health_route.update_bot_status("broker_connected", True)
+
+        with patch.dict(
+            "os.environ",
+            {
+                "API_KEY": "api-key",
+                "CREDENTIAL_KEY": "not-a-32-byte-hex-key",
+                "HOST": "0.0.0.0",
+                "USE_SQLITE": "false",
+            },
+        ):
+            result = asyncio.run(health_route.setup_diagnostics())
+
+        self.assertFalse(result["ready_for_live"])
+        self.assertIn("credential_key_invalid", result["readiness"]["blocking_codes"])
+        self.assertFalse(result["readiness"]["checks"]["credential_key"]["valid"])
+        self.assertNotIn("broker-secret", str(result))
 
     def test_setup_diagnostics_treats_malformed_db_state_as_empty(self):
         from routes import health as health_route
@@ -833,7 +904,7 @@ class SetupDiagnosticsTests(unittest.TestCase):
                     "bracket_order_enabled": True,
                     "shutdown_triggered": False,
                 },
-                runtime_state=REPLAY_READY_RUNTIME,
+                runtime_state=READINESS_GATE_READY_RUNTIME,
             )
         )
         health_route.update_bot_status("discord_connected", True)
@@ -846,6 +917,7 @@ class SetupDiagnosticsTests(unittest.TestCase):
                 "CREDENTIAL_KEY": "0" * 64,
                 "HOST": "0.0.0.0",
                 "USE_SQLITE": "false",
+                "CONSOLIDATION_BOT_ROLE": "live_executioner",
             },
         ):
             result = asyncio.run(health_route.setup_diagnostics())

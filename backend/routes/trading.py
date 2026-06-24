@@ -76,6 +76,16 @@ def _dict_or_empty(value: Any) -> dict[str, Any]:
     return value if isinstance(value, dict) else {}
 
 
+def _position_is_simulated(position_doc: dict[str, Any]) -> bool:
+    broker = str(position_doc.get("broker") or "").lower()
+    return coerce_bool(position_doc.get("simulated"), default=False) or broker.endswith(":paper_shadow")
+
+
+def _trade_is_simulated(trade_doc: dict[str, Any]) -> bool:
+    broker = str(trade_doc.get("broker") or "").lower()
+    return coerce_bool(trade_doc.get("simulated"), default=True) or broker.endswith(":paper_shadow")
+
+
 async def _sell_position_at_price(
     position_id: str,
     percentage: float,
@@ -114,6 +124,14 @@ async def _sell_position_at_price(
     settings = _dict_or_empty(await db.get_settings())
     active_broker = _enum_value(settings.get("active_broker", "ibkr"))
     simulation_mode = coerce_bool(settings.get("simulation_mode"), default=True)
+    if not simulation_mode and not _position_is_simulated(position_doc):
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Live positions require the live broker exit path and fill reconciliation; "
+                "this local sell endpoint only updates simulated positions."
+            ),
+        )
 
     trade = Trade(
         ticker=position.ticker,
@@ -301,6 +319,14 @@ async def close_trade(trade_id: str, request: CloseTradeRequest):
             request.exit_price,
         )
         realized_pnl = float(position_close.get("realized_pnl", realized_pnl))
+    elif not _trade_is_simulated(trade):
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Live trades require the live broker exit path and fill reconciliation; "
+                "this local close endpoint only updates simulated trades."
+            ),
+        )
 
     updates = {
         "status": "closed",

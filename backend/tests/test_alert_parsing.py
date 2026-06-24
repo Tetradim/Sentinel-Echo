@@ -66,6 +66,20 @@ class AlertParsingTests(unittest.TestCase):
         self.assertEqual(parsed["sell_percentage"], 50.0)
         self.assertEqual(parsed["entry_price"], 1.40)
 
+    def test_sell_alert_parses_fractional_at_price_without_leading_zero(self):
+        from utils import parse_alert
+
+        parsed = parse_alert("STC QQQ 735C 6/25/2026 @ .55")
+
+        self.assertIsNotNone(parsed)
+        self.assertEqual(parsed["alert_type"], "sell")
+        self.assertEqual(parsed["ticker"], "QQQ")
+        self.assertEqual(parsed["strike"], 735.0)
+        self.assertEqual(parsed["option_type"], "CALL")
+        self.assertEqual(parsed["expiration"], "6/25/2026")
+        self.assertEqual(parsed["sell_percentage"], 100.0)
+        self.assertEqual(parsed["entry_price"], 0.55)
+
     def test_keyword_substrings_do_not_trigger_exit_alerts(self):
         from utils import parse_alert
 

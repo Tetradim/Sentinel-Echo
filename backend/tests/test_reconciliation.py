@@ -345,6 +345,39 @@ class FakeInterleavedTradeWindowDb:
         ]
 
 
+class FakeTerminalFailedEntryDb:
+    async def get_alerts(self, limit=100):
+        return [
+            {
+                "id": "alert-terminal-failed-entry",
+                "ticker": "IWM",
+                "alert_type": "buy",
+                "trade_executed": False,
+                "processed": True,
+            }
+        ]
+
+    async def get_trades(self, limit=100):
+        return [
+            {
+                "id": "trade-terminal-failed-entry",
+                "alert_id": "alert-terminal-failed-entry",
+                "ticker": "IWM",
+                "side": "BUY",
+                "status": "failed",
+                "order_id": "order-cancelled",
+                "error_message": "cancelled",
+                "simulated": False,
+            }
+        ]
+
+    async def get_positions(self, status=None):
+        return []
+
+    async def get_operator_events(self, limit=100):
+        return []
+
+
 class FakeAcceptedBridgeMissingParserProofDb:
     async def get_alerts(self, limit=100):
         return [
@@ -758,6 +791,23 @@ class ReconciliationTests(unittest.TestCase):
         self.assertEqual(summary["unresolved_count"], 1)
         self.assertEqual(summary["simulated_unresolved_count"], 1)
         self.assertEqual(summary["unresolved_reasons"], ["order pending fill"])
+
+    def test_failed_entry_without_position_is_terminal_not_unresolved(self):
+        from reconciliation import build_alert_chain_report, build_reconciliation_rows, summarize_reconciliation_rows
+
+        rows = asyncio.run(build_reconciliation_rows(FakeTerminalFailedEntryDb()))
+        row = rows[0]
+
+        self.assertEqual(row["trade_status"], "failed")
+        self.assertEqual(row["attention_reason"], "")
+        summary = summarize_reconciliation_rows(rows)
+        self.assertEqual(summary["unresolved_count"], 0)
+        self.assertEqual(summary["unresolved_reasons"], [])
+
+        report = asyncio.run(build_alert_chain_report(FakeTerminalFailedEntryDb()))
+        self.assertEqual(report["rows"][0]["status"], "reconciled")
+        self.assertEqual(report["summary"]["attention_count"], 0)
+        self.assertEqual(report["summary"]["live_blocking_attention_count"], 0)
 
     def test_alert_chain_report_includes_bridge_decisions_and_stored_alerts(self):
         from reconciliation import build_alert_chain_report

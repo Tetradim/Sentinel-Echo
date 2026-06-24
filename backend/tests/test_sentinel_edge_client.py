@@ -23,5 +23,43 @@ class SentinelEdgeClientTests(unittest.TestCase):
         self.assertIn("Edge unavailable", analysis.reason)
 
 
+class AlertFilterEdgeBoundaryTests(unittest.IsolatedAsyncioTestCase):
+    async def test_filter_blocks_execution_when_edge_filter_is_disabled(self):
+        from alert_filter import AlertFilter
+
+        alert_filter = AlertFilter(enabled=False)
+        alert_filter._parse_message = lambda _message: {"ticker": "SPY", "signal_type": "BTO"}
+
+        result = await alert_filter.process_alert("SPY 600C BTO")
+
+        self.assertEqual(result.ticker, "SPY")
+        self.assertFalse(result.should_execute)
+        self.assertEqual(result.confidence, 0.0)
+        self.assertEqual(result.confidence_level, "NONE")
+        self.assertEqual(result.recommendation, "HOLD")
+        self.assertIn("Edge not connected", result.skip_reason)
+
+    async def test_filter_blocks_execution_when_edge_analysis_errors(self):
+        from alert_filter import AlertFilter
+
+        class FailingAnalyzer:
+            async def should_execute(self, ticker, signal_type):
+                raise RuntimeError(f"Edge unavailable for {ticker}:{signal_type}")
+
+        alert_filter = AlertFilter(enabled=False)
+        alert_filter.enabled = True
+        alert_filter.analyzer = FailingAnalyzer()
+        alert_filter._parse_message = lambda _message: {"ticker": "SPY", "signal_type": "BTO"}
+
+        result = await alert_filter.process_alert("SPY 600C BTO")
+
+        self.assertEqual(result.ticker, "SPY")
+        self.assertFalse(result.should_execute)
+        self.assertEqual(result.confidence, 0.0)
+        self.assertEqual(result.confidence_level, "NONE")
+        self.assertEqual(result.recommendation, "HOLD")
+        self.assertIn("Edge error", result.skip_reason)
+
+
 if __name__ == "__main__":
     unittest.main()

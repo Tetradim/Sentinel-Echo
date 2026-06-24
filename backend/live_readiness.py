@@ -16,9 +16,60 @@ from broker_capabilities import (
 from readiness_status import optional_status_flag, status_flag
 from settings_flags import coerce_bool
 from source_config import summarize_source_policy
+from utils.credentials import credential_key_status
 
 
 LOCAL_BIND_HOSTS = {"127.0.0.1", "localhost", "::1"}
+DEFAULT_CONSOLIDATION_ROLE = "paper_shadow"
+LIVE_EXECUTION_ROLE = "live_executioner"
+SUPPORTED_CONSOLIDATION_ROLES = {
+    "portfolio_ops",
+    "paper_shadow",
+    "replay_audit",
+    LIVE_EXECUTION_ROLE,
+}
+READINESS_GATE_DEFINITIONS = {
+    "paper_mode_burn_in": {
+        "label": "Paper-mode burn-in",
+        "blocking_code": "paper_burn_in_missing",
+        "summary": "Paper-mode burn-in evidence is required before live readiness signoff.",
+    },
+    "partial_fill_broker_behavior": {
+        "label": "Partial-fill broker behavior",
+        "blocking_code": "partial_fill_drill_missing",
+        "summary": "Broker partial-fill behavior must be drilled and recorded before live readiness signoff.",
+    },
+    "disconnect_reconnect_drill": {
+        "label": "Disconnect/reconnect drill",
+        "blocking_code": "reconnect_drill_missing",
+        "summary": "Broker disconnect/reconnect behavior must be drilled and recorded before live readiness signoff.",
+    },
+    "market_transition_validation": {
+        "label": "Market-transition validation",
+        "blocking_code": "market_transition_validation_missing",
+        "summary": "Market open/close transition validation is required before live readiness signoff.",
+    },
+    "multi_session_paper_monitoring": {
+        "label": "Multi-session paper monitoring",
+        "blocking_code": "multi_session_monitoring_missing",
+        "summary": "Paper monitoring must cover at least two real market sessions before live readiness signoff.",
+    },
+    "live_monitoring_evidence": {
+        "label": "Live monitoring evidence",
+        "blocking_code": "live_monitoring_evidence_missing",
+        "summary": "Operator-visible monitoring evidence is required before live readiness signoff.",
+    },
+    "controlled_operator_access_review": {
+        "label": "Controlled operator access review",
+        "blocking_code": "operator_access_review_missing",
+        "summary": "Controlled operator access review evidence is required before live readiness signoff.",
+    },
+    "operator_signoff": {
+        "label": "Operator signoff",
+        "blocking_code": "operator_signoff_missing",
+        "summary": "A recorded operator signoff is required before live readiness signoff.",
+    },
+}
 
 
 def _issue(code: str, summary: str) -> Dict[str, str]:
@@ -40,6 +91,20 @@ def _authless_desktop_mode(env: Dict[str, str] | None) -> bool:
 
 def _dict_or_empty(value: Any) -> Dict[str, Any]:
     return value if isinstance(value, dict) else {}
+
+
+def _normalize_role(value: Any, *, default: str = DEFAULT_CONSOLIDATION_ROLE) -> str:
+    role = str(value or "").strip().lower().replace("-", "_").replace(" ", "_")
+    return role or default
+
+
+def _consolidation_role(env: Dict[str, str] | None) -> str:
+    return _normalize_role(_env_value(env, "CONSOLIDATION_BOT_ROLE", DEFAULT_CONSOLIDATION_ROLE))
+
+
+def live_execution_role_enabled(env: Dict[str, str] | None = None) -> bool:
+    """Return True only when Consolidation has explicitly been deployed as a live executioner."""
+    return _consolidation_role(env) == LIVE_EXECUTION_ROLE
 
 
 def _configured_discord_channel_count(
@@ -101,6 +166,67 @@ def _nonnegative_int(value: Any) -> int:
     return max(parsed, 0)
 
 
+def required_readiness_gate_definitions() -> Dict[str, Dict[str, str]]:
+    return {key: dict(definition) for key, definition in READINESS_GATE_DEFINITIONS.items()}
+
+
+def _readiness_gate_source(value: Any) -> Dict[str, Any]:
+    if isinstance(value, str):
+        try:
+            value = json.loads(value)
+        except json.JSONDecodeError:
+            return {}
+    return value if isinstance(value, dict) else {}
+
+
+def _readiness_gate_session_count(evidence: Dict[str, Any]) -> int:
+    return max(
+        _nonnegative_int(evidence.get("session_count")),
+        _nonnegative_int(evidence.get("market_session_count")),
+    )
+
+
+def _readiness_gate_passed(gate_key: str, state: Dict[str, Any]) -> bool:
+    status = str(state.get("status") or "").strip().lower()
+    updated_at = str(state.get("updated_at") or "").strip()
+    if status != "passed" or not updated_at:
+        return False
+    if gate_key == "multi_session_paper_monitoring":
+        return _readiness_gate_session_count(_dict_or_empty(state.get("evidence"))) >= 2
+    return True
+
+
+def _readiness_gate_checks(raw_gates: Any) -> Dict[str, Any]:
+    source = _readiness_gate_source(raw_gates)
+    states: Dict[str, Dict[str, Any]] = {}
+    missing_gate_keys: list[str] = []
+    for gate_key, definition in READINESS_GATE_DEFINITIONS.items():
+        raw_state = _dict_or_empty(source.get(gate_key))
+        evidence = _dict_or_empty(raw_state.get("evidence"))
+        state = {
+            "label": definition["label"],
+            "status": str(raw_state.get("status") or "missing").strip().lower() or "missing",
+            "updated_at": str(raw_state.get("updated_at") or "").strip(),
+            "summary": str(raw_state.get("summary") or "").strip(),
+            "evidence": evidence,
+        }
+        if gate_key == "multi_session_paper_monitoring":
+            state["session_count"] = _readiness_gate_session_count(evidence)
+            state["required_session_count"] = 2
+        state["passed"] = _readiness_gate_passed(gate_key, state)
+        if not state["passed"]:
+            missing_gate_keys.append(gate_key)
+        states[gate_key] = state
+    return {
+        "required": True,
+        "definitions": required_readiness_gate_definitions(),
+        "states": states,
+        "missing_gate_keys": missing_gate_keys,
+        "passed_count": len(states) - len(missing_gate_keys),
+        "required_count": len(READINESS_GATE_DEFINITIONS),
+    }
+
+
 def _codes(issues: Iterable[Dict[str, str]]) -> set[str]:
     return {issue["code"] for issue in issues}
 
@@ -143,7 +269,7 @@ def evaluate_live_readiness(
     auto_live_sources = int(source_policy.get("auto_live_sources", 0))
     source_config_valid = bool(source_policy.get("valid", False))
     source_error = str(source_policy.get("error") or "")
-    auto_trading_enabled = coerce_bool(settings.get("auto_trading_enabled"), default=False)
+    auto_trading_enabled = coerce_bool(settings.get("auto_trading_enabled"), default=True)
     simulation_mode = coerce_bool(settings.get("simulation_mode"), default=True)
     take_profit_enabled = coerce_bool(settings.get("take_profit_enabled"), default=False)
     stop_loss_enabled = coerce_bool(settings.get("stop_loss_enabled"), default=False)
@@ -154,8 +280,14 @@ def evaluate_live_readiness(
     live_trading_armed = coerce_bool(runtime_state.get("live_trading_armed"), default=False)
     reconciliation_unresolved_count = _nonnegative_int(status.get("reconciliation_unresolved_count"))
     reconciliation_unresolved_reasons = _list_of_strings(status.get("reconciliation_unresolved_reasons"))
-    alert_chain_attention_count = _nonnegative_int(status.get("alert_chain_attention_count"))
-    alert_chain_attention_reasons = _list_of_strings(status.get("alert_chain_attention_reasons"))
+    alert_chain_audit_attention_count = _nonnegative_int(status.get("alert_chain_attention_count"))
+    alert_chain_audit_attention_reasons = _list_of_strings(status.get("alert_chain_attention_reasons"))
+    alert_chain_attention_count = _nonnegative_int(
+        status.get("alert_chain_live_blocking_attention_count", status.get("alert_chain_attention_count"))
+    )
+    alert_chain_attention_reasons = _list_of_strings(
+        status.get("alert_chain_live_blocking_attention_reasons", status.get("alert_chain_attention_reasons"))
+    )
     position_oco_unprotected_count = _nonnegative_int(status.get("position_oco_unprotected_count"))
     position_oco_unprotected_ids = _list_of_strings(status.get("position_oco_unprotected_ids"))
     position_oco_metadata_only_count = _nonnegative_int(status.get("position_oco_metadata_only_count"))
@@ -193,11 +325,32 @@ def evaluate_live_readiness(
         _status_or_runtime(status, runtime_state, "simulation_replay_acceptance_replay_url")
         or ""
     ).strip()
+    credential_status = credential_key_status(env)
+    active_role = _consolidation_role(env)
+    role_valid = active_role in SUPPORTED_CONSOLIDATION_ROLES
+    live_execution_allowed = live_execution_role_enabled(env)
+    readiness_gates = _readiness_gate_checks(_status_or_runtime(status, runtime_state, "readiness_gates", {}))
 
     if not _env_value(env, "API_KEY") and not _authless_desktop_mode(env):
         blocking.append(_issue("api_key_missing", "API_KEY is required before exposing live trading controls."))
-    if not _env_value(env, "CREDENTIAL_KEY"):
+    if not role_valid:
+        blocking.append(
+            _issue(
+                "consolidation_role_invalid",
+                "CONSOLIDATION_BOT_ROLE must be portfolio_ops, paper_shadow, replay_audit, or live_executioner.",
+            )
+        )
+    elif not live_execution_allowed:
+        blocking.append(
+            _issue(
+                "consolidation_role_not_live_executioner",
+                "Consolidation is outside the default live path; set CONSOLIDATION_BOT_ROLE=live_executioner only when explicitly reintroduced as an execution bot.",
+            )
+        )
+    if not credential_status["configured"]:
         blocking.append(_issue("credential_key_missing", "CREDENTIAL_KEY is required so broker secrets are encrypted."))
+    elif not credential_status["valid"]:
+        blocking.append(_issue("credential_key_invalid", "CREDENTIAL_KEY must be a 32-byte hex string."))
     if simulation_mode:
         blocking.append(_issue("simulation_mode_enabled", "Simulation mode must be disabled before live trading."))
     if not auto_trading_enabled:
@@ -225,7 +378,7 @@ def evaluate_live_readiness(
     if not capabilities.get("supports_cancel_order"):
         blocking.append(_issue("broker_cancel_unsupported", "Active broker lacks cancellation support required for OCO exits."))
     broker_connected = optional_status_flag(status, "broker_connected")
-    if broker_connected is False:
+    if broker_connected is not True:
         blocking.append(_issue("broker_not_connected", "Broker connection is not healthy."))
     discord_configured = _discord_configured(settings, status, env)
     discord_connected = status_flag(status, "discord_connected") and discord_configured
@@ -303,10 +456,20 @@ def evaluate_live_readiness(
                 "A passing deterministic Simulation Engine replay acceptance proof is required.",
             )
         )
+    for gate_key in readiness_gates["missing_gate_keys"]:
+        gate = READINESS_GATE_DEFINITIONS[gate_key]
+        blocking.append(_issue(gate["blocking_code"], gate["summary"]))
 
     checks = {
+        "role": {
+            "active_role": active_role,
+            "valid": role_valid,
+            "live_execution_allowed": live_execution_allowed,
+            "source": "CONSOLIDATION_BOT_ROLE",
+            "supported_roles": sorted(SUPPORTED_CONSOLIDATION_ROLES),
+        },
         "api_auth": {"configured": bool(_env_value(env, "API_KEY")), "authless_desktop_mode": _authless_desktop_mode(env)},
-        "credential_key": {"configured": bool(_env_value(env, "CREDENTIAL_KEY"))},
+        "credential_key": credential_status,
         "broker": {
             "active_broker": active_broker,
             "configured": broker_configured,
@@ -350,8 +513,10 @@ def evaluate_live_readiness(
             "unresolved_reasons": reconciliation_unresolved_reasons,
         },
         "alert_chains": {
-            "attention_count": alert_chain_attention_count,
-            "attention_reasons": alert_chain_attention_reasons,
+            "attention_count": alert_chain_audit_attention_count,
+            "attention_reasons": alert_chain_audit_attention_reasons,
+            "live_blocking_attention_count": alert_chain_attention_count,
+            "live_blocking_attention_reasons": alert_chain_attention_reasons,
         },
         "simulation_replay": {
             "proof_required": True,
@@ -366,6 +531,7 @@ def evaluate_live_readiness(
             "updated_at": replay_acceptance_updated_at,
             "replay_url": replay_acceptance_replay_url,
         },
+        "readiness_gates": readiness_gates,
     }
 
     return {

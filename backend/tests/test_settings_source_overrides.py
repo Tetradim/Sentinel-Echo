@@ -81,7 +81,7 @@ class SourceOverrideRouteTests(unittest.TestCase):
         response = asyncio.run(settings_route.get_settings())
 
         self.assertIsInstance(response, dict)
-        self.assertFalse(response["auto_trading_enabled"])
+        self.assertTrue(response["auto_trading_enabled"])
         self.assertTrue(response["simulation_mode"])
 
     def test_get_settings_coerces_known_string_flags_for_clients(self):
@@ -107,6 +107,18 @@ class SourceOverrideRouteTests(unittest.TestCase):
 
         for flag_name in string_flags:
             self.assertIs(response[flag_name], False)
+
+    def test_get_settings_masks_discord_token(self):
+        from routes import settings as settings_route
+
+        fake_db = FakeSettingsDb({"discord_token": "discord-secret-token"})
+        settings_route.set_db(fake_db)
+
+        response = asyncio.run(settings_route.get_settings())
+
+        self.assertEqual(response["discord_token"], "********")
+        self.assertTrue(response["discord_token_configured"])
+        self.assertNotEqual(response["discord_token"], "discord-secret-token")
 
     def test_update_premium_buffer_settings_persists_enabled_flag_and_amount(self):
         from routes import settings as settings_route

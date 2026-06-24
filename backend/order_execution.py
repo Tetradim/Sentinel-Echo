@@ -9,7 +9,7 @@ from typing import Any, Dict, Optional
 from broker_capabilities import missing_broker_config_fields, normalize_broker_id
 from models import BrokerConfig, BrokerType
 from settings_flags import coerce_bool
-from utils.credentials import decrypt_broker_config
+from utils.credentials import credential_key_status, decrypt_broker_config
 
 
 class BrokerConfigurationError(ValueError):
@@ -193,6 +193,22 @@ def require_cancel_order_support(client: Any, *, require: bool) -> None:
         )
 
 
+def require_live_credential_encryption(*, require: bool) -> None:
+    """Block live order submission unless broker credential encryption is usable."""
+    if not require:
+        return
+    status = credential_key_status()
+    if status["valid"]:
+        return
+    if not status["configured"]:
+        raise BrokerConfigurationError(
+            "CREDENTIAL_KEY is required before live broker order submission so broker secrets are encrypted."
+        )
+    raise BrokerConfigurationError(
+        "CREDENTIAL_KEY must be a 32-byte hex string before live broker order submission."
+    )
+
+
 async def close_broker_client(client: Any) -> None:
     """Close a temporary broker client when it exposes a sync or async close hook."""
     close = getattr(client, "close", None)
@@ -213,6 +229,7 @@ def get_configured_broker_client(
     """Create the legacy broker client with decrypted credentials."""
     from broker_clients import get_broker_client
 
+    require_live_credential_encryption(require=require_order_status)
     config_data = resolve_broker_config(settings, broker_id)
     selected_broker = str(broker_id or config_data.get("broker_type") or "").lower()
     broker_type = BrokerType(selected_broker)

@@ -207,6 +207,51 @@ class OrderExecutionTests(unittest.TestCase):
 
         factory.assert_not_called()
 
+    def test_live_configured_broker_client_rejects_missing_credential_key_before_factory(self):
+        from order_execution import BrokerConfigurationError, get_configured_broker_client
+
+        settings = {
+            "active_broker": "alpaca",
+            "broker_configs": {
+                "alpaca": {
+                    "broker_type": "alpaca",
+                    "api_key": "real-key",
+                    "api_secret": "real-secret",
+                }
+            },
+        }
+
+        with patch.dict("os.environ", {"CREDENTIAL_KEY": ""}, clear=False):
+            with patch("broker_clients.get_broker_client") as factory:
+                with self.assertRaises(BrokerConfigurationError) as raised:
+                    get_configured_broker_client(settings, "alpaca", require_order_status=True)
+
+        self.assertIn("CREDENTIAL_KEY", str(raised.exception))
+        self.assertNotIn("real-key", str(raised.exception))
+        factory.assert_not_called()
+
+    def test_live_configured_broker_client_rejects_invalid_credential_key_before_factory(self):
+        from order_execution import BrokerConfigurationError, get_configured_broker_client
+
+        settings = {
+            "active_broker": "alpaca",
+            "broker_configs": {
+                "alpaca": {
+                    "broker_type": "alpaca",
+                    "api_key": "real-key",
+                    "api_secret": "real-secret",
+                }
+            },
+        }
+
+        with patch.dict("os.environ", {"CREDENTIAL_KEY": "not-a-32-byte-hex-key"}, clear=False):
+            with patch("broker_clients.get_broker_client") as factory:
+                with self.assertRaises(BrokerConfigurationError) as raised:
+                    get_configured_broker_client(settings, "alpaca", require_order_status=True)
+
+        self.assertIn("32-byte hex", str(raised.exception))
+        factory.assert_not_called()
+
     def test_configured_broker_client_ignores_stored_duplicate_broker_type(self):
         from models import BrokerType
         from order_execution import get_configured_broker_client
@@ -370,6 +415,7 @@ class OrderExecutionTests(unittest.TestCase):
             fake_session.posts[0]["json"]["client_order_id"],
             "consolidation-buy-alert-123",
         )
+        self.assertEqual(fake_session.posts[0]["json"]["symbol"], "SPY260621C00500000")
 
     def test_legacy_alpaca_get_order_status_maps_fill_fields(self):
         from broker_clients import AlpacaClient
@@ -467,6 +513,58 @@ class OrderExecutionTests(unittest.TestCase):
             "https://paper-api.alpaca.markets/v2/orders/order-123",
         )
 
+    def test_legacy_alpaca_list_open_orders_returns_normalized_open_orders(self):
+        from broker_clients import AlpacaClient
+        from models import BrokerConfig, BrokerType
+
+        class FakeResponse:
+            status = 200
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, exc_type, exc_val, exc_tb):
+                return False
+
+            async def json(self):
+                return [
+                    {"id": "open-order-1", "status": "new", "symbol": "SPY260621C00500000"},
+                    {"id": "", "status": "new", "symbol": "SPY260621C00510000"},
+                ]
+
+        class FakeSession:
+            def __init__(self):
+                self.gets = []
+
+            def get(self, url, *, headers=None):
+                self.gets.append({"url": url, "headers": headers})
+                return FakeResponse()
+
+        async def fake_get_session():
+            return fake_session
+
+        fake_session = FakeSession()
+        client = AlpacaClient(
+            BrokerConfig(
+                broker_type=BrokerType.ALPACA,
+                api_key="real-key",
+                api_secret="real-secret",
+                base_url="https://paper-api.alpaca.markets",
+            )
+        )
+        client._get_session = fake_get_session
+
+        orders = asyncio.run(client.list_open_orders())
+
+        self.assertEqual(
+            orders,
+            [{"order_id": "open-order-1", "status": "new", "symbol": "SPY260621C00500000"}],
+        )
+        self.assertEqual(
+            fake_session.gets[0]["url"],
+            "https://paper-api.alpaca.markets/v2/orders?status=open",
+        )
+
     def test_legacy_tradier_get_order_status_maps_fill_fields(self):
         from broker_clients import TradierClient
         from models import BrokerConfig, BrokerType
@@ -562,6 +660,61 @@ class OrderExecutionTests(unittest.TestCase):
         self.assertEqual(
             fake_session.deletes[0]["url"],
             "https://api.tradier.com/v1/accounts/acct-123/orders/order-456",
+        )
+
+    def test_legacy_tradier_list_open_orders_returns_normalized_open_orders(self):
+        from broker_clients import TradierClient
+        from models import BrokerConfig, BrokerType
+
+        class FakeResponse:
+            status = 200
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, exc_type, exc_val, exc_tb):
+                return False
+
+            async def json(self):
+                return {
+                    "orders": {
+                        "order": [
+                            {"id": "open-order-2", "status": "open", "symbol": "SPY260621C00500000"},
+                            {"id": "filled-order", "status": "filled", "symbol": "SPY260621C00510000"},
+                        ]
+                    }
+                }
+
+        class FakeSession:
+            def __init__(self):
+                self.gets = []
+
+            def get(self, url, *, headers=None):
+                self.gets.append({"url": url, "headers": headers})
+                return FakeResponse()
+
+        async def fake_get_session():
+            return fake_session
+
+        fake_session = FakeSession()
+        client = TradierClient(
+            BrokerConfig(
+                broker_type=BrokerType.TRADIER,
+                access_token="real-token",
+                account_id="acct-123",
+            )
+        )
+        client._get_session = fake_get_session
+
+        orders = asyncio.run(client.list_open_orders())
+
+        self.assertEqual(
+            orders,
+            [{"order_id": "open-order-2", "status": "open", "symbol": "SPY260621C00500000"}],
+        )
+        self.assertEqual(
+            fake_session.gets[0]["url"],
+            "https://api.tradier.com/v1/accounts/acct-123/orders",
         )
 
 

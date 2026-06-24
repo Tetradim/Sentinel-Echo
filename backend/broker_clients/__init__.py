@@ -2,7 +2,7 @@ import aiohttp
 import logging
 import re
 from abc import ABC, abstractmethod
-from typing import Tuple, Optional
+from typing import Any, Tuple, Optional
 from models import BrokerConfig, BrokerType
 
 logger = logging.getLogger(__name__)
@@ -40,6 +40,43 @@ def _tradier_error_reason(data, fallback: str) -> str:
         if isinstance(error, str):
             return error
     return fallback
+
+
+def _normalize_open_order_payload(order: Any) -> dict | None:
+    if not isinstance(order, dict):
+        return None
+    order_id = str(order.get('id') or order.get('order_id') or order.get('broker_order_id') or '').strip()
+    if not order_id:
+        return None
+
+    status = str(order.get('status') or 'open').strip().lower()
+    terminal_statuses = {'filled', 'cancelled', 'canceled', 'expired', 'rejected', 'failed', 'done', 'closed'}
+    if status in terminal_statuses:
+        return None
+
+    normalized = {'order_id': order_id, 'status': status or 'open'}
+    symbol = str(order.get('symbol') or order.get('option_symbol') or '').strip()
+    if symbol:
+        normalized['symbol'] = symbol
+    return normalized
+
+
+def _normalize_open_order_list(orders: Any) -> list[dict]:
+    if isinstance(orders, dict):
+        orders = [orders]
+    if not isinstance(orders, list):
+        return []
+    normalized = [_normalize_open_order_payload(order) for order in orders]
+    return [order for order in normalized if order is not None]
+
+
+def _tradier_order_list(data: Any) -> list[dict]:
+    if not isinstance(data, dict):
+        return []
+    orders = data.get('orders')
+    if not isinstance(orders, dict):
+        return []
+    return _normalize_open_order_list(orders.get('order'))
 
 
 class OrderValidationError(Exception):
@@ -395,12 +432,17 @@ class AlpacaClient(BaseBrokerClient):
             
             exp_parts = params['expiration'].split('/')
             if len(exp_parts) == 3:
-                exp_formatted = f"{exp_parts[2]}-{exp_parts[0].zfill(2)}-{exp_parts[1].zfill(2)}"
+                year = exp_parts[2]
+                if len(year) == 4:
+                    year = year[2:]
+                exp_formatted = f"{year.zfill(2)}{exp_parts[0].zfill(2)}{exp_parts[1].zfill(2)}"
             else:
-                exp_formatted = params['expiration']
+                exp_formatted = params['expiration'].replace('-', '')
+                if len(exp_formatted) == 8 and exp_formatted[:2] in {"19", "20"}:
+                    exp_formatted = exp_formatted[2:]
             
             opt_type = 'C' if params['option_type'] == 'CALL' else 'P'
-            symbol = f"{params['ticker']}{exp_formatted.replace('-', '')}{opt_type}{int(params['strike'] * 1000):08d}"
+            symbol = f"{params['ticker']}{exp_formatted}{opt_type}{int(params['strike'] * 1000):08d}"
             
             order_data = {
                 'symbol': symbol,
@@ -488,6 +530,20 @@ class AlpacaClient(BaseBrokerClient):
                 'cancel_requested': False,
                 'reason': str(e),
             }
+
+    async def list_open_orders(self) -> list[dict]:
+        try:
+            session = await self._get_session()
+            async with session.get(
+                f"{self.config.base_url}/v2/orders?status=open",
+                headers=self._get_headers(),
+            ) as resp:
+                if resp.status != 200:
+                    return []
+                return _normalize_open_order_list(await resp.json())
+        except Exception as e:
+            logger.error(f"Alpaca open order listing failed: {e}")
+            return []
 
 
 class TDAmeritadeClient(BaseBrokerClient):
@@ -686,6 +742,20 @@ class TradierClient(BaseBrokerClient):
                 'cancel_requested': False,
                 'reason': str(e),
             }
+
+    async def list_open_orders(self) -> list[dict]:
+        try:
+            session = await self._get_session()
+            async with session.get(
+                f'https://api.tradier.com/v1/accounts/{self.config.account_id}/orders',
+                headers=self._get_headers(),
+            ) as resp:
+                if resp.status != 200:
+                    return []
+                return _tradier_order_list(await resp.json())
+        except Exception as e:
+            logger.error(f"Tradier open order listing failed: {e}")
+            return []
 
 
 class WebullClient(BaseBrokerClient):

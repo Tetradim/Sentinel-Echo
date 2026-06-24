@@ -83,7 +83,7 @@ class DiscordParsePreviewTests(unittest.TestCase):
         self.assertEqual(fake_db.updated_settings, [])
         self.assertEqual(fake_db.updated_patterns, [])
 
-    def test_parse_preview_treats_malformed_settings_as_safe_defaults(self):
+    def test_parse_preview_treats_malformed_settings_as_operational_defaults(self):
         from routes import discord as discord_route
 
         fake_db = FakeRawPreviewDb("settings")
@@ -99,14 +99,11 @@ class DiscordParsePreviewTests(unittest.TestCase):
         )
 
         self.assertEqual(result["parsed"]["ticker"], "SPY")
-        self.assertFalse(result["execution_preview"]["would_request_trade"])
-        self.assertEqual(result["execution_preview"]["reason"], "auto trading disabled")
-        self.assertFalse(result["execution_preview"]["auto_trading_enabled"])
+        self.assertTrue(result["execution_preview"]["would_request_trade"])
+        self.assertIsNone(result["execution_preview"]["reason"])
+        self.assertTrue(result["execution_preview"]["auto_trading_enabled"])
         self.assertTrue(result["execution_preview"]["simulation_mode"])
-        self.assertIn(
-            "Auto trading is disabled; preview will not request a trade.",
-            result["warnings"],
-        )
+        self.assertNotIn("Auto trading is disabled; preview will not request a trade.", result["warnings"])
 
     def test_parse_preview_reports_malformed_source_overrides_without_crashing(self):
         from routes import discord as discord_route

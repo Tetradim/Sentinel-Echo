@@ -36,7 +36,7 @@ def _default_runtime_state() -> Dict[str, Any]:
         'last_loss_reset_date': '',
         'shutdown_triggered': False,
         'shutdown_reason': '',
-        'auto_trading_enabled': False,
+        'auto_trading_enabled': True,
         'live_trading_armed': False,
         'live_trading_armed_until': '',
         'live_trading_armed_by': '',
@@ -64,7 +64,7 @@ def _default_settings() -> Dict[str, Any]:
         'chrome_bridge_require_source_override': True,
         'active_broker': 'ibkr',
         'broker_configs': {},
-        'auto_trading_enabled': False,
+        'auto_trading_enabled': True,
         'premium_buffer_enabled': False,
         'premium_buffer_amount': 10.0,
         'default_quantity': 1,
@@ -404,7 +404,7 @@ CREATE TABLE IF NOT EXISTS runtime_state (
     last_loss_reset_date TEXT    NOT NULL DEFAULT '',
     shutdown_triggered   INTEGER NOT NULL DEFAULT 0,
     shutdown_reason      TEXT    NOT NULL DEFAULT '',
-    auto_trading_enabled INTEGER NOT NULL DEFAULT 0
+    auto_trading_enabled INTEGER NOT NULL DEFAULT 1
     ,
     live_trading_armed INTEGER NOT NULL DEFAULT 0,
     live_trading_armed_until TEXT NOT NULL DEFAULT '',

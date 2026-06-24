@@ -7,6 +7,11 @@ from bridge_contract import CHROME_BRIDGE_CONTRACT_VERSION
 from settings_flags import coerce_bool
 
 
+PENDING_TRADE_STATUSES = {"pending", "submitted", "unconfirmed"}
+TERMINAL_NO_FILL_STATUSES = {"failed", "rejected", "cancelled", "canceled", "expired"}
+STRUCTURAL_PROOF_PREFIX = "accepted bridge alert missing "
+
+
 def _first_trade_for_alert(trades: list[dict], alert_id: str) -> dict | None:
     return next((trade for trade in trades if trade.get("alert_id") == alert_id), None)
 
@@ -32,8 +37,11 @@ def _first_position_for_trade(positions: list[dict], trade_id: str | None) -> di
 def _attention_reason(alert: dict, trade: dict | None, position: dict | None) -> str:
     if alert.get("processed") and not trade:
         return "processed alert has no trade"
-    if trade and str(trade.get("status", "")).lower() in {"pending", "submitted", "unconfirmed"}:
+    trade_status = str((trade or {}).get("status", "")).lower()
+    if trade and trade_status in PENDING_TRADE_STATUSES:
         return "order pending fill"
+    if trade and trade_status in TERMINAL_NO_FILL_STATUSES:
+        return ""
     if trade and str(trade.get("side", "BUY")).upper() == "BUY" and not position:
         return "entry trade has no position"
     return ""
@@ -63,6 +71,22 @@ def _chain_status(*, skipped: bool, attention_reason: str, deterministic_reason:
     if attention_reason:
         return "attention", False
     return "reconciled", True
+
+
+def _is_live_blocking_attention(row: dict[str, Any]) -> bool:
+    if _clean_text(row.get("status")) != "attention":
+        return False
+    reason = _clean_text(row.get("attention_reason"))
+    if not reason:
+        return False
+
+    if reason in {"order pending fill", "entry trade has no position"}:
+        return not coerce_bool(row.get("simulated"), default=True)
+
+    if reason.startswith(STRUCTURAL_PROOF_PREFIX):
+        return coerce_bool(row.get("trade_requested"), default=False)
+
+    return False
 
 
 def _has_parser_confidence_proof(parser: dict[str, Any]) -> bool:
@@ -297,11 +321,13 @@ async def build_alert_chain_report(db, *, limit: int = 100) -> Dict[str, Any]:
                 "trade_id": _clean_text(reconciliation.get("trade_id")),
                 "order_id": _clean_text(reconciliation.get("order_id")),
                 "position_id": _clean_text(reconciliation.get("position_id")),
+                "simulated": coerce_bool(reconciliation.get("simulated"), default=True),
                 "status": status,
                 "attention_reason": attention_reason,
                 "deterministic": deterministic,
             }
         )
+        rows[-1]["live_blocking_attention"] = _is_live_blocking_attention(rows[-1])
 
     for reconciliation in reconciliation_rows:
         alert_id = _clean_text(reconciliation.get("alert_id"))
@@ -339,11 +365,13 @@ async def build_alert_chain_report(db, *, limit: int = 100) -> Dict[str, Any]:
                 "trade_id": _clean_text(reconciliation.get("trade_id")),
                 "order_id": _clean_text(reconciliation.get("order_id")),
                 "position_id": _clean_text(reconciliation.get("position_id")),
+                "simulated": coerce_bool(reconciliation.get("simulated"), default=True),
                 "status": status,
                 "attention_reason": attention_reason,
                 "deterministic": deterministic,
             }
         )
+        rows[-1]["live_blocking_attention"] = _is_live_blocking_attention(rows[-1])
 
     summary = {
         "total": len(rows),
@@ -362,6 +390,14 @@ async def build_alert_chain_report(db, *, limit: int = 100) -> Dict[str, Any]:
                 row["attention_reason"]
                 for row in rows
                 if row["status"] == "attention" and row["attention_reason"]
+            }
+        ),
+        "live_blocking_attention_count": sum(1 for row in rows if row.get("live_blocking_attention")),
+        "live_blocking_attention_reasons": sorted(
+            {
+                row["attention_reason"]
+                for row in rows
+                if row.get("live_blocking_attention") and row["attention_reason"]
             }
         ),
         "deterministic_count": sum(1 for row in rows if row["deterministic"]),

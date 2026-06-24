@@ -28,7 +28,7 @@ bot_status = {
     "discord_channel_count": 0,
     "broker_connected": False,
     "active_broker": "ibkr",
-    "auto_trading_enabled": False,  # FIXED C2b: was True
+    "auto_trading_enabled": True,
     "simulation_mode": True,
     "last_alert_time": None,
     "alerts_processed": 0
@@ -107,7 +107,7 @@ async def get_status():
             {
                 "discord_connected": status_flag(signal_ingestion, "discord_connected"),
                 "active_broker": active_broker,
-                "auto_trading_enabled": coerce_bool(settings.get("auto_trading_enabled"), default=False),
+                "auto_trading_enabled": coerce_bool(settings.get("auto_trading_enabled"), default=True),
                 "simulation_mode": coerce_bool(settings.get("simulation_mode"), default=True),
             }
         )
@@ -144,7 +144,7 @@ async def setup_diagnostics():
     source_config_valid = bool(source_policy.get("valid", False))
     source_error = str(source_policy.get("error") or "")
 
-    auto_trading_enabled = coerce_bool(settings.get("auto_trading_enabled"), default=False)
+    auto_trading_enabled = coerce_bool(settings.get("auto_trading_enabled"), default=True)
     simulation_mode = coerce_bool(settings.get("simulation_mode"), default=True)
     shutdown_triggered = (
         coerce_bool(runtime.get("shutdown_triggered"), default=False)

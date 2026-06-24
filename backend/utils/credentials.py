@@ -7,8 +7,9 @@ from an environment variable (CREDENTIAL_KEY) so it never lives in the DB.
 
 Key management:
   - Set CREDENTIAL_KEY to a random 32-byte hex string in your .env file.
-  - If CREDENTIAL_KEY is not set, credentials are stored as-is with a warning
-    (backwards-compatible, but insecure).  Set the key before going to live trading.
+  - If CREDENTIAL_KEY is missing or malformed, credentials may still be stored
+    as-is for backward-compatible setup flows, but live readiness and live broker
+    order submission must reject that configuration.
   - Use `python -c "import secrets; print(secrets.token_hex(32))"` to generate one.
 
 The encrypted value is stored as a plain string prefixed with "enc:" so we can
@@ -19,7 +20,7 @@ that were saved before encryption was enabled.
 import os
 import base64
 import logging
-from typing import Any, Dict
+from typing import Any, Dict, Mapping
 
 logger = logging.getLogger(__name__)
 
@@ -34,21 +35,60 @@ _PREFIX = 'enc:'
 _fernet = None
 
 
+def credential_key_status(env: Mapping[str, str] | None = None) -> Dict[str, Any]:
+    """Return non-secret CREDENTIAL_KEY readiness metadata."""
+    source = env if env is not None else os.environ
+    raw_key = str(source.get('CREDENTIAL_KEY', '') or '').strip()
+    if not raw_key:
+        return {
+            'configured': False,
+            'valid': False,
+            'reason': 'missing',
+            'summary': 'CREDENTIAL_KEY is required so broker secrets are encrypted.',
+        }
+    if len(raw_key) != 64:
+        return {
+            'configured': True,
+            'valid': False,
+            'reason': 'invalid_length',
+            'summary': 'CREDENTIAL_KEY must be a 32-byte hex string.',
+        }
+    try:
+        bytes.fromhex(raw_key)
+    except ValueError:
+        return {
+            'configured': True,
+            'valid': False,
+            'reason': 'invalid_hex',
+            'summary': 'CREDENTIAL_KEY must be a 32-byte hex string.',
+        }
+    return {
+        'configured': True,
+        'valid': True,
+        'reason': '',
+        'summary': 'CREDENTIAL_KEY is configured for broker credential encryption.',
+    }
+
+
 def _get_fernet():
     global _fernet
     if _fernet is not None:
         return _fernet
     raw_key = os.environ.get('CREDENTIAL_KEY', '')
-    if not raw_key:
+    key_status = credential_key_status()
+    if not key_status['configured']:
         logger.warning(
             'CREDENTIAL_KEY env var not set -- broker credentials will be stored in plaintext. '
             'Set CREDENTIAL_KEY to a 32-byte hex string for encryption at rest.'
         )
         return None
+    if not key_status['valid']:
+        logger.error('CREDENTIAL_KEY is invalid -- broker credentials will not be encrypted until it is a 32-byte hex string.')
+        return None
     try:
         from cryptography.fernet import Fernet
-        # Derive a valid 32-byte Fernet key from the hex string
-        key_bytes = bytes.fromhex(raw_key[:64].ljust(64, '0'))
+        # Derive a valid Fernet key from the configured 32-byte hex string.
+        key_bytes = bytes.fromhex(raw_key)
         fernet_key = base64.urlsafe_b64encode(key_bytes)
         _fernet = Fernet(fernet_key)
         return _fernet

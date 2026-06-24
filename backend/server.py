@@ -12,7 +12,7 @@ import os
 import logging
 import threading
 from datetime import datetime, timezone
-from typing import List
+from typing import Any, List
 import discord
 from discord.ext import commands
 import asyncio
@@ -236,6 +236,46 @@ async def process_trade(alert: Alert, parsed: dict):
                 )
             return
 
+        if not settings.simulation_mode:
+            try:
+                from live_arming import is_live_trading_armed
+                from live_readiness import live_execution_role_enabled
+
+                runtime_state = await get_db().get_runtime_state()
+                if not is_live_trading_armed(runtime_state):
+                    logger.warning("[process_trade] live BUY blocked because live trading is not armed")
+                    if USE_SQLITE:
+                        from database_sqlite import update_alert
+                        update_alert(alert.id, {'processed': True, 'trade_executed': False})
+                    else:
+                        sync_mongo_db.alerts.update_one(
+                            {'id': alert.id},
+                            {'$set': {'processed': True, 'trade_executed': False}}
+                        )
+                    return
+                if not live_execution_role_enabled():
+                    logger.warning("[process_trade] live BUY blocked because Consolidation is not in live_executioner role")
+                    if USE_SQLITE:
+                        from database_sqlite import update_alert
+                        update_alert(alert.id, {'processed': True, 'trade_executed': False})
+                    else:
+                        sync_mongo_db.alerts.update_one(
+                            {'id': alert.id},
+                            {'$set': {'processed': True, 'trade_executed': False}}
+                        )
+                    return
+            except Exception as exc:
+                logger.error("[process_trade] live BUY blocked while checking arming state: %s", exc)
+                if USE_SQLITE:
+                    from database_sqlite import update_alert
+                    update_alert(alert.id, {'processed': True, 'trade_executed': False})
+                else:
+                    sync_mongo_db.alerts.update_one(
+                        {'id': alert.id},
+                        {'$set': {'processed': True, 'trade_executed': False}}
+                    )
+                return
+
         # ── 3. Build the trade record ─────────────────────────────────────────
         trade = Trade(
             alert_id=alert.id,
@@ -323,32 +363,6 @@ async def process_trade(alert: Alert, parsed: dict):
 
         else:
             # Real order — place with broker, store as "pending", start fill monitor
-            try:
-                from live_arming import is_live_trading_armed
-
-                runtime_state = await get_db().get_runtime_state()
-                if not is_live_trading_armed(runtime_state):
-                    logger.warning("[process_trade] live BUY blocked because live trading is not armed")
-                    if USE_SQLITE:
-                        from database_sqlite import update_alert
-                        update_alert(alert.id, {'processed': True, 'trade_executed': False})
-                    else:
-                        sync_mongo_db.alerts.update_one(
-                            {'id': alert.id},
-                            {'$set': {'processed': True, 'trade_executed': False}}
-                        )
-                    return
-            except Exception as exc:
-                logger.error("[process_trade] live BUY blocked while checking arming state: %s", exc)
-                if USE_SQLITE:
-                    from database_sqlite import update_alert
-                    update_alert(alert.id, {'processed': True, 'trade_executed': False})
-                else:
-                    sync_mongo_db.alerts.update_one(
-                        {'id': alert.id},
-                        {'$set': {'processed': True, 'trade_executed': False}}
-                    )
-                return
             trade.status = "pending"
             order_id = None
             
@@ -428,6 +442,14 @@ async def process_trade(alert: Alert, parsed: dict):
                     ))
                 except Exception as e:
                     logger.error(f"[process_trade] failed to start fill monitor: {e}")
+    elif parsed["alert_type"] == "average_down":
+        trade_executed = await process_average_down_alert(
+            alert,
+            parsed,
+            settings,
+            settings_raw,
+            source_config=parsed.get("_source_config") or {},
+        )
     elif is_exit_alert(parsed):
         trade_executed = await process_exit_alert(
             alert,
@@ -448,6 +470,275 @@ async def process_trade(alert: Alert, parsed: dict):
             {'id': alert.id},
             {'$set': {'processed': True, 'trade_executed': trade_executed}}
         )
+
+
+async def process_average_down_alert(
+    alert: Alert,
+    parsed: dict,
+    settings: Settings,
+    settings_raw: dict,
+    source_config: dict | None = None,
+) -> bool:
+    """Process average-down alerts by adding to a matching open option position."""
+    from models import Trade
+
+    if not settings.averaging_down_enabled:
+        logger.info("[process_average_down_alert] averaging down is disabled")
+        return False
+
+    db_obj = get_db()
+    open_positions = await db_obj.get_positions("open")
+    partial_positions = await db_obj.get_positions("partial")
+    candidates = [
+        position
+        for position in open_positions + partial_positions
+        if _average_down_position_matches(position, parsed)
+        and (settings.simulation_mode or not _position_is_simulated(position))
+    ]
+    if not candidates:
+        logger.info("[process_average_down_alert] no matching open position for %s", parsed)
+        return False
+
+    position = candidates[0]
+    if int(position.get("average_down_count") or 0) >= int(settings.averaging_down_max_buys):
+        logger.warning("[process_average_down_alert] max average-down buys reached for %s", position.get("id"))
+        return False
+
+    entry_price = float(position.get("entry_price") or 0.0)
+    alert_price = float(alert.entry_price or parsed.get("entry_price") or 0.0)
+    if entry_price <= 0 or alert_price <= 0:
+        logger.warning("[process_average_down_alert] missing valid entry price for %s", position.get("id"))
+        return False
+
+    drop_pct = ((entry_price - alert_price) / entry_price) * 100
+    if drop_pct < float(settings.averaging_down_threshold):
+        logger.info(
+            "[process_average_down_alert] price drop %.2f%% is below threshold %.2f%%",
+            drop_pct,
+            settings.averaging_down_threshold,
+        )
+        return False
+
+    quantity = _average_down_quantity(position, alert_price, settings, source_config or {})
+    if quantity <= 0:
+        logger.warning("[process_average_down_alert] average-down blocked by position size controls")
+        return False
+
+    trade = Trade(
+        alert_id=alert.id,
+        ticker=alert.ticker,
+        strike=alert.strike,
+        option_type=alert.option_type,
+        expiration=alert.expiration,
+        entry_price=alert_price,
+        quantity=quantity,
+        side="BUY",
+        broker=settings.active_broker.value,
+        simulated=settings.simulation_mode,
+    )
+
+    if settings.simulation_mode:
+        trade.status = "simulated"
+        trade.executed_at = datetime.now(timezone.utc)
+        await db_obj.insert_trade(trade.model_dump())
+        await db_obj.update_position(
+            position["id"],
+            _average_down_position_update(
+                position,
+                trade_id=trade.id,
+                quantity=quantity,
+                entry_price=alert_price,
+                settings_raw=settings_raw,
+                alert_id=alert.id,
+            ),
+        )
+        await notify_trade_filled(
+            trade.id,
+            trade.ticker,
+            trade.strike,
+            trade.option_type,
+            quantity,
+            alert_price,
+            "AVG DOWN (SIM)",
+            settings_raw,
+        )
+        return True
+
+    try:
+        from live_arming import is_live_trading_armed
+        from live_readiness import live_execution_role_enabled
+
+        runtime_state = await db_obj.get_runtime_state()
+        if not is_live_trading_armed(runtime_state):
+            logger.warning("[process_average_down_alert] live BUY blocked because live trading is not armed")
+            return False
+        if not live_execution_role_enabled():
+            logger.warning("[process_average_down_alert] live BUY blocked because Consolidation is not in live_executioner role")
+            return False
+    except Exception as exc:
+        logger.error("[process_average_down_alert] live BUY blocked while checking arming state: %s", exc)
+        return False
+
+    limit_price = alert_price
+    if settings.premium_buffer_enabled:
+        buffer_dollars = max(0.0, settings.premium_buffer_amount) / 100
+        limit_price = max(0.01, round(alert_price - buffer_dollars, 2))
+
+    try:
+        from order_execution import get_configured_broker_client
+
+        broker_client = get_configured_broker_client(
+            settings_raw,
+            settings.active_broker.value,
+            require_order_status=True,
+        )
+        order_result = await broker_client.place_order(
+            ticker=alert.ticker,
+            strike=alert.strike,
+            option_type=alert.option_type,
+            expiration=alert.expiration,
+            side="BUY",
+            quantity=quantity,
+            price=limit_price,
+            client_order_id=build_client_order_id(alert.id, "AVG-DOWN", position["id"]),
+        )
+        order_id = order_result.get("order_id")
+        if not order_id:
+            raise ValueError(order_result.get("error", "Broker did not return an order id"))
+        trade.order_id = order_id
+        trade.status = "pending"
+        await db_obj.insert_trade(trade.model_dump())
+        asyncio.create_task(
+            monitor_fill(
+                order_context=OrderContext(
+                    trade_id=trade.id,
+                    order_id=order_id,
+                    side="BUY",
+                    ticker=alert.ticker,
+                    strike=alert.strike,
+                    option_type=alert.option_type,
+                    expiration=alert.expiration,
+                    requested_quantity=quantity,
+                    broker=settings.active_broker.value,
+                    position_id=position["id"],
+                    alert_id=alert.id,
+                    alert_price=limit_price,
+                    simulated=False,
+                ),
+                broker_client=broker_client,
+                db=db_obj,
+                settings=settings_raw,
+            )
+        )
+        return False
+    except Exception as exc:
+        trade.status = "failed"
+        trade.error_message = str(exc)
+        await db_obj.insert_trade(trade.model_dump())
+        logger.error("[process_average_down_alert] average-down order failed: %s", exc)
+        await notify_trade_failed(
+            trade.id,
+            trade.ticker,
+            trade.strike,
+            trade.option_type,
+            str(exc),
+            settings_raw,
+        )
+        return False
+
+
+def _average_down_quantity(
+    position: dict[str, Any],
+    alert_price: float,
+    settings: Settings,
+    source_config: dict[str, Any],
+) -> int:
+    original_quantity = max(1, int(position.get("original_quantity") or position.get("remaining_quantity") or 1))
+    try:
+        source_multiplier = float(source_config.get("risk_multiplier", 1.0))
+    except (TypeError, ValueError):
+        source_multiplier = 1.0
+    if source_multiplier <= 0:
+        source_multiplier = 1.0
+    desired_quantity = max(
+        1,
+        int(original_quantity * (float(settings.averaging_down_percentage) / 100.0) * source_multiplier),
+    )
+
+    remaining_quantity = max(0, int(position.get("remaining_quantity") or 0))
+    current_basis = float(position.get("entry_price") or 0.0) * remaining_quantity * 100
+    available_budget = float(settings.max_position_size) - current_basis
+    risk_quantity = int(available_budget / (alert_price * 100)) if alert_price > 0 else 0
+    return apply_source_quantity_limits(min(desired_quantity, risk_quantity), source_config)
+
+
+def _average_down_position_update(
+    position: dict[str, Any],
+    *,
+    trade_id: str,
+    quantity: int,
+    entry_price: float,
+    settings_raw: dict,
+    alert_id: str,
+) -> dict:
+    remaining_before = max(0, int(position.get("remaining_quantity") or position.get("quantity") or 0))
+    original_before = max(remaining_before, int(position.get("original_quantity") or remaining_before))
+    new_remaining = remaining_before + quantity
+    new_original = original_before + quantity
+    current_basis = float(position.get("entry_price") or 0.0) * remaining_before * 100
+    added_cost = entry_price * quantity * 100
+    new_total_cost = current_basis + added_cost
+    new_entry_price = new_total_cost / (new_remaining * 100)
+    current_price = entry_price
+    highest_price = max(float(position.get("highest_price") or 0.0), current_price)
+    set_update = {
+        "entry_price": new_entry_price,
+        "current_price": current_price,
+        "original_quantity": new_original,
+        "remaining_quantity": new_remaining,
+        "total_cost": round(new_total_cost, 2),
+        "average_down_count": int(position.get("average_down_count") or 0) + 1,
+        "initial_entry_price": position.get("initial_entry_price") or position.get("entry_price"),
+        "highest_price": highest_price,
+        "status": "open",
+    }
+    if position.get("oco_exit_protected") or position.get("oco_exit_plan"):
+        oco_exit_plan = build_oco_exit_plan(
+            settings_raw,
+            alert_id=alert_id,
+            position_id=position.get("id"),
+            entry_price=new_entry_price,
+            quantity=new_remaining,
+        )
+        if oco_exit_plan:
+            set_update["oco_exit_plan"] = oco_exit_plan
+            set_update["oco_exit_protected"] = True
+
+    return {"$set": set_update, "$push": {"trade_ids": trade_id}}
+
+
+def _average_down_position_matches(position: dict[str, Any], parsed: dict) -> bool:
+    if str(position.get("status", "open")).lower() not in {"open", "partial"}:
+        return False
+    if str(position.get("ticker") or "").strip().upper() != str(parsed.get("ticker") or "").strip().upper():
+        return False
+    try:
+        if abs(float(position.get("strike")) - float(parsed.get("strike"))) >= 0.001:
+            return False
+    except (TypeError, ValueError):
+        return False
+    if str(position.get("option_type") or "").strip().upper() != str(parsed.get("option_type") or "").strip().upper():
+        return False
+    return _date_key(position.get("expiration")) == _date_key(parsed.get("expiration"))
+
+
+def _position_is_simulated(position: dict[str, Any]) -> bool:
+    broker = str(position.get("broker") or "").lower()
+    return bool(position.get("simulated")) or broker.endswith(":paper_shadow")
+
+
+def _date_key(value: Any) -> str:
+    return str(value or "").strip().upper().replace("-", "/")
 
 
 async def process_exit_alert(
@@ -566,10 +857,14 @@ async def process_exit_alert(
 
         try:
             from live_arming import is_live_trading_armed
+            from live_readiness import live_execution_role_enabled
 
             runtime_state = await db_obj.get_runtime_state()
             if not is_live_trading_armed(runtime_state):
                 logger.warning("[process_exit_alert] live SELL blocked because live trading is not armed")
+                continue
+            if not live_execution_role_enabled():
+                logger.warning("[process_exit_alert] live SELL blocked because Consolidation is not in live_executioner role")
                 continue
         except Exception as exc:
             logger.error("[process_exit_alert] live SELL blocked while checking arming state: %s", exc)

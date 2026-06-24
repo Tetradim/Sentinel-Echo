@@ -56,7 +56,7 @@ class BrokerSettings(BaseModel):
     enabled: bool = False  # Whether this broker is active in the profile
     
     # Trading mode
-    auto_trading_enabled: bool = False
+    auto_trading_enabled: bool = True
     alerts_only: bool = False  # If true, only receive alerts, no auto-execution
     
     # Premium Buffer
@@ -95,7 +95,7 @@ class BrokerSettings(BaseModel):
 # Keep ProfileSettings for backwards compatibility
 class ProfileSettings(BaseModel):
     """Per-profile risk management settings (deprecated, use BrokerSettings)"""
-    auto_trading_enabled: bool = False
+    auto_trading_enabled: bool = True
     alerts_only: bool = False
     premium_buffer_enabled: bool = False
     premium_buffer_amount: float = 10.0
@@ -275,7 +275,7 @@ class Settings(BaseModel):
     chrome_bridge_require_source_override: bool = True
     active_broker: BrokerType = BrokerType.IBKR
     broker_configs: Dict[str, BrokerConfig] = {}
-    auto_trading_enabled: bool = False  # FIXED C2: was True — dangerous default
+    auto_trading_enabled: bool = True
     premium_buffer_enabled: bool = False
     premium_buffer_amount: float = 10.0  # Buffer in cents (e.g., 10 = $0.10)
     default_quantity: int = 1

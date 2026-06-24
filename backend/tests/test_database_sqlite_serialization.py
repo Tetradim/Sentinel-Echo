@@ -12,6 +12,18 @@ sys.path.insert(0, str(BACKEND_DIR))
 
 
 class SQLiteSerializationTests(unittest.TestCase):
+    def test_default_settings_enable_auto_trading_while_runtime_stays_unarmed(self):
+        from database.abstraction import _default_runtime_state, _default_settings
+        from models import Settings
+
+        settings = _default_settings()
+        runtime = _default_runtime_state()
+
+        self.assertTrue(Settings().auto_trading_enabled)
+        self.assertTrue(settings["auto_trading_enabled"])
+        self.assertTrue(runtime["auto_trading_enabled"])
+        self.assertFalse(runtime["live_trading_armed"])
+
     def test_sqlite_connections_use_wal_and_busy_timeout(self):
         sqlite_source = (BACKEND_DIR / "database_sqlite.py").read_text()
         abstraction_source = (BACKEND_DIR / "database" / "abstraction.py").read_text()
