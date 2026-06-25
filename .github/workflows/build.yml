@@ -2,21 +2,32 @@ name: Build Windows Executable
 
 on:
   push:
-    branches: [main]
+    branches:
+      - main
+      - codex/frontend-operator-ui-readiness
     tags:
       - 'v*'
   pull_request:
-    branches: [main]
+    branches:
+      - main
   workflow_dispatch:
+    inputs:
+      version:
+        description: Custom version
+        required: false
+        default: ''
 
 env:
-  APP_NAME: Consolidation
-  VERSION: 1.0.0
+  APP_NAME: ConsolidationBot
+  VERSION: ${{ github.event.inputs.version || '1.0.0-beta' }}
+  PYTHON_VERSION: '3.11'
+  NODE_VERSION: '20'
 
 jobs:
   build:
     runs-on: windows-latest
-    
+    timeout-minutes: 60
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -27,215 +38,185 @@ jobs:
           $version = "${{ github.ref }}" -replace 'refs/tags/v', ''
           echo "VERSION=$version" >> $env:GITHUB_ENV
 
-      - name: Setup Python 3.11
+      - name: Setup Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
-          cache: 'pip'
+          python-version: ${{ env.PYTHON_VERSION }}
 
-      - name: Setup Node.js 20
+      - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
-          cache: 'npm'
+          node-version: ${{ env.NODE_VERSION }}
 
-      - name: Install Node dependencies
-        working-directory: ./frontend
-        run: npm install
-
-      - name: Build frontend (Web/Expo)
-        working-directory: ./frontend
-        run: npx expo export --platform web
-
-      - name: Create directories
+      - name: Install Python dependencies
         run: |
-          New-Item -ItemType Directory -Path "release" -Force | Out-Null
-          New-Item -ItemType Directory -Path "release\frontend" -Force | Out-Null
-          New-Item -ItemType Directory -Path "release\backend" -Force | Out-Null
-          New-Item -ItemType Directory -Path "release\config" -Force | Out-Null
-          New-Item -ItemType Directory -Path "release\scripts" -Force | Out-Null
+          python -m pip install --upgrade pip wheel
+          python -m pip install -r backend\requirements.txt
+          python -m pip install pyinstaller
 
-      - name: Copy frontend build
-        run: Copy-Item -Path "frontend\dist\*" -Destination "release\frontend" -Recurse -Force
+      - name: Run static tests
+        run: python -m pytest backend/tests/test_windows_installer_bootstrap_static.py -q
 
-      - name: Create startup script
+      - name: Build frontend
+        working-directory: frontend
         run: |
-          $start = @"
-          @echo off
-          title Consolidation Trading Bot
-          echo.
-          echo ========================================
-          echo  Consolidation Trading Bot
-          echo  Starting...
-          echo ========================================
-          echo.
-          
-          :server
-          echo Starting web server on port 8080...
-          python -m http.server 8080 --directory "%~dp0frontend"
-          pause
-          @
-          $start | Out-File -FilePath "release\start.bat" -Encoding ASCII
+          Remove-Item dist -Recurse -Force -ErrorAction SilentlyContinue
+          npm install
+          npx expo export --platform web
 
-      - name: Create Python server script
+      - name: Build Windows Executable
         run: |
-          $server = @"
-          import http.server
-          import socketserver
-          import threading
-          import os
-          import webbrowser
-          
-          PORT = 8080
-          DIRECTORY = os.path.dirname(os.path.abspath(__file__))
-          DIRECTORY = os.path.join(DIRECTORY, "frontend")
-          
-          class CustomHandler(http.server.SimpleHTTPRequestHandler):
-              def __init__(self, *args, **kwargs):
-                  super().__init__(*args, directory=DIRECTORY, **kwargs)
-          
-          def run_server():
-              with socketserver.TCPServer(("", PORT), CustomHandler) as httpd:
-                  print(f"Server running at http://localhost:{PORT}")
-                  httpd.serve_forever()
-          
-          if __name__ == "__main__":
-              print("Starting Consolidation Trading Bot...")
-              print(f"Web UI: http://localhost:{PORT}")
-              threading.Thread(target=run_server, daemon=True).start()
-              input("Press Enter to stop...")
-          @
-          $server | Out-File -FilePath "release\server.py" -Encoding UTF8
+          Remove-Item build -Recurse -Force -ErrorAction SilentlyContinue
+          Remove-Item "dist\ConsolidationBot" -Recurse -Force -ErrorAction SilentlyContinue
+          python -m PyInstaller `
+            --clean `
+            --name ConsolidationBot `
+            --onedir `
+            --console `
+            --paths backend `
+            --add-data "frontend\dist;static" `
+            --hidden-import uvicorn `
+            --hidden-import fastapi `
+            --hidden-import aiosqlite `
+            --hidden-import pymongo `
+            --hidden-import motor `
+            --hidden-import discord `
+            --hidden-import jwt `
+            --hidden-import jose `
+            --hidden-import dotenv `
+            --hidden-import email_validator `
+            --hidden-import multipart `
+            --hidden-import passlib.handlers.bcrypt `
+            --hidden-import robin_stocks `
+            --collect-all discord `
+            --collect-all robin_stocks `
+            --noconfirm `
+            windows_entrypoint.py
 
-      - name: Copy backend files
+      - name: Copy launchers into package
         run: |
-          if (Test-Path "backend") {
-            Copy-Item -Path "backend\*" -Destination "release\backend" -Recurse -Force
+          $package = "dist\ConsolidationBot"
+          Copy-Item "Launch-Consolidation-Bot.bat" -Destination $package -Force
+          Copy-Item "Launch-Consolidation-Bot.ps1" -Destination $package -Force
+          Copy-Item ".env.example" -Destination $package -Force -ErrorAction SilentlyContinue
+
+      - name: Verify package
+        run: |
+          if (!(Test-Path "dist\ConsolidationBot\ConsolidationBot.exe")) {
+            Write-Host "ERROR: ConsolidationBot.exe not found"
+            exit 1
+          }
+          if (!(Test-Path "dist\ConsolidationBot\_internal\static\index.html") -and !(Test-Path "dist\ConsolidationBot\static\index.html")) {
+            Write-Host "ERROR: packaged static index.html not found"
+            exit 1
+          }
+          if (!(Test-Path "dist\ConsolidationBot\Launch-Consolidation-Bot.bat")) {
+            Write-Host "ERROR: Launch-Consolidation-Bot.bat not found"
+            exit 1
+          }
+          if (!(Test-Path "dist\ConsolidationBot\Launch-Consolidation-Bot.ps1")) {
+            Write-Host "ERROR: Launch-Consolidation-Bot.ps1 not found"
+            exit 1
           }
 
-      - name: Create configuration
+      - name: Create Inno Setup script
         run: |
-          $config = @"
-          # Consolidation Trading Bot Configuration
-          # Edit these values for your setup
-          
-          # Discord Bot
-          DISCORD_BOT_TOKEN=your_token_here
-          DISCORD_CHANNEL_IDS=123456789
-          
-          # MongoDB (optional - uses SQLite by default)
-          # MONGO_URL=mongodb://localhost:27017
-          DB_NAME=tradebot
-          
-          # Redis (optional - uses in-memory by default)
-          # REDIS_URL=redis://localhost:6379
-          
-          # Broker Settings
-          IBKR_ACCOUNT_ID=
-          ALPACA_API_KEY=
-          ALPACA_API_SECRET=
-          ALPACA_PAPER=true
-          
-          # API Keys
-          OPENAI_API_KEY=
-          TWELVE_DATA_API_KEY=
-          
-          # Server
-          API_PORT=8000
-          API_HOST=0.0.0.0
-          
-          # Logging
-          LOG_LEVEL=INFO
-          @
-          $config | Out-File -FilePath "release\.env.example" -Encoding UTF8
+          $iss = @"
+          #define MyAppName "Consolidation Discord Options Bot"
+          #define MyAppVersion "${{ env.VERSION }}"
+          #define MyAppPublisher "Tetradim / SignalForge Lab"
+          #define MyAppURL "https://github.com/Tetradim/Consolidation"
+          #define MyAppExeName "ConsolidationBot.exe"
 
-      - name: Create portable package
-        run: |
-          # Create setup script
-          $setup = @"
-          @echo off
-          setlocal enabledelayedexpansion
-          
-          set "APP_NAME=Consolidation"
-          set "VERSION=${{ env.VERSION }}"
-          set "INSTALL_DIR=%ProgramFiles%\%APP_NAME%"
-          
-          echo ========================================
-          echo  Consolidation Trading Bot
-          echo  Version: %VERSION%
-          echo ========================================
-          echo.
-          
-          if not "%1"=="quiet" (
-            echo Installing to: %INSTALL_DIR%
-            echo.
-            set /p CONFIRM="Continue? (Y/N): "
-            if /i not "!CONFIRM!"=="Y" exit /b 1
-          )
-          
-          echo Creating directories...
-          if not exist "%INSTALL_DIR%" mkdir "%INSTALL_DIR%"
-          
-          echo Copying files...
-          xcopy /E /Y /Q "%~dp0release\*" "%INSTALL_DIR%\" 
-          xcopy /E /Y /Q "%~dp0*.example" "%INSTALL_DIR%\"
-          
-          echo.
-          echo ========================================
-          echo  Installation Complete!
-          echo ========================================
-          echo.
-          echo To run the bot:
-          echo   1. Copy .env.example to .env
-          echo   2. Edit .env with your settings
-          echo   3. Run start.bat
-          echo.
-          pause
-          @
-          $setup | Out-File -FilePath "release\setup.bat" -Encoding ASCII
+          [Setup]
+          AppId={{EB01EBE2-AD63-4972-9C14-043C52B66430}
+          AppName={#MyAppName}
+          AppVersion={#MyAppVersion}
+          AppVerName={#MyAppName} {#MyAppVersion}
+          AppPublisher={#MyAppPublisher}
+          AppPublisherURL={#MyAppURL}
+          AppSupportURL={#MyAppURL}/issues
+          AppUpdatesURL={#MyAppURL}/releases
+          DefaultDirName={autopf}\{#MyAppName}
+          DefaultGroupName={#MyAppName}
+          OutputDir=installer-dist
+          OutputBaseFilename=ConsolidationBot-Setup-{#MyAppVersion}
+          UninstallDisplayName={#MyAppName}
+          UninstallDisplayIcon={app}\{#MyAppExeName}
+          Compression=lzma2
+          SolidCompression=yes
+          WizardStyle=modern
+          MinVersion=10.0.18362
+          PrivilegesRequired=admin
+          ArchitecturesAllowed=x64compatible
+          ArchitecturesInstallIn64BitMode=x64compatible
 
-      - name: Build NSIS installer (optional)
-        run: |
-          # Check if NSIS is available
-          $makensis = Get-Command makensis -ErrorAction SilentlyContinue
-          if ($makensis) {
-            Write-Host "Building NSIS installer..."
-            # Basic installer - assumes NSIS is installed
-          } else {
-            Write-Host "NSIS not found, skipping installer"
-          }
-        continue-on-error: true
+          [Languages]
+          Name: "english"; MessagesFile: "compiler:Default.isl"
 
-      - name: Create ZIP archive
-        run: |
-          if (Test-Path "release") {
-            Compress-Archive -Path "release\*" -DestinationPath "$env:APP_NAME-v$env:VERSION-win64.zip" -Force
-            Compress-Archive -Path "release" -DestinationPath "$env:APP_NAME-$env:VERSION-portable.zip" -Force
-          }
+          [Tasks]
+          Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: checkedonce
+          Name: "launchapp"; Description: "Launch Consolidation Discord Options Bot after install"; GroupDescription: "Startup"; Flags: checkedonce
 
-      - name: Upload artifact
+          [Files]
+          Source: "dist\ConsolidationBot\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+
+          [Icons]
+          Name: "{group}\{#MyAppName}"; Filename: "{app}\Launch-Consolidation-Bot.bat"; WorkingDir: "{app}"
+          Name: "{group}\Uninstall {#MyAppName}"; Filename: "{uninstallexe}"
+          Name: "{commondesktop}\{#MyAppName}"; Filename: "{app}\Launch-Consolidation-Bot.bat"; WorkingDir: "{app}"; Tasks: desktopicon
+
+          [Run]
+          Filename: "{app}\Launch-Consolidation-Bot.bat"; Description: "Launch {#MyAppName}"; Flags: nowait postinstall skipifsilent shellexec; Tasks: launchapp; WorkingDir: "{app}"
+
+          [UninstallDelete]
+          Type: filesandordirs; Name: "{app}"
+          Type: files; Name: "{userdesktop}\Consolidation-Discord-Bot.log"
+          Type: files; Name: "{userdesktop}\Consolidation-Discord-Bot-Transcript.log"
+
+          [Code]
+          procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
+          var
+            ResultCode: Integer;
+          begin
+            if CurUninstallStep = usUninstall then
+            begin
+              Exec('taskkill', '/F /IM ConsolidationBot.exe', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+            end;
+          end;
+          "@
+          $iss | Out-File -Encoding ASCII setup.iss
+
+      - name: Build installer
+        uses: Minionguyjpro/Inno-Setup-Action@v1.2.2
+        with:
+          path: setup.iss
+
+      - name: Upload installer
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ env.APP_NAME }}-win64
-          path: ${{ env.APP_NAME }}-*.zip
-          retention-days: 30
+          name: ConsolidationBot-Setup-${{ env.VERSION }}
+          path: installer-dist/ConsolidationBot-Setup*.exe
+          if-no-files-found: error
+          retention-days: 90
 
   release:
     needs: build
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: windows-latest
-    
+
     steps:
-      - name: Download artifact
+      - name: Download installer
         uses: actions/download-artifact@v4
         with:
-          name: ${{ env.APP_NAME }}-win64
+          pattern: ConsolidationBot-Setup-*
           path: artifacts
+          merge-multiple: true
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v1
         with:
-          files: artifacts/*
+          files: artifacts/ConsolidationBot-Setup*.exe
           draft: false
           prerelease: ${{ contains(github.ref, 'beta') }}
           generate_release_notes: true

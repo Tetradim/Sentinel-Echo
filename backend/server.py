@@ -5,13 +5,16 @@ Main FastAPI server supporting both MongoDB (server) and SQLite (desktop)
 from fastapi import FastAPI, APIRouter
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from contextlib import asynccontextmanager
 import os
+import sys
 import logging
 import threading
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, List
 import discord
 from discord.ext import commands
@@ -1125,6 +1128,31 @@ api_router.include_router(analytics_router)
 api_router.include_router(bot_bus_router)
 
 app.include_router(api_router)
+
+
+def find_packaged_static_dir() -> Path | None:
+    """Return the exported frontend directory bundled by the Windows installer."""
+    # PyInstaller exposes bundled files through sys._MEIPASS at runtime.
+    candidates = [
+        Path.cwd() / "static",
+        Path(__file__).resolve().parent / "static",
+        Path(getattr(sys, "_MEIPASS", "")) / "static",
+    ]
+    if getattr(sys, "frozen", False):
+        candidates.extend([
+            Path(sys.executable).resolve().parent / "static",
+            Path(sys.executable).resolve().parent / "_internal" / "static",
+        ])
+
+    for candidate in candidates:
+        if candidate and (candidate / "index.html").exists():
+            return candidate
+    return None
+
+
+packaged_static_dir = find_packaged_static_dir()
+if packaged_static_dir:
+    app.mount("/app", StaticFiles(directory=str(packaged_static_dir), html=True), name="app")
 
 
 if __name__ == "__main__":

@@ -18,6 +18,7 @@ function getRuntimeBackendUrl(): string | null {
     }
 
     if (window.location.hostname === '127.0.0.1' || window.location.hostname === 'localhost') {
+      if (window.location.pathname.startsWith('/app')) return window.location.origin;
       if (window.location.port === '3123') return 'http://127.0.0.1:8123';
       if (window.location.port === '3003') return 'http://127.0.0.1:8003';
     }

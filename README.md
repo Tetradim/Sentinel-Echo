@@ -88,6 +88,22 @@ FastAPI routes expose settings, alerts, trades, positions, brokers,
 profiles, operator lab, analytics, diagnostics, and Simulation Engine replay preview.
 ```
 
+## Quick Start: Windows Beta Installer
+
+For non-technical beta testers, download and run `ConsolidationBot-Setup-<version>.exe` from the Windows release artifact.
+
+After installation, double-click **Consolidation Discord Options Bot** from the Desktop or Start Menu. The installed launcher downloads missing runtime dependencies on first launch, including the Microsoft Visual C++ Runtime when Windows does not already have it. The installed beta build runs the packaged backend with local SQLite mode and serves the bundled dashboard from the same local app.
+
+Installed beta testers do not need to install Python, Node.js, npm, MongoDB, or Redis. If startup fails, send a screenshot of the launcher window and the Desktop log file named `Consolidation-Discord-Bot.log`.
+
+Default installed URLs:
+
+| Service | URL |
+| --- | --- |
+| App dashboard | `http://127.0.0.1:8003/app/` |
+| FastAPI backend | `http://127.0.0.1:8003` |
+| Health check | `http://127.0.0.1:8003/api/health` |
+
 ## Quick Start: Local Windows Launcher
 
 From the repository root:

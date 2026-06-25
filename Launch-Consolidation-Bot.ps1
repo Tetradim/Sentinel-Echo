@@ -31,6 +31,12 @@ $CancelKeyPressHandler = $null
 $LauncherWatchdogProcess = $null
 $LauncherWatchdogStopFile = $null
 $LauncherWatchdogScriptFile = $null
+$VcRedistUrl = "https://aka.ms/vc14/vc_redist.x64.exe"
+$DependencyRoot = if ($env:LOCALAPPDATA) {
+    Join-Path $env:LOCALAPPDATA "Consolidation Bot\dependencies"
+} else {
+    Join-Path $ProjectRoot ".dependencies"
+}
 
 function Write-Status {
     param([string]$Message, [string]$Level = "INFO")
@@ -120,6 +126,59 @@ function Wait-HttpOk {
         Start-Sleep -Milliseconds 750
     }
     return $false
+}
+
+function Test-VcRuntimeInstalled {
+    $keys = @(
+        "HKLM:\SOFTWARE\Microsoft\VisualStudio\14.0\VC\Runtimes\x64",
+        "HKLM:\SOFTWARE\WOW6432Node\Microsoft\VisualStudio\14.0\VC\Runtimes\x64"
+    )
+
+    foreach ($key in $keys) {
+        try {
+            $runtime = Get-ItemProperty -Path $key -ErrorAction SilentlyContinue
+            if ($runtime -and $runtime.Installed -eq 1) { return $true }
+        } catch {
+        }
+    }
+    return $false
+}
+
+function Invoke-DependencyDownload {
+    param(
+        [string]$Url,
+        [string]$OutFile,
+        [string]$Label
+    )
+
+    New-Item -ItemType Directory -Path (Split-Path -Parent $OutFile) -Force | Out-Null
+    if (Test-Path -LiteralPath $OutFile) {
+        Write-Status "$Label already downloaded"
+        return $OutFile
+    }
+
+    Write-Status "Downloading $Label"
+    try {
+        [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+    } catch {
+    }
+    Invoke-WebRequest -Uri $Url -OutFile $OutFile -UseBasicParsing -TimeoutSec 180
+    return $OutFile
+}
+
+function Ensure-InstalledRuntimeDependencies {
+    if (Test-VcRuntimeInstalled) {
+        Write-Status "Microsoft Visual C++ Runtime is installed" "OK"
+        return
+    }
+
+    Write-Status "Microsoft Visual C++ Runtime was not found; installing it automatically" "WARN"
+    $installer = Join-Path $DependencyRoot "vc_redist.x64.exe"
+    Invoke-DependencyDownload -Url $VcRedistUrl -OutFile $installer -Label "Microsoft Visual C++ Runtime" | Out-Null
+    $process = Start-Process -FilePath $installer -ArgumentList "/install", "/quiet", "/norestart" -Wait -PassThru
+    if (-not (@(0, 3010, 1638) -contains $process.ExitCode)) {
+        Write-Status "Microsoft Visual C++ Runtime installer exited with code $($process.ExitCode). Consolidation bot will continue and report any startup error." "WARN"
+    }
 }
 
 function Write-ProcessLogTail {
@@ -371,6 +430,39 @@ function Start-BackendAndWait {
     Write-Status "Backend is ready" "OK"
 }
 
+function Start-InstalledConsolidationBot {
+    param(
+        [string]$InstalledExe,
+        [string]$BackendUrl,
+        [int]$BackendPort,
+        [string]$DataDir
+    )
+
+    Ensure-InstalledRuntimeDependencies
+    if (Test-PortOpen -Port $BackendPort) {
+        if (Test-HttpOk -Url "$BackendUrl/api/health") {
+            Write-Status "Consolidation bot is already running on port $BackendPort" "OK"
+            return
+        }
+        throw "Backend port $BackendPort is already in use by another service."
+    }
+
+    New-Item -ItemType Directory -Path $DataDir -Force | Out-Null
+    $env:HOST = "127.0.0.1"
+    $env:PORT = "$BackendPort"
+    $env:USE_SQLITE = "true"
+    $env:DATABASE_PATH = Join-Path $DataDir "consolidation.sqlite3"
+    $env:ALLOWED_ORIGINS = "http://localhost:$BackendPort,http://127.0.0.1:$BackendPort"
+    $env:BROWSER = "none"
+
+    Write-Status "Starting packaged ConsolidationBot.exe on port $BackendPort"
+    Start-OwnedProcess -FilePath $InstalledExe -ArgumentList @() -WorkingDirectory $ProjectRoot | Out-Null
+    if (-not (Wait-HttpOk -Url "$BackendUrl/api/health" -Seconds 90)) {
+        throw "Packaged backend did not become healthy at $BackendUrl/api/health."
+    }
+    Write-Status "Packaged backend is ready" "OK"
+}
+
 function Stop-ProcessTree {
     param([int]$ProcessId)
     try {
@@ -610,6 +702,50 @@ try {
     Write-Host ""
     Write-Status "Project root: $ProjectRoot"
     Write-Status "Launcher log: $LogFile"
+
+    $installedExe = Join-Path $ProjectRoot "ConsolidationBot.exe"
+    if (Test-Path -LiteralPath $installedExe) {
+        Write-Host "  Consolidation Discord Options Bot - Installed App" -ForegroundColor Cyan
+        $backendUrl = "http://127.0.0.1:$BackendPort"
+        $frontendUrl = "$backendUrl/app/"
+        $dataDir = Join-Path $ProjectRoot "data"
+        Start-InstalledConsolidationBot `
+            -InstalledExe $installedExe `
+            -BackendUrl $backendUrl `
+            -BackendPort $BackendPort `
+            -DataDir $dataDir
+
+        if (-not $NoBrowser) {
+            $BrowserProcess = Start-BrowserWindow -Url $frontendUrl
+        }
+        Start-LauncherShutdownWatchdog
+
+        Write-Host ""
+        Write-Host "Ready: $frontendUrl" -ForegroundColor Green
+        Write-Host "Backend: $backendUrl" -ForegroundColor Gray
+        Write-Host "Database: $env:DATABASE_PATH" -ForegroundColor Gray
+        Write-Host "Close this window or press Ctrl+C to stop processes started by this launcher." -ForegroundColor Gray
+        Write-Host ""
+
+        while ($true) {
+            foreach ($process in @($OwnedProcesses)) {
+                if ($process.HasExited) {
+                    throw "Process $($process.Id) exited unexpectedly."
+                }
+            }
+            if (Test-BrowserWindowClosed) {
+                Write-Status "Browser window closed; shutting down Consolidation bot" "OK"
+                break
+            }
+            Start-Sleep -Seconds 1
+        }
+        exit 0
+    }
+
+    function Start-SourceConsolidationBot {
+        Write-Status "Starting Consolidation Discord Options Bot - Local Source"
+    }
+    Start-SourceConsolidationBot
 
     if (-not (Test-Path $Backend)) { throw "Backend folder not found: $Backend" }
     if (-not (Test-Path $Frontend)) { throw "Frontend folder not found: $Frontend" }
