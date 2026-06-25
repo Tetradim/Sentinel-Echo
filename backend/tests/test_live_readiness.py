@@ -51,16 +51,72 @@ READY_REPLAY_STATUS = {
 
 READY_GATE_STATUS = {
     "readiness_gates": {
-        "paper_mode_burn_in": {"status": "passed", "updated_at": "2026-06-24T18:00:00Z"},
-        "partial_fill_broker_behavior": {"status": "passed", "updated_at": "2026-06-24T18:00:00Z"},
-        "disconnect_reconnect_drill": {"status": "passed", "updated_at": "2026-06-24T18:00:00Z"},
-        "market_transition_validation": {"status": "passed", "updated_at": "2026-06-24T18:00:00Z"},
+        "paper_mode_burn_in": {
+            "status": "passed",
+            "updated_at": "2026-06-24T18:00:00Z",
+            "evidence": {
+                "broker_connected": True,
+                "discord_connected": True,
+                "auto_trading_enabled": True,
+                "simulation_mode": False,
+                "snapshot_event_id": "snapshot-1",
+            },
+        },
+        "partial_fill_broker_behavior": {
+            "status": "passed",
+            "updated_at": "2026-06-24T18:00:00Z",
+            "evidence": {
+                "active_broker": "alpaca",
+                "trade_id": "trade-1",
+                "order_id": "order-1",
+                "broker_update": {"status": "partial", "filled_qty": 1},
+                "reconciliation": {"trade_status": "partial", "position_status": "partial"},
+            },
+        },
+        "disconnect_reconnect_drill": {
+            "status": "passed",
+            "updated_at": "2026-06-24T18:00:00Z",
+            "evidence": {
+                "active_broker": "alpaca",
+                "before_connected": True,
+                "after_connected": True,
+                "errors": [],
+            },
+        },
+        "market_transition_validation": {
+            "status": "passed",
+            "updated_at": "2026-06-24T18:00:00Z",
+            "evidence": {
+                "from_timestamp": "2026-06-24T13:00:00Z",
+                "to_timestamp": "2026-06-24T14:30:00Z",
+                "from_market_is_open": False,
+                "to_market_is_open": True,
+                "from_broker_connected": True,
+                "to_broker_connected": True,
+                "from_discord_connected": True,
+                "to_discord_connected": True,
+                "from_auto_trading_enabled": True,
+                "to_auto_trading_enabled": True,
+                "from_simulation_mode": False,
+                "to_simulation_mode": False,
+            },
+        },
         "multi_session_paper_monitoring": {
             "status": "passed",
             "updated_at": "2026-06-24T18:00:00Z",
-            "evidence": {"session_count": 2},
+            "evidence": {"session_count": 2, "sessions": ["2026-06-23", "2026-06-24"]},
         },
-        "live_monitoring_evidence": {"status": "passed", "updated_at": "2026-06-24T18:00:00Z"},
+        "live_monitoring_evidence": {
+            "status": "passed",
+            "updated_at": "2026-06-24T18:00:00Z",
+            "evidence": {
+                "broker_connected": True,
+                "discord_connected": True,
+                "auto_trading_enabled": True,
+                "simulation_mode": False,
+                "broker_checked_at": "2026-06-24T18:00:00Z",
+            },
+        },
         "controlled_operator_access_review": {"status": "passed", "updated_at": "2026-06-24T18:00:00Z"},
         "operator_signoff": {"status": "passed", "updated_at": "2026-06-24T18:00:00Z"},
     }
@@ -174,6 +230,78 @@ class LiveReadinessTests(unittest.TestCase):
             result["checks"]["readiness_gates"]["states"]["multi_session_paper_monitoring"]["session_count"],
             1,
         )
+
+    def test_automated_readiness_gates_require_structured_evidence(self):
+        from live_readiness import evaluate_live_readiness
+
+        automated_gate_codes = {
+            "paper_mode_burn_in": "paper_burn_in_missing",
+            "partial_fill_broker_behavior": "partial_fill_drill_missing",
+            "disconnect_reconnect_drill": "reconnect_drill_missing",
+            "market_transition_validation": "market_transition_validation_missing",
+            "live_monitoring_evidence": "live_monitoring_evidence_missing",
+        }
+        for gate_key, blocking_code in automated_gate_codes.items():
+            with self.subTest(gate_key=gate_key):
+                gates = dict(READY_GATE_STATUS["readiness_gates"])
+                gates[gate_key] = {
+                    "status": "passed",
+                    "updated_at": "2026-06-24T18:00:00Z",
+                    "evidence": {},
+                }
+
+                result = evaluate_live_readiness(
+                    READY_SETTINGS,
+                    {"shutdown_triggered": False},
+                    status={
+                        **READY_REPLAY_STATUS,
+                        "readiness_gates": gates,
+                        "broker_connected": True,
+                        "discord_connected": True,
+                    },
+                    env={**READY_ENV, "CONSOLIDATION_BOT_ROLE": "live_executioner"},
+                )
+
+                self.assertFalse(result["ready_for_live"])
+                self.assertIn(blocking_code, result["blocking_codes"])
+
+    def test_market_transition_requires_open_state_change(self):
+        from live_readiness import evaluate_live_readiness
+
+        gates = dict(READY_GATE_STATUS["readiness_gates"])
+        gates["market_transition_validation"] = {
+            "status": "passed",
+            "updated_at": "2026-06-24T18:00:00Z",
+            "evidence": {
+                "from_timestamp": "2026-06-24T13:00:00Z",
+                "to_timestamp": "2026-06-24T14:30:00Z",
+                "from_market_is_open": True,
+                "to_market_is_open": True,
+                "from_broker_connected": True,
+                "to_broker_connected": True,
+                "from_discord_connected": True,
+                "to_discord_connected": True,
+                "from_auto_trading_enabled": True,
+                "to_auto_trading_enabled": True,
+                "from_simulation_mode": False,
+                "to_simulation_mode": False,
+            },
+        }
+
+        result = evaluate_live_readiness(
+            READY_SETTINGS,
+            {"shutdown_triggered": False},
+            status={
+                **READY_REPLAY_STATUS,
+                "readiness_gates": gates,
+                "broker_connected": True,
+                "discord_connected": True,
+            },
+            env={**READY_ENV, "CONSOLIDATION_BOT_ROLE": "live_executioner"},
+        )
+
+        self.assertFalse(result["ready_for_live"])
+        self.assertIn("market_transition_validation_missing", result["blocking_codes"])
 
     def test_readiness_reports_core_blockers(self):
         from live_readiness import evaluate_live_readiness

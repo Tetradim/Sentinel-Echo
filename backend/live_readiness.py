@@ -186,13 +186,105 @@ def _readiness_gate_session_count(evidence: Dict[str, Any]) -> int:
     )
 
 
+def _optional_bool(value: Any) -> bool | None:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        if value == 1:
+            return True
+        if value == 0:
+            return False
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in {"true", "1", "yes", "y", "on"}:
+            return True
+        if normalized in {"false", "0", "no", "n", "off"}:
+            return False
+    return None
+
+
+def _bool_field(value: Any, *, default: bool = False) -> bool:
+    parsed = _optional_bool(value)
+    if parsed is None:
+        return default
+    return parsed
+
+
+def _nonempty_text(value: Any) -> bool:
+    return bool(str(value or "").strip())
+
+
+def _healthy_monitoring_evidence(evidence: Dict[str, Any]) -> bool:
+    return (
+        _bool_field(evidence.get("broker_connected"))
+        and _bool_field(evidence.get("discord_connected"))
+        and _bool_field(evidence.get("auto_trading_enabled"))
+        and not _bool_field(evidence.get("simulation_mode"), default=True)
+    )
+
+
+def _partial_fill_evidence_passed(evidence: Dict[str, Any]) -> bool:
+    broker_update = _dict_or_empty(evidence.get("broker_update"))
+    reconciliation = _dict_or_empty(evidence.get("reconciliation"))
+    return (
+        _nonempty_text(evidence.get("active_broker"))
+        and _nonempty_text(evidence.get("trade_id"))
+        and _nonempty_text(evidence.get("order_id"))
+        and str(broker_update.get("status") or "").strip().lower() == "partial"
+        and _nonnegative_int(broker_update.get("filled_qty")) > 0
+        and str(reconciliation.get("trade_status") or "").strip().lower() == "partial"
+        and str(reconciliation.get("position_status") or "").strip().lower() == "partial"
+    )
+
+
+def _reconnect_evidence_passed(evidence: Dict[str, Any]) -> bool:
+    errors = evidence.get("errors")
+    return (
+        _nonempty_text(evidence.get("active_broker"))
+        and _bool_field(evidence.get("before_connected"))
+        and _bool_field(evidence.get("after_connected"))
+        and (not isinstance(errors, list) or len(errors) == 0)
+    )
+
+
+def _market_transition_evidence_passed(evidence: Dict[str, Any]) -> bool:
+    from_open = _optional_bool(evidence.get("from_market_is_open"))
+    to_open = _optional_bool(evidence.get("to_market_is_open"))
+    if from_open is None or to_open is None or from_open == to_open:
+        return False
+    return (
+        _nonempty_text(evidence.get("from_timestamp"))
+        and _nonempty_text(evidence.get("to_timestamp"))
+        and _bool_field(evidence.get("from_broker_connected"))
+        and _bool_field(evidence.get("to_broker_connected"))
+        and _bool_field(evidence.get("from_discord_connected"))
+        and _bool_field(evidence.get("to_discord_connected"))
+        and _bool_field(evidence.get("from_auto_trading_enabled"))
+        and _bool_field(evidence.get("to_auto_trading_enabled"))
+        and not _bool_field(evidence.get("from_simulation_mode"), default=True)
+        and not _bool_field(evidence.get("to_simulation_mode"), default=True)
+    )
+
+
 def _readiness_gate_passed(gate_key: str, state: Dict[str, Any]) -> bool:
     status = str(state.get("status") or "").strip().lower()
     updated_at = str(state.get("updated_at") or "").strip()
     if status != "passed" or not updated_at:
         return False
+    evidence = _dict_or_empty(state.get("evidence"))
+    if gate_key == "paper_mode_burn_in":
+        return _healthy_monitoring_evidence(evidence) and _nonempty_text(evidence.get("snapshot_event_id"))
+    if gate_key == "partial_fill_broker_behavior":
+        return _partial_fill_evidence_passed(evidence)
+    if gate_key == "disconnect_reconnect_drill":
+        return _reconnect_evidence_passed(evidence)
+    if gate_key == "market_transition_validation":
+        return _market_transition_evidence_passed(evidence)
     if gate_key == "multi_session_paper_monitoring":
-        return _readiness_gate_session_count(_dict_or_empty(state.get("evidence"))) >= 2
+        sessions = evidence.get("sessions")
+        return _readiness_gate_session_count(evidence) >= 2 and isinstance(sessions, list) and len(sessions) >= 2
+    if gate_key == "live_monitoring_evidence":
+        return _healthy_monitoring_evidence(evidence) and _nonempty_text(evidence.get("broker_checked_at"))
     return True
 
 

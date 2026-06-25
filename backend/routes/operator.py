@@ -2,7 +2,6 @@
 from datetime import datetime, timezone
 import inspect
 from typing import Any, Optional
-from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field
@@ -12,6 +11,15 @@ from live_arming import arm_live_trading, disarm_live_trading
 from live_readiness import evaluate_live_readiness, required_readiness_gate_definitions
 from order_execution import BrokerConfigurationError, close_broker_client, get_configured_broker_client
 from operator_audit import record_operator_event
+from readiness_evidence import (
+    current_market_session,
+    paper_session_snapshots,
+    readiness_gate_states_from_events,
+    record_readiness_gate_evidence as record_gate_evidence,
+    snapshot_counts_for_multi_session,
+    snapshot_is_healthy,
+    transition_snapshot,
+)
 from readiness_status import readiness_ready_for_live, status_flag
 from reconciliation import build_alert_chain_report, build_reconciliation_rows, summarize_reconciliation_rows
 from routes.trading import create_test_alert_records
@@ -308,87 +316,20 @@ class PaperSessionSnapshotRequest(BaseModel):
     note: str = ""
 
 
-def _readiness_gate_definition(gate_key: str) -> dict[str, str]:
-    definitions = required_readiness_gate_definitions()
-    gate = definitions.get(_clean_text(gate_key))
-    if not gate:
-        raise HTTPException(status_code=404, detail=f"Unknown readiness gate: {gate_key}")
-    return gate
-
-
-def _normalized_gate_status(status: Any) -> str:
-    normalized = _clean_text(status).lower().replace(" ", "_")
-    allowed = {"passed", "failed", "blocked", "pending"}
-    if normalized not in allowed:
-        raise HTTPException(status_code=400, detail=f"Readiness gate status must be one of: {', '.join(sorted(allowed))}.")
-    return normalized
-
-
 async def _record_readiness_gate_evidence(
     gate_key: str,
     request: ReadinessGateEvidenceRequest,
     *,
     default_summary: str = "",
+    evidence_source: str = "manual",
 ) -> dict[str, Any]:
-    gate = _readiness_gate_definition(gate_key)
-    status = _normalized_gate_status(request.status)
-    summary = _clean_text(request.summary) or default_summary or f"{gate['label']}: {status}"
-    event = await record_operator_event(
+    return await record_gate_evidence(
         db,
-        "readiness_gate",
-        "evidence_recorded",
-        summary,
-        severity="info" if status == "passed" else "warning",
-        details={
-            "gate_key": gate_key,
-            "status": status,
-            "summary": summary,
-            "operator": _clean_text(request.operator) or "local_operator",
-            "evidence": _dict_or_empty(request.evidence),
-        },
+        gate_key,
+        request,
+        default_summary=default_summary,
+        evidence_source=evidence_source,
     )
-    return {
-        "gate_key": gate_key,
-        "label": gate["label"],
-        "status": status,
-        "summary": summary,
-        "updated_at": event.get("timestamp", ""),
-        "event_id": event["id"],
-    }
-
-
-def _readiness_gate_event_state(event: dict[str, Any]) -> tuple[str, dict[str, Any]] | None:
-    if _clean_text(event.get("category")) != "readiness_gate" or _clean_text(event.get("action")) != "evidence_recorded":
-        return None
-    details = _dict_or_empty(event.get("details"))
-    gate_key = _clean_text(details.get("gate_key"))
-    definitions = required_readiness_gate_definitions()
-    if gate_key not in definitions:
-        return None
-    return gate_key, {
-        "status": _clean_text(details.get("status")).lower() or "missing",
-        "updated_at": _clean_text(event.get("timestamp")),
-        "summary": _clean_text(details.get("summary") or event.get("summary")),
-        "operator": _clean_text(details.get("operator")),
-        "evidence": _dict_or_empty(details.get("evidence")),
-    }
-
-
-async def _readiness_gate_states_from_events(limit: int = 500) -> dict[str, dict[str, Any]]:
-    if not hasattr(db, "get_operator_events"):
-        return {}
-    events = await db.get_operator_events(limit)
-    events = events if isinstance(events, list) else []
-    states: dict[str, dict[str, Any]] = {}
-    for value in events:
-        if not isinstance(value, dict):
-            continue
-        state = _readiness_gate_event_state(value)
-        if not state:
-            continue
-        gate_key, gate_state = state
-        states.setdefault(gate_key, gate_state)
-    return states
 
 
 async def _broker_client_connected(client: Any) -> bool:
@@ -401,87 +342,35 @@ async def _broker_client_connected(client: Any) -> bool:
     return bool(result)
 
 
-def _now_id_fragment() -> str:
-    return datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S%f")
+async def _refresh_active_broker_health(settings: dict[str, Any], active_broker: str) -> dict[str, Any]:
+    from routes.health import update_bot_status
 
+    broker_connected = False
+    broker_check_error = ""
+    broker_checked_at = datetime.now(timezone.utc).isoformat()
+    broker_client = None
+    try:
+        broker_client = get_configured_broker_client(settings, active_broker)
+        broker_connected = await _broker_client_connected(broker_client)
+    except Exception as exc:  # pragma: no cover - exercised by integration failure paths
+        broker_check_error = str(exc)
+    finally:
+        if broker_client is not None:
+            result = close_broker_client(broker_client)
+            if inspect.isawaitable(result):
+                await result
 
-def _current_market_session() -> str:
-    return datetime.now(timezone.utc).astimezone(ZoneInfo("America/New_York")).date().isoformat()
-
-
-def _bool_or_none(value: Any) -> bool | None:
-    if isinstance(value, bool):
-        return value
-    return None
-
-
-def _paper_session_snapshot_from_event(event: dict[str, Any]) -> dict[str, Any] | None:
-    if _clean_text(event.get("category")) != "readiness_monitor" or _clean_text(event.get("action")) != "paper_session_snapshot":
-        return None
-    details = _dict_or_empty(event.get("details"))
-    market_session = _clean_text(details.get("market_session"))
-    if not market_session:
-        return None
+    update_bot_status("active_broker", active_broker)
+    update_bot_status("broker_connected", broker_connected)
     return {
-        "timestamp": _clean_text(event.get("timestamp")),
-        "market_session": market_session,
-        "market_is_open": _bool_or_none(details.get("market_is_open")),
-        "broker_connected": bool(details.get("broker_connected")),
-        "discord_connected": bool(details.get("discord_connected")),
-        "auto_trading_enabled": bool(details.get("auto_trading_enabled")),
-        "simulation_mode": bool(details.get("simulation_mode")),
-        "active_broker": _clean_text(details.get("active_broker")),
-        "note": _clean_text(details.get("note")),
+        "broker_connected": broker_connected,
+        "broker_checked_at": broker_checked_at,
+        "broker_check_error": broker_check_error,
     }
 
 
-def _snapshot_counts_for_multi_session(snapshots: list[dict[str, Any]]) -> dict[str, Any]:
-    sessions = sorted(
-        {
-            snapshot["market_session"]
-            for snapshot in snapshots
-            if _snapshot_is_healthy(snapshot)
-        }
-    )
-    return {"session_count": len(sessions), "sessions": sessions}
-
-
-def _snapshot_is_healthy(snapshot: dict[str, Any]) -> bool:
-    return (
-        bool(snapshot.get("broker_connected"))
-        and bool(snapshot.get("discord_connected"))
-        and bool(snapshot.get("auto_trading_enabled"))
-        and not bool(snapshot.get("simulation_mode"))
-    )
-
-
-async def _paper_session_snapshots(limit: int = 500) -> list[dict[str, Any]]:
-    if not hasattr(db, "get_operator_events"):
-        return []
-    events = await db.get_operator_events(limit)
-    events = events if isinstance(events, list) else []
-    snapshots: list[dict[str, Any]] = []
-    for event in events:
-        if not isinstance(event, dict):
-            continue
-        snapshot = _paper_session_snapshot_from_event(event)
-        if snapshot:
-            snapshots.append(snapshot)
-    return snapshots
-
-
-def _transition_snapshot(previous_snapshots: list[dict[str, Any]], current_snapshot: dict[str, Any]) -> dict[str, Any] | None:
-    current_open = _bool_or_none(current_snapshot.get("market_is_open"))
-    if current_open is None or not _snapshot_is_healthy(current_snapshot):
-        return None
-    for snapshot in previous_snapshots:
-        if not _snapshot_is_healthy(snapshot):
-            continue
-        previous_open = _bool_or_none(snapshot.get("market_is_open"))
-        if previous_open is None or previous_open == current_open:
-            continue
-        return snapshot
-    return None
+def _now_id_fragment() -> str:
+    return datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S%f")
 
 
 async def _partial_fill_drill_position(settings: dict[str, Any]) -> dict[str, Any]:
@@ -544,7 +433,7 @@ async def _live_readiness_payload():
         alert_chain_summary.get("attention_reasons", []),
     )
     status.update(position_oco)
-    status["readiness_gates"] = await _readiness_gate_states_from_events()
+    status["readiness_gates"] = await readiness_gate_states_from_events(db)
     return evaluate_live_readiness(settings, runtime, status=status)
 
 
@@ -559,7 +448,7 @@ async def get_readiness_gates():
     """Return live-readiness gate definitions and latest recorded evidence state."""
     return {
         "definitions": required_readiness_gate_definitions(),
-        "states": await _readiness_gate_states_from_events(),
+        "states": await readiness_gate_states_from_events(db),
     }
 
 
@@ -784,6 +673,7 @@ async def run_reconnect_drill():
             evidence=evidence,
             operator="operator_drill",
         ),
+        evidence_source="drill",
     )
     return {
         **recorded,
@@ -868,6 +758,7 @@ async def run_partial_fill_drill():
             evidence=evidence,
             operator="operator_drill",
         ),
+        evidence_source="drill",
     )
     return {
         **recorded,
@@ -887,20 +778,23 @@ async def record_paper_session_snapshot(request: PaperSessionSnapshotRequest = P
     settings = await db.get_settings()
     settings = settings if isinstance(settings, dict) else {}
     status = dict(get_bot_status())
-    market_session = _clean_text(request.market_session) or _current_market_session()
+    market_session = _clean_text(request.market_session) or current_market_session()
     active_broker = _broker_id_text(settings.get("active_broker") or status.get("active_broker") or "alpaca")
+    broker_health = _dict_or_empty(await _refresh_active_broker_health(settings, active_broker))
     snapshot_details = {
         "market_session": market_session,
         "market_is_open": request.market_is_open,
         "active_broker": active_broker,
-        "broker_connected": status_flag(status, "broker_connected"),
+        "broker_connected": status_flag(broker_health, "broker_connected"),
+        "broker_checked_at": _clean_text(broker_health.get("broker_checked_at")),
+        "broker_check_error": _clean_text(broker_health.get("broker_check_error")),
         "discord_connected": status_flag(status, "discord_connected"),
         "auto_trading_enabled": coerce_bool(settings.get("auto_trading_enabled"), default=True),
         "simulation_mode": coerce_bool(settings.get("simulation_mode"), default=True),
         "note": _clean_text(request.note),
     }
 
-    previous_snapshots = await _paper_session_snapshots()
+    previous_snapshots = await paper_session_snapshots(db)
     event = await record_operator_event(
         db,
         "readiness_monitor",
@@ -913,8 +807,53 @@ async def record_paper_session_snapshot(request: PaperSessionSnapshotRequest = P
         **snapshot_details,
     }
     snapshots = [current_snapshot, *previous_snapshots]
-    session_summary = _snapshot_counts_for_multi_session(snapshots)
+    session_summary = snapshot_counts_for_multi_session(snapshots)
     recorded_gate_keys: list[str] = []
+
+    if snapshot_is_healthy(current_snapshot):
+        recorded = await _record_readiness_gate_evidence(
+            "paper_mode_burn_in",
+            ReadinessGateEvidenceRequest(
+                status="passed",
+                summary="Paper-mode burn-in snapshot is healthy.",
+                evidence={
+                    "snapshot_event_id": event["id"],
+                    "market_session": current_snapshot.get("market_session"),
+                    "market_is_open": current_snapshot.get("market_is_open"),
+                    "active_broker": current_snapshot.get("active_broker"),
+                    "broker_connected": current_snapshot.get("broker_connected"),
+                    "broker_checked_at": current_snapshot.get("broker_checked_at"),
+                    "discord_connected": current_snapshot.get("discord_connected"),
+                    "auto_trading_enabled": current_snapshot.get("auto_trading_enabled"),
+                    "simulation_mode": current_snapshot.get("simulation_mode"),
+                },
+                operator="paper_session_monitor",
+            ),
+            evidence_source="monitor",
+        )
+        recorded_gate_keys.append(recorded["gate_key"])
+        recorded = await _record_readiness_gate_evidence(
+            "live_monitoring_evidence",
+            ReadinessGateEvidenceRequest(
+                status="passed",
+                summary="Operator monitoring snapshot is healthy.",
+                evidence={
+                    "snapshot_event_id": event["id"],
+                    "market_session": current_snapshot.get("market_session"),
+                    "market_is_open": current_snapshot.get("market_is_open"),
+                    "active_broker": current_snapshot.get("active_broker"),
+                    "broker_connected": current_snapshot.get("broker_connected"),
+                    "broker_checked_at": current_snapshot.get("broker_checked_at"),
+                    "broker_check_error": current_snapshot.get("broker_check_error"),
+                    "discord_connected": current_snapshot.get("discord_connected"),
+                    "auto_trading_enabled": current_snapshot.get("auto_trading_enabled"),
+                    "simulation_mode": current_snapshot.get("simulation_mode"),
+                },
+                operator="paper_session_monitor",
+            ),
+            evidence_source="monitor",
+        )
+        recorded_gate_keys.append(recorded["gate_key"])
 
     if session_summary["session_count"] >= 2:
         recorded = await _record_readiness_gate_evidence(
@@ -928,10 +867,11 @@ async def record_paper_session_snapshot(request: PaperSessionSnapshotRequest = P
                 },
                 operator="paper_session_monitor",
             ),
+            evidence_source="monitor",
         )
         recorded_gate_keys.append(recorded["gate_key"])
 
-    previous_transition_snapshot = _transition_snapshot(previous_snapshots, current_snapshot)
+    previous_transition_snapshot = transition_snapshot(previous_snapshots, current_snapshot)
     if previous_transition_snapshot:
         recorded = await _record_readiness_gate_evidence(
             "market_transition_validation",
@@ -945,9 +885,20 @@ async def record_paper_session_snapshot(request: PaperSessionSnapshotRequest = P
                     "to_market_is_open": current_snapshot.get("market_is_open"),
                     "from_market_session": previous_transition_snapshot.get("market_session"),
                     "to_market_session": current_snapshot.get("market_session"),
+                    "from_broker_connected": previous_transition_snapshot.get("broker_connected"),
+                    "to_broker_connected": current_snapshot.get("broker_connected"),
+                    "from_discord_connected": previous_transition_snapshot.get("discord_connected"),
+                    "to_discord_connected": current_snapshot.get("discord_connected"),
+                    "from_auto_trading_enabled": previous_transition_snapshot.get("auto_trading_enabled"),
+                    "to_auto_trading_enabled": current_snapshot.get("auto_trading_enabled"),
+                    "from_simulation_mode": previous_transition_snapshot.get("simulation_mode"),
+                    "to_simulation_mode": current_snapshot.get("simulation_mode"),
+                    "from_broker_checked_at": previous_transition_snapshot.get("broker_checked_at"),
+                    "to_broker_checked_at": current_snapshot.get("broker_checked_at"),
                 },
                 operator="paper_session_monitor",
             ),
+            evidence_source="monitor",
         )
         recorded_gate_keys.append(recorded["gate_key"])
 

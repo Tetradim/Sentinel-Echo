@@ -956,10 +956,10 @@ Readiness gate endpoints:
 | Method | Path | Purpose |
 | --- | --- | --- |
 | `GET` | `/api/operator/readiness-gates` | Return required gate definitions and latest evidence state. |
-| `POST` | `/api/operator/readiness-gates/{gate_key}/evidence` | Record operator or drill evidence for a gate. |
+| `POST` | `/api/operator/readiness-gates/{gate_key}/evidence` | Record manual operator evidence. Manual `passed` authority is limited to controlled access review and operator signoff; automated gates must be passed by their drill or monitoring endpoint. |
 | `POST` | `/api/operator/drills/partial-fill` | Apply a synthetic broker partial-fill update through reconciliation. |
 | `POST` | `/api/operator/drills/reconnect` | Close and recreate the active broker client and verify both connections. |
-| `POST` | `/api/operator/monitoring/paper-session-snapshot` | Record a healthy paper-monitoring snapshot and promote multi-session or market-transition gates when evidence is sufficient. |
+| `POST` | `/api/operator/monitoring/paper-session-snapshot` | Refresh active broker health, record a paper-monitoring snapshot, and promote burn-in, monitoring, multi-session, or market-transition gates only when evidence is sufficient. |
 
 Current local Alpaca paper status on 2026-06-24:
 
@@ -978,19 +978,26 @@ The live-readiness loop should keep recording paper-session snapshots across
 market boundaries. Do not mark the two open gates passed manually; let the
 monitoring endpoint promote them only after the evidence exists.
 
+Automated readiness gates require structured evidence, not just a `passed`
+status. Partial-fill, reconnect, paper burn-in, live monitoring, market
+transition, and multi-session gates are validated in `backend/live_readiness.py`
+before `/api/operator/live-readiness` counts them as passed. Paper-session
+snapshots always perform a fresh active-broker health check and store
+`broker_checked_at` plus any `broker_check_error` in the operator event.
+
 ## Refactor Plan
 
 Near-term refactors should preserve Consolidation as a standalone Discord
 options execution bot and avoid absorbing Sentinel Edge or Sentinel Pulse roles.
 
-1. Extract operator readiness gates from `routes/operator.py` into a small
-   `readiness_evidence.py` service so route handlers stay thin.
+1. Done: operator readiness gate recording, event-state extraction, and
+   paper-session snapshot parsing live in `backend/readiness_evidence.py`.
 2. Split broker drills into `broker_drills.py`, keeping Alpaca paper checks,
    reconnect checks, and synthetic partial-fill drills reusable from tests and
    scheduled monitoring.
-3. Move paper-session monitoring into a dedicated service that can query a
-   broker market clock, normalize sessions, and reject stale or unhealthy
-   snapshots consistently.
+3. Next: move the remaining paper-session monitoring route orchestration into a
+   dedicated service that can query a broker market clock, normalize sessions,
+   and reject stale or unhealthy snapshots consistently.
 4. Keep live-readiness rules centralized in `live_readiness.py`; route, health,
    and arming code should only supply status/evidence.
 5. Add a durable operator monitoring table or collection if readiness evidence

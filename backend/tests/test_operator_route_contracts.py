@@ -408,7 +408,7 @@ class OperatorRouteContractTests(unittest.TestCase):
         self.assertEqual(response["checks"]["simulation_replay"]["acceptance_status"], "failed")
         self.assertEqual(response["checks"]["simulation_replay"]["failed_count"], 1)
 
-    def test_record_readiness_gate_evidence_logs_operator_event(self):
+    def test_record_readiness_gate_evidence_logs_manual_operator_gate_event(self):
         from routes import operator as operator_route
 
         fake_db = FakeTradingDb()
@@ -416,22 +416,46 @@ class OperatorRouteContractTests(unittest.TestCase):
 
         response = asyncio.run(
             operator_route.record_readiness_gate_evidence(
-                "partial_fill_broker_behavior",
+                "operator_signoff",
                 operator_route.ReadinessGateEvidenceRequest(
                     status="passed",
-                    summary="partial fill reconciled against broker update",
-                    evidence={"order_id": "paper-order-1", "filled_qty": 1},
+                    summary="operator approved paper readiness test",
+                    evidence={"scope": "alpaca paper"},
                     operator="codex-test",
                 ),
             )
         )
 
-        self.assertEqual(response["gate_key"], "partial_fill_broker_behavior")
+        self.assertEqual(response["gate_key"], "operator_signoff")
         self.assertEqual(response["status"], "passed")
         self.assertEqual(fake_db.inserted_events[-1]["category"], "readiness_gate")
         self.assertEqual(fake_db.inserted_events[-1]["action"], "evidence_recorded")
-        self.assertEqual(fake_db.inserted_events[-1]["details"]["gate_key"], "partial_fill_broker_behavior")
-        self.assertEqual(fake_db.inserted_events[-1]["details"]["evidence"]["filled_qty"], 1)
+        self.assertEqual(fake_db.inserted_events[-1]["details"]["gate_key"], "operator_signoff")
+        self.assertEqual(fake_db.inserted_events[-1]["details"]["evidence"]["scope"], "alpaca paper")
+
+    def test_record_readiness_gate_evidence_blocks_manual_pass_for_automated_gate(self):
+        from fastapi import HTTPException
+        from routes import operator as operator_route
+
+        fake_db = FakeTradingDb()
+        operator_route.set_db(fake_db)
+
+        with self.assertRaises(HTTPException) as raised:
+            asyncio.run(
+                operator_route.record_readiness_gate_evidence(
+                    "partial_fill_broker_behavior",
+                    operator_route.ReadinessGateEvidenceRequest(
+                        status="passed",
+                        summary="manual partial fill claim",
+                        evidence={"order_id": "paper-order-1", "filled_qty": 1},
+                        operator="codex-test",
+                    ),
+                )
+            )
+
+        self.assertEqual(raised.exception.status_code, 400)
+        self.assertIn("cannot be manually marked passed", raised.exception.detail)
+        self.assertEqual(fake_db.inserted_events, [])
 
     def test_operator_live_readiness_payload_injects_recorded_gate_evidence(self):
         from routes import operator as operator_route
@@ -449,7 +473,13 @@ class OperatorRouteContractTests(unittest.TestCase):
                     "status": "passed",
                     "summary": "partial fill drill passed",
                     "operator": "codex-test",
-                    "evidence": {"order_id": "paper-order-1"},
+                    "evidence": {
+                        "active_broker": "alpaca",
+                        "trade_id": "trade-1",
+                        "order_id": "paper-order-1",
+                        "broker_update": {"status": "partial", "filled_qty": 1},
+                        "reconciliation": {"trade_status": "partial", "position_status": "partial"},
+                    },
                 },
             }
         )
@@ -536,11 +566,19 @@ class OperatorRouteContractTests(unittest.TestCase):
         health_route.update_bot_status("broker_connected", True)
         health_route.update_bot_status("discord_connected", True)
 
-        response = asyncio.run(
-            operator_route.record_paper_session_snapshot(
-                operator_route.PaperSessionSnapshotRequest(market_session="2026-06-24", market_is_open=True)
+        with patch(
+            "routes.operator._refresh_active_broker_health",
+            return_value={
+                "broker_connected": True,
+                "broker_checked_at": "2026-06-24T15:00:00Z",
+                "broker_check_error": "",
+            },
+        ):
+            response = asyncio.run(
+                operator_route.record_paper_session_snapshot(
+                    operator_route.PaperSessionSnapshotRequest(market_session="2026-06-24", market_is_open=True)
+                )
             )
-        )
 
         self.assertEqual(response["session_count"], 2)
         self.assertIn("multi_session_paper_monitoring", response["recorded_gate_keys"])
@@ -574,11 +612,19 @@ class OperatorRouteContractTests(unittest.TestCase):
         health_route.update_bot_status("broker_connected", True)
         health_route.update_bot_status("discord_connected", True)
 
-        response = asyncio.run(
-            operator_route.record_paper_session_snapshot(
-                operator_route.PaperSessionSnapshotRequest(market_session="2026-06-24", market_is_open=True)
+        with patch(
+            "routes.operator._refresh_active_broker_health",
+            return_value={
+                "broker_connected": True,
+                "broker_checked_at": "2026-06-24T14:30:00Z",
+                "broker_check_error": "",
+            },
+        ):
+            response = asyncio.run(
+                operator_route.record_paper_session_snapshot(
+                    operator_route.PaperSessionSnapshotRequest(market_session="2026-06-24", market_is_open=True)
+                )
             )
-        )
 
         self.assertIn("market_transition_validation", response["recorded_gate_keys"])
         self.assertEqual(fake_db.inserted_events[-1]["details"]["gate_key"], "market_transition_validation")
@@ -612,13 +658,92 @@ class OperatorRouteContractTests(unittest.TestCase):
         health_route.update_bot_status("broker_connected", True)
         health_route.update_bot_status("discord_connected", True)
 
-        response = asyncio.run(
-            operator_route.record_paper_session_snapshot(
-                operator_route.PaperSessionSnapshotRequest(market_session="2026-06-24", market_is_open=True)
+        with patch(
+            "routes.operator._refresh_active_broker_health",
+            return_value={
+                "broker_connected": True,
+                "broker_checked_at": "2026-06-24T14:30:00Z",
+                "broker_check_error": "",
+            },
+        ):
+            response = asyncio.run(
+                operator_route.record_paper_session_snapshot(
+                    operator_route.PaperSessionSnapshotRequest(market_session="2026-06-24", market_is_open=True)
+                )
             )
-        )
 
         self.assertNotIn("market_transition_validation", response["recorded_gate_keys"])
+
+    def test_operator_paper_session_snapshot_uses_fresh_broker_check_instead_of_stale_status(self):
+        from routes import operator as operator_route
+        from routes import health as health_route
+
+        fake_db = FakeTradingDb()
+        fake_db.settings.update({"auto_trading_enabled": True, "simulation_mode": False, "active_broker": "alpaca"})
+        fake_db.inserted_events.append(
+            {
+                "id": "snapshot-1",
+                "timestamp": "2026-06-23T15:00:00Z",
+                "category": "readiness_monitor",
+                "action": "paper_session_snapshot",
+                "summary": "Paper session snapshot recorded.",
+                "details": {
+                    "market_session": "2026-06-23",
+                    "broker_connected": True,
+                    "discord_connected": True,
+                    "auto_trading_enabled": True,
+                    "simulation_mode": False,
+                },
+            }
+        )
+        operator_route.set_db(fake_db)
+        health_route.update_bot_status("broker_connected", True)
+        health_route.update_bot_status("discord_connected", True)
+
+        with patch(
+            "routes.operator._refresh_active_broker_health",
+            return_value={
+                "broker_connected": False,
+                "broker_checked_at": "2026-06-24T15:00:00Z",
+                "broker_check_error": "connection refused",
+            },
+        ):
+            response = asyncio.run(
+                operator_route.record_paper_session_snapshot(
+                    operator_route.PaperSessionSnapshotRequest(market_session="2026-06-24", market_is_open=True)
+                )
+            )
+
+        self.assertEqual(response["session_count"], 1)
+        self.assertNotIn("multi_session_paper_monitoring", response["recorded_gate_keys"])
+        self.assertFalse(response["snapshot"]["broker_connected"])
+        self.assertEqual(response["snapshot"]["broker_check_error"], "connection refused")
+
+    def test_readiness_evidence_parses_string_booleans(self):
+        from readiness_evidence import paper_session_snapshot_from_event
+
+        snapshot = paper_session_snapshot_from_event(
+            {
+                "id": "snapshot-strings",
+                "timestamp": "2026-06-24T15:00:00Z",
+                "category": "readiness_monitor",
+                "action": "paper_session_snapshot",
+                "details": {
+                    "market_session": "2026-06-24",
+                    "market_is_open": "false",
+                    "broker_connected": "false",
+                    "discord_connected": "true",
+                    "auto_trading_enabled": "true",
+                    "simulation_mode": "false",
+                },
+            }
+        )
+
+        self.assertFalse(snapshot["market_is_open"])
+        self.assertFalse(snapshot["broker_connected"])
+        self.assertTrue(snapshot["discord_connected"])
+        self.assertTrue(snapshot["auto_trading_enabled"])
+        self.assertFalse(snapshot["simulation_mode"])
 
     def test_operator_refresh_broker_orders_reconciles_terminal_pending_trade(self):
         from routes import operator as operator_route
