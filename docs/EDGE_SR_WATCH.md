@@ -56,3 +56,18 @@ The preview API exposes this layer without placing orders:
 - `POST /api/edge/sr/directives/preview`
 
 The preview endpoint accepts supplied positions and source config for deterministic tests. If positions are omitted in the running app, it reads open and partial positions from the configured database. The endpoint returns a plan only; it does not call broker clients, create trades, or mutate positions.
+
+## Controlled Execution
+
+`POST /api/edge/sr/directives/execute` submits a ready plan into Consolidation's existing alert/trade processing path. It requires the header:
+
+`X-Edge-SR-Execution-Confirm: EXECUTE EDGE SR DIRECTIVE`
+
+Without that exact confirmation value, the route returns `409` and does not call the executor. If the plan is not `ready`, the route returns `not_submitted` with the plan. If the executor is not configured, it returns `503`.
+
+Action mapping:
+
+- `close_position` builds a synthetic sell alert with `sell_percentage=100.0`.
+- `request_scale_in` builds a synthetic buy alert and preserves the Edge sizing hint in parsed metadata.
+
+Both paths include `_edge_sr_directive_id`, `_edge_sr_reason_code`, `_edge_sr_position_id`, and `_source_config` in the parsed alert passed to the executor. The route is intentionally a bridge into the existing `process_trade` flow, so it does not bypass auto-trading settings, source policy, broker configuration, risk checks, order placement rules, fill monitoring, or fill reconciliation.

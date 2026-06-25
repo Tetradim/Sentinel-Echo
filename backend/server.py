@@ -50,7 +50,7 @@ from routes import (
     discord_router, profiles_router, trading_router,
     edge_sr_router,
     analytics_router,
-    init_routes, update_bot_status, set_discord_bot
+    init_routes, update_bot_status, set_discord_bot, set_edge_sr_executor
 )
 
 logging.basicConfig(level=logging.INFO)
@@ -552,6 +552,9 @@ async def process_exit_alert(
             )
 
     return any_submitted
+
+
+set_edge_sr_executor(process_trade)
 
 
 def run_discord_bot(token: str, channel_ids: List[str]):

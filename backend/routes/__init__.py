@@ -7,7 +7,7 @@ from .settings import router as settings_router, set_db as set_settings_db, chec
 from .discord import router as discord_router, set_db as set_discord_db, set_discord_bot, get_discord_bot
 from .profiles import router as profiles_router, set_db as set_profiles_db
 from .trading import router as trading_router, set_db as set_trading_db
-from .edge_sr import router as edge_sr_router, set_db as set_edge_sr_db
+from .edge_sr import router as edge_sr_router, set_db as set_edge_sr_db, set_executor as set_edge_sr_executor
 # Advanced analytics routes
 from .analytics import router as analytics_router
 
@@ -38,6 +38,7 @@ __all__ = [
     'get_bot_status',
     'set_health_db',
     'set_discord_bot',
+    'set_edge_sr_executor',
     'get_discord_bot',
     'check_and_trigger_shutdown'
 ]
