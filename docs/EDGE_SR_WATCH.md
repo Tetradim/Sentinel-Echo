@@ -36,3 +36,23 @@ The validator does not create orders. It rejects invalid schema/actions, missing
 `discord_ingestion.handle_discord_message` accepts an optional `sr_pre_entry_gate` dependency. The hook runs only for entry alerts when the resolved source has `sr_watch_enabled=true`. Disabled sources continue through the existing ingestion path.
 
 When strict gating is enabled, missing gate dependencies or gate exceptions block entries. Without strict gating, failures are recorded on the parsed alert and the existing path proceeds.
+
+## Directive Coordination
+
+`edge_event_bus.recent_edge_sr_directive_events` reads the shared Edge JSONL event bus and returns only `edge.sr.directive.v1` events targeted to `consolidation`. Malformed records, unrelated event types, and directives for other bots are ignored.
+
+`edge_sr_execution.build_edge_sr_execution_plan` validates a directive, checks idempotency when supplied, matches an open or partial position, applies source policy, and returns one of these statuses:
+
+- `ready`: the directive is valid and auto-action policy allows a non-executing order intent.
+- `operator_review_required`: S/R Watch is enabled but `sr_watch_auto_act` is off.
+- `blocked`: policy or position state prevents the directive from moving forward.
+- `rejected`: schema, stale-event, duplicate, or unsupported-action validation failed.
+
+`request_scale_in` is blocked after `sr_watch_stop_trading_after_time` when that cutoff is enabled. Protective `close_position` directives are still allowed after the cutoff.
+
+The preview API exposes this layer without placing orders:
+
+- `GET /api/edge/sr/events`
+- `POST /api/edge/sr/directives/preview`
+
+The preview endpoint accepts supplied positions and source config for deterministic tests. If positions are omitted in the running app, it reads open and partial positions from the configured database. The endpoint returns a plan only; it does not call broker clients, create trades, or mutate positions.
