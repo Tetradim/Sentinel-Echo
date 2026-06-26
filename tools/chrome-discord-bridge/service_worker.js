@@ -16,7 +16,16 @@ const SUPERVISOR_ALARM_NAME = "consolidation-bridge-supervisor";
 const RESTART_RETRY_ALARM_NAME = "consolidation-bridge-restart-retry";
 const MIN_RESTART_BACKOFF_SECONDS = 5;
 const MAX_RESTART_BACKOFF_SECONDS = 300;
+const BRIDGE_FETCH_TIMEOUT_MS = 5000;
 const DISCORD_TAB_URLS = ["https://discord.com/*", "https://*.discord.com/*"];
+
+ensureBridgeAlarms();
+publishServiceWorkerHeartbeat("ok", { reason: "service_worker_loaded" }).catch((error) => {
+  console.warn("[Discord Alert Bridge]", "service-worker load heartbeat failed", errorMessage(error));
+});
+superviseDiscordTabs("service_worker_loaded").catch((error) => {
+  console.warn("[Discord Alert Bridge]", "service-worker load supervision failed", errorMessage(error));
+});
 
 chrome.runtime.onInstalled.addListener(() => {
   chrome.storage.local.get(DEFAULTS, (settings) => {
@@ -130,7 +139,7 @@ async function superviseDiscordTabs(reason = "supervisor") {
     }
 
     await resetRestartBackoff("content script healthy");
-      await publishServiceWorkerHeartbeat("ok", {
+    await publishServiceWorkerHeartbeat("ok", {
       reason,
       supervised_tabs: results.length,
       restarted_tabs: results.filter((result) => result.restarted).length,
@@ -349,32 +358,60 @@ async function forwardPayloadToTarget(target, payload, kind) {
     headers["X-API-Key"] = target.apiKey;
   }
 
-  const url = kind === "heartbeat" ? target.heartbeatUrl || heartbeatUrlFor(target.messageUrl) : target.messageUrl;
-  const response = await fetch(url, {
-    method: "POST",
-    headers,
-    body: JSON.stringify({
-      ...payload,
-      bridge_target_id: target.id,
-      bridge_target_name: target.name,
-    }),
+  const primaryUrl = kind === "heartbeat" ? target.heartbeatUrl || heartbeatUrlFor(target.messageUrl) : target.messageUrl;
+  const requestBody = JSON.stringify({
+    ...payload,
+    bridge_target_id: target.id,
+    bridge_target_name: target.name,
   });
+  const urls = [primaryUrl, ...localConsolidationFallbackUrls(target, kind, primaryUrl)];
+  const failures = [];
+
+  for (const url of urls) {
+    try {
+      const body = await postBridgeJson(url, headers, requestBody, kind);
+      if (url !== primaryUrl && body && typeof body === "object" && !Array.isArray(body)) {
+        body.bridge_fallback_url = url;
+      }
+      return body;
+    } catch (error) {
+      failures.push(`${url}: ${errorMessage(error)}`);
+    }
+  }
+
+  throw new Error(failures.join("; ") || `${kind} request failed`);
+}
+
+async function postBridgeJson(url, headers, requestBody, kind) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), BRIDGE_FETCH_TIMEOUT_MS);
+  let response;
+  try {
+    response = await fetch(url, {
+      method: "POST",
+      headers,
+      body: requestBody,
+      signal: controller.signal,
+    });
+  } finally {
+    clearTimeout(timeout);
+  }
 
   const text = await response.text();
-  let body = {};
+  let responseBody = {};
   if (text) {
     try {
-      body = JSON.parse(text);
+      responseBody = JSON.parse(text);
     } catch {
-      body = { text };
+      responseBody = { text };
     }
   }
 
   if (!response.ok) {
-    throw new Error(body.detail || body.text || `${kind} request failed with HTTP ${response.status}`);
+    throw new Error(responseBody.detail || responseBody.text || `${kind} request failed with HTTP ${response.status}`);
   }
 
-  return body;
+  return responseBody;
 }
 
 function targetsForPayload(settings, payload) {

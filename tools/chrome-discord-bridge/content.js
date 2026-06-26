@@ -10,6 +10,7 @@ const STORAGE_DEFAULTS = {
 const observedIds = new Set();
 const observedOrder = [];
 const MAX_OBSERVED = 2000;
+const BRIDGE_FETCH_TIMEOUT_MS = 5000;
 
 let enabled = false;
 let forwardExistingOnEnable = false;
@@ -286,16 +287,45 @@ async function forwardPayloadDirectlyToTarget(target, payload, kind) {
   if (target.apiKey) {
     headers["X-API-Key"] = target.apiKey;
   }
-  const url = kind === "heartbeat" ? target.heartbeatUrl || heartbeatUrlFor(target.messageUrl) : target.messageUrl;
-  const response = await fetch(url, {
-    method: "POST",
-    headers,
-    body: JSON.stringify({
-      ...payload,
-      bridge_target_id: target.id,
-      bridge_target_name: target.name,
-    }),
+  const primaryUrl = kind === "heartbeat" ? target.heartbeatUrl || heartbeatUrlFor(target.messageUrl) : target.messageUrl;
+  const requestBody = JSON.stringify({
+    ...payload,
+    bridge_target_id: target.id,
+    bridge_target_name: target.name,
   });
+  const urls = [primaryUrl, ...localConsolidationFallbackUrls(target, kind, primaryUrl)];
+  const failures = [];
+
+  for (const url of urls) {
+    try {
+      const body = await postBridgeJson(url, headers, requestBody, kind);
+      if (url !== primaryUrl && body && typeof body === "object" && !Array.isArray(body)) {
+        body.bridge_fallback_url = url;
+      }
+      return body;
+    } catch (error) {
+      failures.push(`${url}: ${errorMessage(error)}`);
+    }
+  }
+
+  throw new Error(failures.join("; ") || `${kind} request failed`);
+}
+
+async function postBridgeJson(url, headers, requestBody, kind) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), BRIDGE_FETCH_TIMEOUT_MS);
+  let response;
+  try {
+    response = await fetch(url, {
+      method: "POST",
+      headers,
+      body: requestBody,
+      signal: controller.signal,
+    });
+  } finally {
+    clearTimeout(timeout);
+  }
+
   const textBody = await response.text();
   let body = {};
   if (textBody) {

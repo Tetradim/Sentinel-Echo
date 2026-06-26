@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Local Discord Alert Bridge",
   "description": "Observes selected Discord Web channels in Chrome and forwards visible alert messages to local trading bots.",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "permissions": ["storage", "alarms", "scripting", "tabs"],
   "host_permissions": [
     "https://discord.com/*",

@@ -12,9 +12,14 @@ assert.deepEqual(manifest.content_scripts[0].js, ["bridge_config.js", "content.j
 assert.match(serviceWorker, /importScripts\("bridge_config\.js"\)/);
 assert.match(serviceWorker, /targetsForDiscordChannel/);
 assert.match(serviceWorker, /enabledBridgeTargets/);
+assert.match(serviceWorker, /service_worker_loaded/);
+assert.match(serviceWorker, /BRIDGE_FETCH_TIMEOUT_MS/);
+assert.match(serviceWorker, /localConsolidationFallbackUrls/);
 assert.match(serviceWorker, /discord-bridge:discord-message/);
 assert.match(serviceWorker, /files: \["bridge_config\.js", "content\.js"\]/);
 assert.match(content, /targetsForDiscordChannel/);
+assert.match(content, /BRIDGE_FETCH_TIMEOUT_MS/);
+assert.match(content, /localConsolidationFallbackUrls/);
 assert.match(content, /channel_url: channelUrlFromLocation\(\)/);
 assert.match(content, /discord-bridge:bridge-heartbeat/);
 assert.match(content, /discord-bridge:discord-message/);

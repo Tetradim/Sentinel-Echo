@@ -1,6 +1,7 @@
 (function bridgeConfigModule(root) {
   const DEFAULT_MESSAGE_URL = "http://127.0.0.1:8003/api/discord/chrome-bridge/message";
   const DEFAULT_HEARTBEAT_URL = "http://127.0.0.1:8003/api/discord/chrome-bridge/heartbeat";
+  const LOCAL_CONSOLIDATION_FALLBACK_PORTS = ["8010", "8003"];
 
   function heartbeatUrlFor(messageUrl) {
     return String(messageUrl || DEFAULT_MESSAGE_URL).replace(/\/message$/, "/heartbeat");
@@ -112,6 +113,48 @@
     return normalizeBridgeTargets(settings).filter((target) => target.enabled);
   }
 
+  function localConsolidationFallbackUrls(target, kind, primaryUrl) {
+    if (!isLocalConsolidationTarget(target)) return [];
+
+    let url;
+    try {
+      url = new URL(String(primaryUrl || ""));
+    } catch {
+      return [];
+    }
+
+    if (!isLocalHost(url.hostname) || !url.pathname.endsWith(`/chrome-bridge/${kind}`)) {
+      return [];
+    }
+
+    const primaryPort = url.port || (url.protocol === "https:" ? "443" : "80");
+    return LOCAL_CONSOLIDATION_FALLBACK_PORTS
+      .filter((port) => port !== primaryPort)
+      .map((port) => {
+        const fallback = new URL(url.href);
+        fallback.port = port;
+        return fallback.href;
+      });
+  }
+
+  function isLocalConsolidationTarget(target) {
+    if (!target || target.enabled === false) return false;
+    const id = String(target.id || "").toLowerCase();
+    const name = String(target.name || "").toLowerCase();
+    const messageUrl = String(target.messageUrl || target.targetUrl || "");
+    if (!id.includes("consolidation") && !name.includes("consolidation")) return false;
+    try {
+      const url = new URL(messageUrl);
+      return isLocalHost(url.hostname);
+    } catch {
+      return false;
+    }
+  }
+
+  function isLocalHost(hostname) {
+    return hostname === "127.0.0.1" || hostname === "localhost" || hostname === "::1" || hostname === "[::1]";
+  }
+
   const api = {
     DEFAULT_MESSAGE_URL,
     DEFAULT_HEARTBEAT_URL,
@@ -119,6 +162,7 @@
     channelIdFromDiscordUrl,
     enabledBridgeTargets,
     heartbeatUrlFor,
+    localConsolidationFallbackUrls,
     normalizeBridgeTarget,
     normalizeBridgeTargets,
     targetMatchesDiscordChannel,

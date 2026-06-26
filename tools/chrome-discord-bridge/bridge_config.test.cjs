@@ -3,6 +3,7 @@ const assert = require("node:assert/strict");
 const {
   canonicalDiscordChannelUrl,
   channelIdFromDiscordUrl,
+  localConsolidationFallbackUrls,
   normalizeBridgeTargets,
   targetsForDiscordChannel,
 } = require("./bridge_config.js");
@@ -94,5 +95,36 @@ test("targetsForDiscordChannel allows enabled targets without filters", () => {
   assert.deepEqual(
     targetsForDiscordChannel(settings, "https://discord.com/channels/111/222").map((target) => target.id),
     ["simulation"],
+  );
+});
+
+test("localConsolidationFallbackUrls retries legacy local Consolidation port on active local run port", () => {
+  const target = {
+    id: "consolidation",
+    name: "Consolidation",
+    enabled: true,
+    messageUrl: "http://127.0.0.1:8003/api/discord/chrome-bridge/message",
+    heartbeatUrl: "http://127.0.0.1:8003/api/discord/chrome-bridge/heartbeat",
+  };
+
+  assert.deepEqual(
+    localConsolidationFallbackUrls(target, "heartbeat", target.heartbeatUrl),
+    ["http://127.0.0.1:8010/api/discord/chrome-bridge/heartbeat"],
+  );
+  assert.deepEqual(
+    localConsolidationFallbackUrls(
+      { ...target, id: "sentinel-edge", name: "Sentinel Edge" },
+      "heartbeat",
+      target.heartbeatUrl,
+    ),
+    [],
+  );
+  assert.deepEqual(
+    localConsolidationFallbackUrls(
+      { ...target, messageUrl: "http://127.0.0.1:8010/api/discord/chrome-bridge/message" },
+      "message",
+      "http://127.0.0.1:8010/api/discord/chrome-bridge/message",
+    ),
+    ["http://127.0.0.1:8003/api/discord/chrome-bridge/message"],
   );
 });

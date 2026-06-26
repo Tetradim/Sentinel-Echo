@@ -9,6 +9,8 @@ http://127.0.0.1:8003/api/discord/chrome-bridge/message
 http://127.0.0.1:8003/api/discord/chrome-bridge/heartbeat
 ```
 
+When the local paper/live test launcher runs Consolidation on `8010`, the bridge automatically falls back between local Consolidation ports `8003` and `8010` for both message and heartbeat posts. Each HTTP attempt is bounded by a short timeout so a dead legacy port cannot stall the extension heartbeat indefinitely.
+
 Use this only for Discord channels you can personally view in Chrome when the normal Discord bot cannot be invited to the private server.
 
 ## Install
@@ -38,7 +40,7 @@ Known local target roots:
 
 | Bot | Target root |
 | --- | --- |
-| Consolidation | `http://127.0.0.1:8003/api/discord/chrome-bridge` |
+| Consolidation | `http://127.0.0.1:8003/api/discord/chrome-bridge` or `http://127.0.0.1:8010/api/discord/chrome-bridge` |
 | Simulation Engine | `http://127.0.0.1:9200/api/discord/chrome-bridge` |
 | Tandem Suite | `http://127.0.0.1:8005/api/discord/chrome-bridge` |
 | Sentinel Edge | `http://127.0.0.1:<edge-port>/api/discord/chrome-bridge` |
