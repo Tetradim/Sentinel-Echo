@@ -8,7 +8,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { api } from '../utils/api';
 import { BACKEND_URL, DEMO_MODE } from '../constants/config';
 import { BROKER_COLORS, BROKER_NAMES } from '../constants/brokers';
-import { validatePrice, formatDate, formatPnL, getPnLColor } from '../utils/format';
+import { validatePrice, formatDate, formatPnL, getPnLColor, formatCurrency, finiteNumber } from '../utils/format';
 import {
   filterTrades,
   summarizeTrades,
@@ -27,12 +27,12 @@ const DEMO_TRADES: Trade[] = [
 ];
 
 interface Trade {
-  id: string; ticker: string; strike: number; option_type: string;
-  expiration: string; entry_price: number; exit_price: number | null;
-  current_price: number | null; quantity: number; status: string;
+  id: string; ticker: string; strike: number | string | null; option_type: string;
+  expiration: string; entry_price?: number | string | null; exit_price?: number | string | null;
+  current_price?: number | string | null; quantity?: number | string | null; status: string;
   executed_at: string | null; closed_at: string | null; broker: string;
   order_id: string | null; error_message: string | null; simulated: boolean;
-  realized_pnl: number | null; unrealized_pnl: number | null;
+  realized_pnl?: number | string | null; unrealized_pnl?: number | string | null;
 }
 interface PortfolioSummary {
   total_pnl: number; total_realized_pnl: number; total_unrealized_pnl: number;
@@ -49,6 +49,11 @@ function statusInfo(status: string, simulated: boolean) {
     case 'pending':  return { color: '#fb923c', bg: '#422006', label: 'PEND' };
     default:         return { color: '#68779b', bg: '#29213a', label: status.toUpperCase() };
   }
+}
+
+function priceInputDefault(trade: Trade): string {
+  const value = finiteNumber(trade.current_price) ?? finiteNumber(trade.exit_price) ?? finiteNumber(trade.entry_price);
+  return value === null ? '' : String(value);
 }
 
 function DigestStat({ label, value, color }: { label: string; value: string; color?: string }) {
@@ -187,8 +192,13 @@ export default function TradesScreen() {
     const si = statusInfo(t.status, t.simulated);
     const bColor = BROKER_COLORS[t.broker] || '#68779b';
     const bName  = BROKER_NAMES[t.broker] || t.broker;
-    const pnl    = t.realized_pnl !== null ? t.realized_pnl : t.unrealized_pnl;
+    const realizedPnl = finiteNumber(t.realized_pnl);
+    const unrealizedPnl = finiteNumber(t.unrealized_pnl);
+    const pnl = realizedPnl !== null ? realizedPnl : unrealizedPnl;
     const isOpen = t.status !== 'closed' && t.status !== 'failed';
+    const exitPriceValue = finiteNumber(t.exit_price);
+    const displayPrice = exitPriceValue ?? finiteNumber(t.current_price) ?? finiteNumber(t.entry_price);
+    const quantity = finiteNumber(t.quantity);
 
     return (
       <View style={s.card}>
@@ -213,10 +223,10 @@ export default function TradesScreen() {
         {/* Stats grid */}
         <View style={s.grid}>
           {[
-            { label: 'STRIKE', value: `$${t.strike}` },
-            { label: 'ENTRY',  value: `$${t.entry_price.toFixed(2)}` },
-            { label: t.exit_price ? 'EXIT' : 'CURRENT', value: `$${(t.exit_price ?? t.current_price ?? t.entry_price).toFixed(2)}` },
-            { label: 'QTY',    value: String(t.quantity) },
+            { label: 'STRIKE', value: finiteNumber(t.strike) === null ? '--' : `$${t.strike}` },
+            { label: 'ENTRY',  value: formatCurrency(t.entry_price) },
+            { label: exitPriceValue !== null ? 'EXIT' : 'CURRENT', value: formatCurrency(displayPrice) },
+            { label: 'QTY',    value: quantity === null ? '--' : String(quantity) },
           ].map(({ label, value }) => (
             <View key={label} style={s.gridCell}>
               <Text style={s.gridLabel}>{label}</Text>
@@ -230,7 +240,7 @@ export default function TradesScreen() {
           <View style={[s.pnlRow, { backgroundColor: pnl >= 0 ? '#14280a' : '#2d1515' }]}>
             <Ionicons name={pnl >= 0 ? 'trending-up' : 'trending-down'} size={16} color={getPnLColor(pnl)} />
             <Text style={[s.pnlText, { color: getPnLColor(pnl) }]}>
-              {t.realized_pnl !== null ? 'Realized' : 'Unrealized'}: {formatPnL(pnl)}
+              {realizedPnl !== null ? 'Realized' : 'Unrealized'}: {formatPnL(pnl)}
             </Text>
           </View>
         )}
@@ -248,10 +258,10 @@ export default function TradesScreen() {
           <Text style={s.footerTime}>{formatDate(t.executed_at)}</Text>
           {isOpen && (
             <View style={s.actions}>
-              <TouchableOpacity style={s.actionBtn} onPress={() => { setSelected(t); setCurrPrice(t.current_price?.toString() || t.entry_price.toString()); setShowUpdate(true); }}>
+              <TouchableOpacity style={s.actionBtn} onPress={() => { setSelected(t); setCurrPrice(priceInputDefault(t)); setShowUpdate(true); }}>
                 <Text style={s.actionBtnText}>Update</Text>
               </TouchableOpacity>
-              <TouchableOpacity style={[s.actionBtn, s.actionBtnClose]} onPress={() => { setSelected(t); setExitPrice(t.current_price?.toString() || t.entry_price.toString()); setShowClose(true); }}>
+              <TouchableOpacity style={[s.actionBtn, s.actionBtnClose]} onPress={() => { setSelected(t); setExitPrice(priceInputDefault(t)); setShowClose(true); }}>
                 <Text style={[s.actionBtnText, { color: '#f87171' }]}>Close</Text>
               </TouchableOpacity>
             </View>
@@ -274,7 +284,7 @@ export default function TradesScreen() {
             <Text style={[s.headerPnlNum, { color: getPnLColor(portfolio.total_pnl) }]}>
               {formatPnL(portfolio.total_pnl)}
             </Text>
-            <Text style={s.headerPnlLabel}>{portfolio.win_rate.toFixed(0)}% win rate</Text>
+            <Text style={s.headerPnlLabel}>{(finiteNumber(portfolio.win_rate) ?? 0).toFixed(0)}% win rate</Text>
           </View>
         )}
       </View>

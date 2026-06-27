@@ -136,6 +136,52 @@ class FillReconciliationTests(unittest.TestCase):
         self.assertEqual(position["entry_price"], 1.35)
         self.assertEqual(position["total_cost"], 270.0)
 
+    def test_filled_entry_order_adds_metadata_oco_plan_from_actual_fill_price(self):
+        from fill_reconciliation import BrokerOrderUpdate, OrderContext, reconcile_order_update
+
+        db = FakeLifecycleDb()
+        context = OrderContext(
+            trade_id="trade-entry",
+            order_id="order-entry",
+            side="BUY",
+            ticker="SPY",
+            strike=500.0,
+            option_type="CALL",
+            expiration="6/21",
+            requested_quantity=2,
+            broker="alpaca",
+            alert_id="alert-entry",
+            alert_price=2.00,
+        )
+        settings = {
+            "take_profit_enabled": True,
+            "take_profit_percentage": 50.0,
+            "stop_loss_enabled": True,
+            "stop_loss_percentage": 20.0,
+            "stop_loss_order_type": "market",
+            "trailing_stop_enabled": True,
+            "trailing_stop_type": "percent",
+            "trailing_stop_percent": 10.0,
+        }
+
+        asyncio.run(
+            reconcile_order_update(
+                db,
+                context,
+                BrokerOrderUpdate(status="filled", filled_qty=2, avg_fill_price=1.35),
+                settings=settings,
+            )
+        )
+
+        position = db.inserted_positions[0]
+        plan = position["oco_exit_plan"]
+        self.assertEqual(plan["entry_price"], 1.35)
+        self.assertEqual(plan["quantity"], 2)
+        self.assertEqual(plan["take_profit"]["trigger_price"], 2.03)
+        self.assertEqual(plan["stop_loss"]["trigger_price"], 1.08)
+        self.assertEqual(position["oco_exit_status"], "metadata_only")
+        self.assertFalse(position["oco_exit_protected"])
+
     def test_repeated_filled_entry_order_does_not_insert_duplicate_position(self):
         from fill_reconciliation import BrokerOrderUpdate, OrderContext, reconcile_order_update
 

@@ -2,7 +2,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Literal, Optional
+from typing import Any, Literal, Optional
+
+from order_execution import build_oco_exit_plan
 
 
 OrderSide = Literal["BUY", "SELL"]
@@ -45,6 +47,7 @@ async def reconcile_order_update(
     db,
     context: OrderContext,
     update: BrokerOrderUpdate,
+    settings: dict[str, Any] | None = None,
 ) -> ReconciliationResult:
     """Apply broker fill truth to trade and position state."""
     status = str(update.status or "").lower()
@@ -85,10 +88,10 @@ async def reconcile_order_update(
         return ReconciliationResult(trade_status="unconfirmed", message=reason)
 
     if status == "partial" and update.filled_qty > 0:
-        return await _apply_fill(db, context, update, trade_status="partial")
+        return await _apply_fill(db, context, update, trade_status="partial", settings=settings)
 
     if status == "filled" or (status == "partial" and update.filled_qty >= context.requested_quantity):
-        return await _apply_fill(db, context, update, trade_status="executed")
+        return await _apply_fill(db, context, update, trade_status="executed", settings=settings)
 
     return ReconciliationResult(trade_status="pending", message=status or "pending")
 
@@ -99,6 +102,7 @@ async def _apply_fill(
     update: BrokerOrderUpdate,
     *,
     trade_status: str,
+    settings: dict[str, Any] | None = None,
 ) -> ReconciliationResult:
     filled_qty = _filled_quantity(update, context)
     fill_price = _fill_price(update, context)
@@ -152,7 +156,7 @@ async def _apply_fill(
                 message="already reconciled",
             )
 
-        position = _entry_position(context, filled_qty, fill_price, position_id)
+        position = _entry_position(context, filled_qty, fill_price, position_id, settings=settings)
         position_id = await db.insert_position(position)
         await _update_alert_status(
             db,
@@ -251,8 +255,10 @@ def _entry_position(
     quantity: int,
     fill_price: float,
     position_id: str,
+    *,
+    settings: dict[str, Any] | None = None,
 ) -> dict:
-    return {
+    position = {
         "id": position_id,
         "alert_id": context.alert_id,
         "ticker": context.ticker,
@@ -273,6 +279,30 @@ def _entry_position(
         "trade_ids": [context.trade_id],
         "highest_price": fill_price,
     }
+    oco_exit_plan = _build_fill_oco_exit_plan(settings, context, quantity, fill_price, position_id)
+    if oco_exit_plan:
+        position["oco_exit_plan"] = oco_exit_plan
+        position["oco_exit_status"] = "metadata_only"
+        position["oco_exit_protected"] = False
+    return position
+
+
+def _build_fill_oco_exit_plan(
+    settings: dict[str, Any] | None,
+    context: OrderContext,
+    quantity: int,
+    fill_price: float,
+    position_id: str,
+) -> dict[str, Any]:
+    if not isinstance(settings, dict):
+        return {}
+    return build_oco_exit_plan(
+        settings,
+        alert_id=context.alert_id or context.trade_id,
+        position_id=position_id,
+        entry_price=fill_price,
+        quantity=quantity,
+    )
 
 
 async def _add_to_existing_position(

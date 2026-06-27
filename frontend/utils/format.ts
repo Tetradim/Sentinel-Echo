@@ -39,6 +39,20 @@ export function formatDate(dateString: string | null): string {
   return new Date(dateString).toLocaleString();
 }
 
+export function finiteNumber(value: number | string | null | undefined): number | null {
+  if (value === null || value === undefined || value === '') return null;
+  const parsed = typeof value === 'number' ? value : Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+export function formatCurrency(
+  value: number | string | null | undefined,
+  fallback = '--'
+): string {
+  const numeric = finiteNumber(value);
+  return numeric === null ? fallback : `$${numeric.toFixed(2)}`;
+}
+
 /**
  * Formats a P&L value as a dollar string with sign.
  */

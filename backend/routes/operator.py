@@ -1067,6 +1067,7 @@ async def refresh_broker_orders():
                         db,
                         _order_context_from_trade(trade, order_id=order_id),
                         _broker_update_from_status(status_data),
+                        settings=settings,
                     )
                     reconciled.append({**row, "trade_status": result.trade_status, "message": result.message})
                 except Exception as exc:

@@ -179,5 +179,56 @@ class RiskSizingTests(unittest.TestCase):
         self.assertFalse(risk.is_duplicate_alert(corrected))
 
 
+class FakePositionDb:
+    def __init__(self, positions):
+        self.positions = positions
+
+    async def get_positions(self, status):
+        self.status = status
+        return self.positions
+
+
+class CorrelationRiskTests(unittest.IsolatedAsyncioTestCase):
+    async def test_real_mode_ignores_simulated_positions_for_ticker_limit(self):
+        from risk import check_correlation
+
+        allowed, reason = await check_correlation(
+            "SPY",
+            FakePositionDb(
+                [
+                    {
+                        "ticker": "SPY",
+                        "status": "open",
+                        "simulated": True,
+                    }
+                ]
+            ),
+            {"max_positions_per_ticker": 1, "simulation_mode": False},
+        )
+
+        self.assertTrue(allowed)
+        self.assertEqual(reason, "")
+
+    async def test_simulation_mode_counts_simulated_positions_for_ticker_limit(self):
+        from risk import check_correlation
+
+        allowed, reason = await check_correlation(
+            "SPY",
+            FakePositionDb(
+                [
+                    {
+                        "ticker": "SPY",
+                        "status": "open",
+                        "simulated": True,
+                    }
+                ]
+            ),
+            {"max_positions_per_ticker": 1, "simulation_mode": True},
+        )
+
+        self.assertFalse(allowed)
+        self.assertIn("Correlation limit", reason)
+
+
 if __name__ == "__main__":
     unittest.main()

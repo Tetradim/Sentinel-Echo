@@ -12,6 +12,7 @@ venv/
 *.db
 *.sqlite3
 *.log
+work/
 data/
 
 # Node

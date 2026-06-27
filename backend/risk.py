@@ -194,6 +194,12 @@ async def check_correlation(
             return False, "Risk controls unavailable"
         return True, ""
 
+    if not coerce_bool(settings.get("simulation_mode"), default=True):
+        open_positions = [
+            p for p in open_positions
+            if not coerce_bool(p.get("simulated"), default=False)
+        ]
+
     same_ticker = [
         p for p in open_positions
         if str(p.get("ticker", "")).upper() == ticker.upper()

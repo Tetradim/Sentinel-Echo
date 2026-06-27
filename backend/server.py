@@ -155,6 +155,45 @@ def create_discord_bot(token: str, channel_ids: List[str]):
     return bot
 
 
+def _plain_value(value: Any) -> Any:
+    if hasattr(value, "value"):
+        return value.value
+    return value
+
+
+def _mapping_from_model(value: Any) -> dict[str, Any]:
+    if isinstance(value, dict):
+        return value
+    if hasattr(value, "model_dump"):
+        return value.model_dump(mode="json")
+    return {}
+
+
+def _active_broker_is_paper(settings: Settings, settings_raw: dict[str, Any]) -> bool:
+    active_broker = str(_plain_value(settings.active_broker) or "").strip().lower()
+    broker_configs = settings_raw.get("broker_configs") if isinstance(settings_raw, dict) else {}
+    if not isinstance(broker_configs, dict):
+        broker_configs = {}
+    config = _mapping_from_model(broker_configs.get(active_broker))
+
+    truthy_paper_fields = ("paper_trading", "paper", "paper_mode", "is_paper", "sandbox")
+    if any(str(config.get(field) or "").strip().lower() in {"1", "true", "yes", "on"} for field in truthy_paper_fields):
+        return True
+
+    mode = str(config.get("mode") or config.get("trading_mode") or "").strip().lower()
+    if mode in {"paper", "paper_trading", "sandbox"}:
+        return True
+
+    base_url = str(config.get("base_url") or config.get("url") or "").strip().lower()
+    if active_broker == "alpaca" and "paper-api.alpaca.markets" in base_url:
+        return True
+    return False
+
+
+def _requires_live_arming(settings: Settings, settings_raw: dict[str, Any]) -> bool:
+    return not settings.simulation_mode and not _active_broker_is_paper(settings, settings_raw)
+
+
 async def process_trade(alert: Alert, parsed: dict):
     """Process a trade based on parsed alert — with risk sizing, correlation check, fill monitoring."""
     from models import Trade, Position
@@ -174,6 +213,7 @@ async def process_trade(alert: Alert, parsed: dict):
         settings_raw = dict(settings_raw)
         settings_raw["simulation_mode"] = True
     trade_executed = False
+    trade_result = None
 
     if parsed['alert_type'] == 'buy':
         source_config = parsed.get("_source_config") or {}
@@ -193,11 +233,18 @@ async def process_trade(alert: Alert, parsed: dict):
             )
             if USE_SQLITE:
                 from database_sqlite import update_alert
-                update_alert(alert.id, {'processed': True, 'trade_executed': False})
+                update_alert(
+                    alert.id,
+                    {
+                        'processed': True,
+                        'trade_executed': False,
+                        'trade_result': 'blocked: position size limit',
+                    },
+                )
             else:
                 sync_mongo_db.alerts.update_one(
                     {'id': alert.id},
-                    {'$set': {'processed': True, 'trade_executed': False}}
+                    {'$set': {'processed': True, 'trade_executed': False, 'trade_result': 'blocked: position size limit'}}
                 )
             return
 
@@ -231,15 +278,22 @@ async def process_trade(alert: Alert, parsed: dict):
             # Update alert as processed but not executed
             if USE_SQLITE:
                 from database_sqlite import update_alert
-                update_alert(alert.id, {'processed': True, 'trade_executed': False})
+                update_alert(
+                    alert.id,
+                    {
+                        'processed': True,
+                        'trade_executed': False,
+                        'trade_result': f'blocked: {block_reason}',
+                    },
+                )
             else:
                 sync_mongo_db.alerts.update_one(
                     {'id': alert.id},
-                    {'$set': {'processed': True, 'trade_executed': False}}
+                    {'$set': {'processed': True, 'trade_executed': False, 'trade_result': f'blocked: {block_reason}'}}
                 )
             return
 
-        if not settings.simulation_mode:
+        if _requires_live_arming(settings, settings_raw):
             try:
                 from live_arming import is_live_trading_armed
                 from live_readiness import live_execution_role_enabled
@@ -249,33 +303,54 @@ async def process_trade(alert: Alert, parsed: dict):
                     logger.warning("[process_trade] live BUY blocked because live trading is not armed")
                     if USE_SQLITE:
                         from database_sqlite import update_alert
-                        update_alert(alert.id, {'processed': True, 'trade_executed': False})
+                        update_alert(
+                            alert.id,
+                            {
+                                'processed': True,
+                                'trade_executed': False,
+                                'trade_result': 'blocked: live trading not armed',
+                            },
+                        )
                     else:
                         sync_mongo_db.alerts.update_one(
                             {'id': alert.id},
-                            {'$set': {'processed': True, 'trade_executed': False}}
+                            {'$set': {'processed': True, 'trade_executed': False, 'trade_result': 'blocked: live trading not armed'}}
                         )
                     return
                 if not live_execution_role_enabled():
                     logger.warning("[process_trade] live BUY blocked because Consolidation is not in live_executioner role")
                     if USE_SQLITE:
                         from database_sqlite import update_alert
-                        update_alert(alert.id, {'processed': True, 'trade_executed': False})
+                        update_alert(
+                            alert.id,
+                            {
+                                'processed': True,
+                                'trade_executed': False,
+                                'trade_result': 'blocked: live executioner role disabled',
+                            },
+                        )
                     else:
                         sync_mongo_db.alerts.update_one(
                             {'id': alert.id},
-                            {'$set': {'processed': True, 'trade_executed': False}}
+                            {'$set': {'processed': True, 'trade_executed': False, 'trade_result': 'blocked: live executioner role disabled'}}
                         )
                     return
             except Exception as exc:
                 logger.error("[process_trade] live BUY blocked while checking arming state: %s", exc)
                 if USE_SQLITE:
                     from database_sqlite import update_alert
-                    update_alert(alert.id, {'processed': True, 'trade_executed': False})
+                    update_alert(
+                        alert.id,
+                        {
+                            'processed': True,
+                            'trade_executed': False,
+                            'trade_result': f'blocked: live arming check failed: {exc}',
+                        },
+                    )
                 else:
                     sync_mongo_db.alerts.update_one(
                         {'id': alert.id},
-                        {'$set': {'processed': True, 'trade_executed': False}}
+                        {'$set': {'processed': True, 'trade_executed': False, 'trade_result': f'blocked: live arming check failed: {exc}'}}
                     )
                 return
 
@@ -407,6 +482,7 @@ async def process_trade(alert: Alert, parsed: dict):
             except Exception as e:
                 trade.status = "failed"
                 trade.error_message = str(e)
+                trade_result = f"failed: {trade.error_message}"
                 logger.error(f"[process_trade] order placement failed: {e}")
                 await notify_trade_failed(
                     trade.id, alert.ticker, alert.strike, alert.option_type,
@@ -467,11 +543,17 @@ async def process_trade(alert: Alert, parsed: dict):
     # ── Update alert status ───────────────────────────────────────────────────
     if USE_SQLITE:
         from database_sqlite import update_alert
-        update_alert(alert.id, {'processed': True, 'trade_executed': trade_executed})
+        updates = {'processed': True, 'trade_executed': trade_executed}
+        if trade_result is not None:
+            updates['trade_result'] = trade_result
+        update_alert(alert.id, updates)
     else:
+        updates = {'processed': True, 'trade_executed': trade_executed}
+        if trade_result is not None:
+            updates['trade_result'] = trade_result
         sync_mongo_db.alerts.update_one(
             {'id': alert.id},
-            {'$set': {'processed': True, 'trade_executed': trade_executed}}
+            {'$set': updates}
         )
 
 
@@ -567,20 +649,21 @@ async def process_average_down_alert(
         )
         return True
 
-    try:
-        from live_arming import is_live_trading_armed
-        from live_readiness import live_execution_role_enabled
+    if _requires_live_arming(settings, settings_raw):
+        try:
+            from live_arming import is_live_trading_armed
+            from live_readiness import live_execution_role_enabled
 
-        runtime_state = await db_obj.get_runtime_state()
-        if not is_live_trading_armed(runtime_state):
-            logger.warning("[process_average_down_alert] live BUY blocked because live trading is not armed")
+            runtime_state = await db_obj.get_runtime_state()
+            if not is_live_trading_armed(runtime_state):
+                logger.warning("[process_average_down_alert] live BUY blocked because live trading is not armed")
+                return False
+            if not live_execution_role_enabled():
+                logger.warning("[process_average_down_alert] live BUY blocked because Consolidation is not in live_executioner role")
+                return False
+        except Exception as exc:
+            logger.error("[process_average_down_alert] live BUY blocked while checking arming state: %s", exc)
             return False
-        if not live_execution_role_enabled():
-            logger.warning("[process_average_down_alert] live BUY blocked because Consolidation is not in live_executioner role")
-            return False
-    except Exception as exc:
-        logger.error("[process_average_down_alert] live BUY blocked while checking arming state: %s", exc)
-        return False
 
     limit_price = alert_price
     if settings.premium_buffer_enabled:
@@ -858,20 +941,21 @@ async def process_exit_alert(
             any_executed = True
             continue
 
-        try:
-            from live_arming import is_live_trading_armed
-            from live_readiness import live_execution_role_enabled
+        if _requires_live_arming(settings, settings_raw):
+            try:
+                from live_arming import is_live_trading_armed
+                from live_readiness import live_execution_role_enabled
 
-            runtime_state = await db_obj.get_runtime_state()
-            if not is_live_trading_armed(runtime_state):
-                logger.warning("[process_exit_alert] live SELL blocked because live trading is not armed")
+                runtime_state = await db_obj.get_runtime_state()
+                if not is_live_trading_armed(runtime_state):
+                    logger.warning("[process_exit_alert] live SELL blocked because live trading is not armed")
+                    continue
+                if not live_execution_role_enabled():
+                    logger.warning("[process_exit_alert] live SELL blocked because Consolidation is not in live_executioner role")
+                    continue
+            except Exception as exc:
+                logger.error("[process_exit_alert] live SELL blocked while checking arming state: %s", exc)
                 continue
-            if not live_execution_role_enabled():
-                logger.warning("[process_exit_alert] live SELL blocked because Consolidation is not in live_executioner role")
-                continue
-        except Exception as exc:
-            logger.error("[process_exit_alert] live SELL blocked while checking arming state: %s", exc)
-            continue
 
         try:
             from order_execution import get_configured_broker_client

@@ -68,6 +68,7 @@ async def monitor_fill(
                 db,
                 order_context,
                 BrokerOrderUpdate(status="filled", filled_qty=filled_qty, avg_fill_price=fill_price),
+                settings=settings,
             )
             await notify_trade_filled(
                 trade_id,
@@ -96,6 +97,7 @@ async def monitor_fill(
                         avg_fill_price=fill_price,
                         reason=f"Partial fill: {filled_qty}/{expected_qty}",
                     ),
+                    settings=settings,
                 )
                 await notify_trade_filled(
                     trade_id,

@@ -230,7 +230,13 @@ class LiveOrderSubmissionStatusTests(unittest.TestCase):
             [
                 (
                     {"id": "alert-unarmed"},
-                    {"$set": {"processed": True, "trade_executed": False}},
+                    {
+                        "$set": {
+                            "processed": True,
+                            "trade_executed": False,
+                            "trade_result": "blocked: live trading not armed",
+                        }
+                    },
                 )
             ],
         )
@@ -274,7 +280,13 @@ class LiveOrderSubmissionStatusTests(unittest.TestCase):
             [
                 (
                     {"id": "alert-role-blocked"},
-                    {"$set": {"processed": True, "trade_executed": False}},
+                    {
+                        "$set": {
+                            "processed": True,
+                            "trade_executed": False,
+                            "trade_result": "blocked: live executioner role disabled",
+                        }
+                    },
                 )
             ],
         )
@@ -679,7 +691,13 @@ class LiveOrderSubmissionStatusTests(unittest.TestCase):
             [
                 (
                     {"id": "alert-shadow-unarmed"},
-                    {"$set": {"processed": True, "trade_executed": False}},
+                    {
+                        "$set": {
+                            "processed": True,
+                            "trade_executed": False,
+                            "trade_result": "blocked: live trading not armed",
+                        }
+                    },
                 )
             ],
         )
@@ -723,7 +741,13 @@ class LiveOrderSubmissionStatusTests(unittest.TestCase):
             [
                 (
                     {"id": "alert-risk-fail"},
-                    {"$set": {"processed": True, "trade_executed": False}},
+                    {
+                        "$set": {
+                            "processed": True,
+                            "trade_executed": False,
+                            "trade_result": "blocked: Risk controls unavailable",
+                        }
+                    },
                 )
             ],
         )
@@ -769,7 +793,13 @@ class LiveOrderSubmissionStatusTests(unittest.TestCase):
             [
                 (
                     {"id": "alert-risk-db-unavailable"},
-                    {"$set": {"processed": True, "trade_executed": False}},
+                    {
+                        "$set": {
+                            "processed": True,
+                            "trade_executed": False,
+                            "trade_result": "blocked: Risk controls unavailable",
+                        }
+                    },
                 )
             ],
         )
