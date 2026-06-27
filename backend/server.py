@@ -544,11 +544,15 @@ async def process_trade(alert: Alert, parsed: dict):
     if USE_SQLITE:
         from database_sqlite import update_alert
         updates = {'processed': True, 'trade_executed': trade_executed}
+        if is_exit_alert(parsed):
+            updates['exit_trigger'] = str(parsed.get("exit_trigger") or "sell_alert")
         if trade_result is not None:
             updates['trade_result'] = trade_result
         update_alert(alert.id, updates)
     else:
         updates = {'processed': True, 'trade_executed': trade_executed}
+        if is_exit_alert(parsed):
+            updates['exit_trigger'] = str(parsed.get("exit_trigger") or "sell_alert")
         if trade_result is not None:
             updates['trade_result'] = trade_result
         sync_mongo_db.alerts.update_one(
@@ -843,6 +847,7 @@ async def process_exit_alert(
     partial_positions = await db_obj.get_positions("partial")
     candidate_positions = open_positions + partial_positions
     source_config = source_config or {}
+    exit_trigger = str(parsed.get("exit_trigger") or "sell_alert").strip() or "sell_alert"
     any_submitted = False
     any_executed = False
 
@@ -865,6 +870,9 @@ async def process_exit_alert(
                     quantity=shadow_plan["quantity"],
                     exit_price=shadow_plan["exit_price"],
                 )
+                shadow_trade.sell_percentage = shadow_plan.get("percentage")
+                shadow_trade.exit_trigger = exit_trigger
+                shadow_trade.exit_reason = "Discord sell alert"
                 await db_obj.insert_trade(shadow_trade.model_dump(mode="json"))
                 await db_obj.update_position(shadow_position.id, shadow_update)
                 any_submitted = True
@@ -905,6 +913,9 @@ async def process_exit_alert(
             broker=settings.active_broker.value,
             simulated=settings.simulation_mode,
             realized_pnl=realized_pnl,
+            sell_percentage=plan.get("percentage"),
+            exit_trigger=exit_trigger,
+            exit_reason="Discord sell alert",
         )
 
         if settings.simulation_mode:
@@ -998,6 +1009,8 @@ async def process_exit_alert(
                         alert_id=alert.id,
                         alert_price=exit_price,
                         simulated=False,
+                        sell_percentage=plan.get("percentage"),
+                        exit_trigger=exit_trigger,
                     ),
                     broker_client=broker_client,
                     db=db_obj,

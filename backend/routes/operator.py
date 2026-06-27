@@ -495,6 +495,7 @@ async def simulate_exit(request: OperatorSimulateExitRequest):
         position_id,
         sell_percentage=request.sell_percentage,
         exit_price=request.exit_price,
+        exit_trigger="operator_sell",
     )
     event = await record_operator_event(
         db,
@@ -563,6 +564,7 @@ async def evaluate_trailing_stop(request: OperatorTrailingStopRequest):
             position_id,
             sell_percentage=request.sell_percentage,
             exit_price=request.current_price,
+            exit_trigger="trailing_stop",
         )
         event = await record_operator_event(
             db,

@@ -227,7 +227,7 @@ def _extract_sell_percentage(message: str) -> float:
     upper = message.upper()
 
     match = re.search(
-        r"\b(?:SELL|TRIM|STC|SCALE|OUT|EXIT|CLOSE)\s*(?:OUT\s*)?(\d{1,3})\s*%",
+        r"\b(?:SELL|SOLD|TRIM|STC|SCALE|OUT|EXIT|CLOSE)\s*(?:OUT\s*)?(\d{1,3})\s*%",
         upper,
     )
     if not match:

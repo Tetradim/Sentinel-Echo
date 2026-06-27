@@ -9,6 +9,7 @@ export interface SettingsViewFlagsInput {
   bracket_order_enabled?: BooleanLike;
   stop_loss_enabled?: BooleanLike;
   trailing_stop_enabled?: BooleanLike;
+  sell_alert_listening_enabled?: BooleanLike;
   auto_shutdown_enabled?: BooleanLike;
   sms_enabled?: BooleanLike;
 }
@@ -22,6 +23,7 @@ export interface SettingsViewFlags {
   bracketOrderEnabled: boolean;
   stopLossEnabled: boolean;
   trailingStopEnabled: boolean;
+  sellAlertListeningEnabled: boolean;
   autoShutdownEnabled: boolean;
   smsEnabled: boolean;
 }
@@ -37,6 +39,7 @@ export function parseSettingsViewFlags(settings?: SettingsViewFlagsInput | null)
     bracketOrderEnabled: parseBooleanFlag(source.bracket_order_enabled),
     stopLossEnabled: parseBooleanFlag(source.stop_loss_enabled),
     trailingStopEnabled: parseBooleanFlag(source.trailing_stop_enabled),
+    sellAlertListeningEnabled: parseBooleanFlag(source.sell_alert_listening_enabled),
     autoShutdownEnabled: parseBooleanFlag(source.auto_shutdown_enabled),
     smsEnabled: parseBooleanFlag(source.sms_enabled),
   };

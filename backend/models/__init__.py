@@ -208,6 +208,16 @@ class Alert(BaseModel):
     trade_executed: bool = False
     trade_result: Optional[str] = None
     raw_message: Optional[str] = None
+    channel_id: Optional[str] = None
+    channel_name: Optional[str] = None
+    author_id: Optional[str] = None
+    author_name: Optional[str] = None
+    source_name: Optional[str] = None
+    source_label: Optional[str] = None
+    skip_reason: Optional[str] = None
+    trade_request_reason: Optional[str] = None
+    exit_trigger: Optional[str] = None
+    exit_trigger_detail: Optional[str] = None
 
 
 class Trade(BaseModel):
@@ -231,6 +241,9 @@ class Trade(BaseModel):
     simulated: bool = True
     realized_pnl: float = 0.0
     unrealized_pnl: float = 0.0
+    sell_percentage: Optional[float] = None
+    exit_trigger: Optional[str] = None
+    exit_reason: Optional[str] = None
 
 
 class Position(BaseModel):
@@ -276,6 +289,7 @@ class Settings(BaseModel):
     active_broker: BrokerType = BrokerType.IBKR
     broker_configs: Dict[str, BrokerConfig] = {}
     auto_trading_enabled: bool = True
+    sell_alert_listening_enabled: bool = True
     premium_buffer_enabled: bool = False
     premium_buffer_amount: float = 10.0  # Buffer in cents (e.g., 10 = $0.10)
     default_quantity: int = 1
@@ -323,6 +337,7 @@ class SettingsUpdate(BaseModel):
     active_broker: Optional[BrokerType] = None
     broker_configs: Optional[Dict[str, dict]] = None
     auto_trading_enabled: Optional[bool] = None
+    sell_alert_listening_enabled: Optional[bool] = None
     default_quantity: Optional[int] = Field(default=None, ge=1)
     simulation_mode: Optional[bool] = None
     max_position_size: Optional[float] = Field(default=None, gt=0)

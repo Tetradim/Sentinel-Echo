@@ -86,14 +86,27 @@ def _trade_is_simulated(trade_doc: dict[str, Any]) -> bool:
     return coerce_bool(trade_doc.get("simulated"), default=True) or broker.endswith(":paper_shadow")
 
 
+def _exit_reason_label(exit_trigger: str) -> str:
+    labels = {
+        "sell_alert": "Discord sell alert",
+        "trailing_stop": "Trailing stop",
+        "support_resistance": "Support/resistance",
+        "operator_sell": "Operator sell",
+        "operator_trade_close": "Operator trade close",
+    }
+    return labels.get(str(exit_trigger or "").strip(), "Operator sell")
+
+
 async def _sell_position_at_price(
     position_id: str,
     percentage: float,
     exit_price: Optional[float],
+    exit_trigger: str = "operator_sell",
 ):
     """Sell a position at a known exit price, shared by legacy and operator routes."""
     from routes.settings import check_and_trigger_shutdown
 
+    resolved_exit_trigger = exit_trigger if isinstance(exit_trigger, str) and exit_trigger.strip() else "operator_sell"
     if percentage <= 0 or percentage > 100:
         raise HTTPException(status_code=400, detail="Sell percentage must be between 1 and 100")
 
@@ -147,6 +160,9 @@ async def _sell_position_at_price(
         broker=str(active_broker),
         simulated=simulation_mode,
         executed_at=datetime.now(timezone.utc),
+        sell_percentage=percentage,
+        exit_trigger=resolved_exit_trigger,
+        exit_reason=_exit_reason_label(resolved_exit_trigger),
     )
 
     realized_pnl = calculate_pnl(position.entry_price, resolved_exit_price, sell_qty)
@@ -182,6 +198,7 @@ async def _sell_position_at_price(
         "sold_quantity": sell_qty,
         "message": f"Sold {sell_qty} contracts",
         "realized_pnl": realized_pnl,
+        "exit_trigger": resolved_exit_trigger,
     }
     if shutdown_reason:
         result["shutdown_triggered"] = True
@@ -197,6 +214,7 @@ async def _sell_position_at_price(
             "position_id": position_id,
             "sold_quantity": sell_qty,
             "sell_percentage": percentage,
+            "exit_trigger": resolved_exit_trigger,
             "exit_price": resolved_exit_price,
             "realized_pnl": realized_pnl,
         },
@@ -317,6 +335,7 @@ async def close_trade(trade_id: str, request: CloseTradeRequest):
             str(linked_position["id"]),
             100,
             request.exit_price,
+            exit_trigger="operator_trade_close",
         )
         realized_pnl = float(position_close.get("realized_pnl", realized_pnl))
     elif not _trade_is_simulated(trade):
@@ -401,7 +420,7 @@ async def get_positions(status: Optional[str] = None):
 @router.post("/sell-position/{position_id}")
 async def sell_position(position_id: str, percentage: float = 100):
     """Sell a position (full or partial)"""
-    return await _sell_position_at_price(position_id, percentage, exit_price=None)
+    return await _sell_position_at_price(position_id, percentage, exit_price=None, exit_trigger="operator_sell")
 
 
 @router.post("/positions/{position_id}/sell")
@@ -409,9 +428,10 @@ async def sell_position_from_operator(
     position_id: str,
     sell_percentage: float = Query(100, ge=1, le=100),
     exit_price: float = Query(..., gt=0),
+    exit_trigger: str = Query("operator_sell"),
 ):
     """Sell a position using the operator UI's submitted price and percentage."""
-    return await _sell_position_at_price(position_id, sell_percentage, exit_price)
+    return await _sell_position_at_price(position_id, sell_percentage, exit_price, exit_trigger=exit_trigger)
 
 
 # Portfolio

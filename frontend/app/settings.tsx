@@ -20,6 +20,7 @@ const DEMO_SETTINGS: Settings = {
   discord_channel_ids: ['123456789'],
   active_broker: 'IBKR',
   auto_trading_enabled: true,
+  sell_alert_listening_enabled: true,
   default_quantity: 5,
   simulation_mode: true,
   max_position_size: 1000,
@@ -66,6 +67,7 @@ const DEMO_PATTERNS: AlertPatterns = {
 interface Settings {
   discord_token: string; discord_channel_ids: string[];
   active_broker: string; auto_trading_enabled: boolean;
+  sell_alert_listening_enabled: boolean;
   default_quantity: number; simulation_mode: boolean; max_position_size: number;
   averaging_down_enabled: boolean; averaging_down_threshold: number;
   averaging_down_percentage: number; averaging_down_max_buys: number;
@@ -348,6 +350,7 @@ export default function SettingsScreen() {
         discord_channel_ids: channelIds,
         active_broker: settings.active_broker,
         auto_trading_enabled: settings.auto_trading_enabled,
+        sell_alert_listening_enabled: settings.sell_alert_listening_enabled,
         default_quantity: settings.default_quantity,
         simulation_mode: settings.simulation_mode,
         max_position_size: settings.max_position_size,
@@ -665,6 +668,7 @@ export default function SettingsScreen() {
             <SectionTitle icon="settings-outline" label="Trading" color="#22c55e" sub="Core execution settings" />
 
             <SwitchRow label="Auto Trading" sub="Execute trades when Discord alerts arrive" value={settingsFlags.autoTradingEnabled} onChange={v => update('auto_trading_enabled', v)} accent="#22c55e" />
+            <SwitchRow label="Sell Alert Listening" sub="Let Discord sell and trim alerts close matching open positions" value={settingsFlags.sellAlertListeningEnabled} onChange={v => update('sell_alert_listening_enabled', v)} accent="#14b8a6" />
             <SwitchRow label="Simulation Mode" sub="Paper trade — no real money executes" value={settingsFlags.simulationMode} onChange={v => update('simulation_mode', v)} accent="#a78bfa" />
 
             {settingsFlags.simulationMode && (

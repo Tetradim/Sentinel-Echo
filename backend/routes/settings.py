@@ -32,6 +32,7 @@ db = None
 
 _BOOLEAN_SETTING_DEFAULTS = {
     "auto_trading_enabled": True,
+    "sell_alert_listening_enabled": True,
     "premium_buffer_enabled": False,
     "simulation_mode": True,
     "averaging_down_enabled": False,

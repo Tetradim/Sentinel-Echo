@@ -129,7 +129,8 @@ def init_database():
         cursor.execute('SELECT id FROM settings WHERE id = ?', ('main_settings',))
         if not cursor.fetchone():
             default_settings = {
-                'auto_trading_enabled': False,
+                'auto_trading_enabled': True,
+                'sell_alert_listening_enabled': True,
                 'active_broker': 'alpaca',
                 'source_overrides': {},
                 'chrome_bridge_require_source_override': True,
@@ -211,7 +212,7 @@ def insert_alert(alert: Dict[str, Any]) -> str:
             alert.get('option_type'),
             alert.get('expiration'),
             alert.get('entry_price'),
-            alert.get('action'),
+            alert.get('action') or alert.get('alert_type'),
             alert.get('sell_percentage'),
             alert.get('received_at', datetime.now(timezone.utc).isoformat()),
             1 if alert.get('processed') else 0,

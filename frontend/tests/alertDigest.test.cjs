@@ -14,7 +14,15 @@ require.extensions['.ts'] = function loadTs(module, filename) {
   module._compile(output, filename);
 };
 
-const { filterAlerts, getAlertExecutionStatus, summarizeAlerts } = require('../utils/alertDigest.ts');
+const {
+  filterAlerts,
+  getAlertActionSummary,
+  getAlertExecutionStatus,
+  getAlertReasonLabel,
+  getAlertSourceSummary,
+  getExitTriggerLabel,
+  summarizeAlerts,
+} = require('../utils/alertDigest.ts');
 
 const alerts = [
   {
@@ -30,6 +38,7 @@ const alerts = [
     ticker: 'SPY',
     processed: true,
     trade_executed: false,
+    skip_reason: 'blocked: max positions per ticker',
     channel_name: 'alerts',
     received_at: '2026-06-18T14:20:00Z',
   },
@@ -41,25 +50,43 @@ const alerts = [
     channel_name: 'swing',
     received_at: '2026-06-18T14:10:00Z',
   },
+  {
+    id: '4',
+    ticker: 'SPY',
+    processed: true,
+    trade_executed: true,
+    alert_type: 'sell',
+    sell_percentage: 80,
+    exit_trigger: 'sell_alert',
+    source_name: 'MikesTrades mirror-alerts',
+    channel_name: 'mirror-alerts',
+    author_name: 'MikeInvesting',
+    trade_result: 'sold 80%',
+    received_at: '2026-06-18T14:05:00Z',
+  },
 ];
 
 test('summarizes alert execution and review counts', () => {
   const digest = summarizeAlerts(alerts);
 
-  assert.equal(digest.total, 3);
-  assert.equal(digest.executed, 1);
+  assert.equal(digest.total, 4);
+  assert.equal(digest.executed, 2);
   assert.equal(digest.needsReview, 2);
   assert.equal(digest.unparsed, 1);
-  assert.equal(digest.executionRate, 33);
+  assert.equal(digest.skipped, 1);
+  assert.equal(digest.exits, 1);
+  assert.equal(digest.executionRate, 50);
   assert.equal(digest.topTicker, 'SPY');
   assert.equal(digest.primaryStatus.title, 'Parser Review');
 });
 
 test('filters alerts by execution, review, and unparsed states', () => {
-  assert.equal(filterAlerts(alerts, 'all').length, 3);
-  assert.equal(filterAlerts(alerts, 'executed').length, 1);
+  assert.equal(filterAlerts(alerts, 'all').length, 4);
+  assert.equal(filterAlerts(alerts, 'executed').length, 2);
   assert.deepEqual(filterAlerts(alerts, 'review').map((alert) => alert.id), ['2', '3']);
+  assert.deepEqual(filterAlerts(alerts, 'skipped').map((alert) => alert.id), ['2']);
   assert.deepEqual(filterAlerts(alerts, 'unparsed').map((alert) => alert.id), ['3']);
+  assert.deepEqual(filterAlerts(alerts, 'exits').map((alert) => alert.id), ['4']);
 });
 
 test('parses string booleans for alert execution and parsing states', () => {
@@ -82,6 +109,13 @@ test('parses string booleans for alert execution and parsing states', () => {
 
 test('builds row status from parsed alert booleans', () => {
   assert.equal(getAlertExecutionStatus({
+    id: 'skipped',
+    processed: 'true',
+    trade_executed: 'false',
+    skip_reason: 'sell alert listening disabled',
+  }).label, 'Skipped');
+
+  assert.equal(getAlertExecutionStatus({
     id: 'review',
     processed: 'true',
     trade_executed: 'false',
@@ -98,6 +132,16 @@ test('builds row status from parsed alert booleans', () => {
     processed: 'true',
     trade_executed: '1',
   }).label, 'Executed');
+});
+
+test('builds enriched alert source, action, reason, and exit trigger labels', () => {
+  const exitAlert = alerts[3];
+
+  assert.equal(getAlertSourceSummary(exitAlert), 'MikesTrades mirror-alerts / MikeInvesting');
+  assert.equal(getAlertActionSummary(exitAlert), 'Exit 80%');
+  assert.equal(getExitTriggerLabel(exitAlert), 'Sell alert');
+  assert.equal(getAlertReasonLabel(alerts[1]), 'blocked: max positions per ticker');
+  assert.equal(getAlertReasonLabel(exitAlert), 'sold 80%');
 });
 
 test('returns a calm empty digest for no alerts', () => {

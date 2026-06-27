@@ -65,6 +65,7 @@ def _default_settings() -> Dict[str, Any]:
         'active_broker': 'ibkr',
         'broker_configs': {},
         'auto_trading_enabled': True,
+        'sell_alert_listening_enabled': True,
         'premium_buffer_enabled': False,
         'premium_buffer_amount': 10.0,
         'default_quantity': 1,

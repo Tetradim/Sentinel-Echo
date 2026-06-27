@@ -25,6 +25,8 @@ class OrderContext:
     alert_id: Optional[str] = None
     alert_price: Optional[float] = None
     simulated: bool = False
+    sell_percentage: Optional[float] = None
+    exit_trigger: Optional[str] = None
 
 
 @dataclass(frozen=True)
@@ -365,14 +367,16 @@ async def _update_alert_status(
 ) -> None:
     if not context.alert_id or not hasattr(db, "update_alert"):
         return
-    await db.update_alert(
-        context.alert_id,
-        {
-            "processed": True,
-            "trade_executed": trade_executed,
-            "trade_result": trade_result,
-        },
-    )
+    updates = {
+        "processed": True,
+        "trade_executed": trade_executed,
+        "trade_result": trade_result,
+    }
+    if context.exit_trigger:
+        updates["exit_trigger"] = context.exit_trigger
+    if context.sell_percentage is not None:
+        updates["sell_percentage"] = context.sell_percentage
+    await db.update_alert(context.alert_id, updates)
 
 
 def _fill_trade_result(trade_status: str) -> str:

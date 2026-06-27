@@ -12,24 +12,28 @@ import {
   AlertFilter,
   DigestAlert,
   filterAlerts,
+  getAlertActionSummary,
   getAlertExecutionStatus,
+  getAlertReasonLabel,
+  getAlertSourceSummary,
+  getExitTriggerLabel,
   summarizeAlerts,
 } from '../utils/alertDigest';
 
 // Demo alerts
 const DEMO_ALERTS: AlertItem[] = [
-  { id: '1', ticker: 'AAPL', strike: 175, option_type: 'CALL', expiration: '2024-05-17', entry_price: 3.50, raw_message: 'BTO AAPL 175C May 17', channel_name: 'alerts', received_at: '2024-04-18T10:30:00Z', processed: true, trade_executed: true },
-  { id: '2', ticker: 'TSLA', strike: 150, option_type: 'PUT', expiration: '2024-05-17', entry_price: 2.80, raw_message: 'BTO TSLA 150P May 17', channel_name: 'alerts', received_at: '2024-04-18T09:15:00Z', processed: true, trade_executed: true },
-  { id: '3', ticker: 'NVDA', strike: 800, option_type: 'CALL', expiration: '2024-04-19', entry_price: 12.50, raw_message: 'BTO NVDA 800C Apr 19', channel_name: 'alerts', received_at: '2024-04-17T14:20:00Z', processed: true, trade_executed: false },
-  { id: '4', ticker: 'MSFT', strike: 380, option_type: 'CALL', expiration: '2024-05-17', entry_price: 5.20, raw_message: 'STC MSFT 380C May 17', channel_name: 'alerts', received_at: '2024-04-17T11:45:00Z', processed: false, trade_executed: false },
-  { id: '5', ticker: 'GOOGL', strike: 155, option_type: 'CALL', expiration: '2024-05-17', entry_price: 2.10, raw_message: 'BTO GOOGL 155C May 17', channel_name: 'alerts', received_at: '2024-04-17T08:30:00Z', processed: true, trade_executed: true },
-  { id: '6', ticker: 'META', strike: 480, option_type: 'CALL', expiration: '2024-05-17', entry_price: 8.50, raw_message: 'BTO META 480C May 17', channel_name: 'alerts', received_at: '2024-04-16T16:00:00Z', processed: true, trade_executed: true },
+  { id: '1', ticker: 'AAPL', strike: 175, option_type: 'CALL', expiration: '2024-05-17', entry_price: 3.50, alert_type: 'buy', raw_message: 'BTO AAPL 175C May 17', source_name: 'MikesTrades mirror-alerts', author_name: 'MikeInvesting', channel_name: 'alerts', received_at: '2024-04-18T10:30:00Z', processed: true, trade_executed: true, trade_result: 'filled' },
+  { id: '2', ticker: 'TSLA', strike: 150, option_type: 'PUT', expiration: '2024-05-17', entry_price: 2.80, alert_type: 'buy', raw_message: 'BTO TSLA 150P May 17', source_name: 'alerts', author_name: 'Analyst', channel_name: 'alerts', received_at: '2024-04-18T09:15:00Z', processed: true, trade_executed: true, trade_result: 'filled' },
+  { id: '3', ticker: 'NVDA', strike: 800, option_type: 'CALL', expiration: '2024-04-19', entry_price: 12.50, alert_type: 'buy', raw_message: 'BTO NVDA 800C Apr 19', source_name: 'alerts', author_name: 'Analyst', channel_name: 'alerts', received_at: '2024-04-17T14:20:00Z', processed: true, trade_executed: false, skip_reason: 'blocked: max positions per ticker', trade_result: 'skipped: blocked: max positions per ticker' },
+  { id: '4', ticker: 'MSFT', strike: 380, option_type: 'CALL', expiration: '2024-05-17', entry_price: 5.20, alert_type: 'sell', sell_percentage: 80, exit_trigger: 'sell_alert', raw_message: 'SOLD 80% MSFT 380C May 17', source_name: 'MikesTrades mirror-alerts', author_name: 'MikeInvesting', channel_name: 'alerts', received_at: '2024-04-17T11:45:00Z', processed: true, trade_executed: true, trade_result: 'sold 80%' },
+  { id: '5', ticker: 'GOOGL', strike: 155, option_type: 'CALL', expiration: '2024-05-17', entry_price: 2.10, alert_type: 'buy', raw_message: 'BTO GOOGL 155C May 17', source_name: 'alerts', author_name: 'Analyst', channel_name: 'alerts', received_at: '2024-04-17T08:30:00Z', processed: true, trade_executed: true, trade_result: 'filled' },
+  { id: '6', ticker: 'META', strike: 480, option_type: 'CALL', expiration: '2024-05-17', entry_price: 8.50, alert_type: 'buy', raw_message: 'BTO META 480C May 17', source_name: 'alerts', author_name: 'Analyst', channel_name: 'alerts', received_at: '2024-04-16T16:00:00Z', processed: true, trade_executed: true, trade_result: 'filled' },
 ];
 
 interface AlertItem extends DigestAlert {
-  id: string; ticker: string; strike: number; option_type: string;
-  expiration: string; entry_price: number; raw_message: string;
-  channel_name: string; received_at: string;
+  id: string; ticker?: string | null; strike?: number | null; option_type?: string | null;
+  expiration?: string | null; entry_price?: number | null; raw_message?: string | null;
+  channel_name?: string | null; received_at?: string | null;
 }
 
 function DigestStat({ label, value, color }: { label: string; value: string; color?: string }) {
@@ -63,8 +67,9 @@ function AlertBriefing({ digest }: { digest: AlertDigest }) {
       <View style={s.digestStats}>
         <DigestStat label="Executed" value={String(digest.executed)} color="#22c55e" />
         <DigestStat label="Review" value={String(digest.needsReview)} color={digest.needsReview ? '#f59e0b' : undefined} />
+        <DigestStat label="Skipped" value={String(digest.skipped)} color={digest.skipped ? '#f59e0b' : undefined} />
         <DigestStat label="Unparsed" value={String(digest.unparsed)} color={digest.unparsed ? '#ef4444' : undefined} />
-        <DigestStat label="Top Ticker" value={digest.topTicker || '-'} />
+        <DigestStat label="Exits" value={String(digest.exits)} color={digest.exits ? '#14b8a6' : undefined} />
       </View>
     </View>
   );
@@ -109,24 +114,40 @@ export default function AlertsScreen() {
     { key: 'all', label: 'All', count: digest.total },
     { key: 'executed', label: 'Executed', count: digest.executed },
     { key: 'review', label: 'Review', count: digest.needsReview },
+    { key: 'skipped', label: 'Skipped', count: digest.skipped },
     { key: 'unparsed', label: 'Unparsed', count: digest.unparsed },
+    { key: 'exits', label: 'Exits', count: digest.exits },
   ];
   const filtered = filterAlerts(alerts, filter);
 
-  const fmt = (d: string) => new Date(d).toLocaleString();
+  const fmt = (d?: string | null) => d ? new Date(d).toLocaleString() : '-';
+  const formatMoney = (value?: number | string | null) => {
+    const numeric = Number(value);
+    return Number.isFinite(numeric) && numeric > 0 ? `$${numeric.toFixed(2)}` : '-';
+  };
 
   const renderItem = ({ item: a }: { item: AlertItem }) => {
     const status = getAlertExecutionStatus(a);
+    const source = getAlertSourceSummary(a);
+    const action = getAlertActionSummary(a);
+    const reason = getAlertReasonLabel(a);
+    const exitTrigger = getExitTriggerLabel(a);
+    const ticker = String(a.ticker || 'UNKNOWN').toUpperCase().replace(/^\$/, '');
+    const optionType = String(a.option_type || '').toUpperCase();
+    const typeColor = optionType === 'PUT' ? '#f87171' : '#4ade80';
 
     return (
       <View style={s.card}>
         <View style={s.cardTop}>
           <View style={s.tickerWrap}>
-            <Text style={s.ticker}>${a.ticker}</Text>
-            <View style={[s.typePill, { backgroundColor: a.option_type === 'CALL' ? '#14532d' : '#450a0a' }]}>
-              <Text style={[s.typeText, { color: a.option_type === 'CALL' ? '#4ade80' : '#f87171' }]}>
-                {a.option_type}
-              </Text>
+            <Text style={s.ticker}>${ticker}</Text>
+            {optionType ? (
+              <View style={[s.typePill, { backgroundColor: optionType === 'CALL' ? '#14532d' : '#450a0a' }]}>
+                <Text style={[s.typeText, { color: typeColor }]}>{optionType}</Text>
+              </View>
+            ) : null}
+            <View style={s.actionPill}>
+              <Text style={s.actionText}>{action}</Text>
             </View>
           </View>
           <View style={[s.statusPill, { backgroundColor: status.backgroundColor }]}>
@@ -138,16 +159,35 @@ export default function AlertsScreen() {
       <View style={s.grid}>
         <View style={s.gridItem}>
           <Text style={s.gridLabel}>STRIKE</Text>
-          <Text style={s.gridValue}>${a.strike}</Text>
+          <Text style={s.gridValue}>{a.strike ? `$${a.strike}` : '-'}</Text>
         </View>
         <View style={s.gridItem}>
           <Text style={s.gridLabel}>EXPIRY</Text>
-          <Text style={s.gridValue}>{a.expiration}</Text>
+          <Text style={s.gridValue}>{a.expiration || '-'}</Text>
         </View>
         <View style={s.gridItem}>
-          <Text style={s.gridLabel}>ENTRY</Text>
-          <Text style={s.gridValue}>${a.entry_price.toFixed(2)}</Text>
+          <Text style={s.gridLabel}>{exitTrigger ? 'PRICE' : 'ENTRY'}</Text>
+          <Text style={s.gridValue}>{formatMoney(a.entry_price)}</Text>
         </View>
+      </View>
+
+      <View style={s.auditBlock}>
+        <View style={s.auditRow}>
+          <Text style={s.auditLabel}>SOURCE</Text>
+          <Text style={s.auditValue}>{source}</Text>
+        </View>
+        {exitTrigger ? (
+          <View style={s.auditRow}>
+            <Text style={s.auditLabel}>EXIT TRIGGER</Text>
+            <Text style={[s.auditValue, s.exitValue]}>{exitTrigger}</Text>
+          </View>
+        ) : null}
+        {reason ? (
+          <View style={s.auditRow}>
+            <Text style={s.auditLabel}>REASON</Text>
+            <Text style={s.auditValue}>{reason}</Text>
+          </View>
+        ) : null}
       </View>
 
       <View style={s.cardBottom}>
@@ -255,8 +295,8 @@ const s = StyleSheet.create({
   errorBannerRetry:{ flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: '#f59e0b', paddingHorizontal: 9, paddingVertical: 6, borderRadius: 6 },
   errorBannerRetryText:{ fontSize: 11, color: '#050416', fontWeight: '900' },
 
-  filterBar:      { flexDirection: 'row', paddingHorizontal: 16, gap: 8, marginBottom: 12 },
-  filterBtn:      { flex: 1, alignItems: 'center', paddingHorizontal: 8, paddingVertical: 7, borderRadius: 8, backgroundColor: 'rgba(16, 9, 28, 0.82)', borderWidth: 1, borderColor: '#29213a' },
+  filterBar:      { flexDirection: 'row', flexWrap: 'wrap', paddingHorizontal: 16, gap: 8, marginBottom: 12 },
+  filterBtn:      { minWidth: 82, flexGrow: 1, alignItems: 'center', paddingHorizontal: 8, paddingVertical: 7, borderRadius: 8, backgroundColor: 'rgba(16, 9, 28, 0.82)', borderWidth: 1, borderColor: '#29213a' },
   filterBtnActive:{ backgroundColor: 'rgba(244, 63, 94, 0.18)', borderColor: '#f43f5e' },
   filterText:     { fontSize: 13, color: '#68779b', fontWeight: '600' },
   filterTextActive:{ color: '#f43f5e' },
@@ -271,6 +311,8 @@ const s = StyleSheet.create({
   ticker:         { fontSize: 18, fontWeight: '800', color: '#edf3ff' },
   typePill:       { paddingHorizontal: 7, paddingVertical: 3, borderRadius: 5 },
   typeText:       { fontSize: 11, fontWeight: '700' },
+  actionPill:     { paddingHorizontal: 7, paddingVertical: 3, borderRadius: 5, backgroundColor: 'rgba(20, 184, 166, 0.14)', borderWidth: 1, borderColor: 'rgba(20, 184, 166, 0.3)' },
+  actionText:     { fontSize: 10, fontWeight: '800', color: '#5eead4' },
   statusPill:     { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 9, paddingVertical: 4, borderRadius: 6 },
   statusDot:      { width: 6, height: 6, borderRadius: 3 },
   statusText:     { fontSize: 11, fontWeight: '700' },
@@ -279,6 +321,12 @@ const s = StyleSheet.create({
   gridItem:       { flex: 1, backgroundColor: 'rgba(21, 16, 33, 0.72)', borderRadius: 7, padding: 8, alignItems: 'center' },
   gridLabel:      { fontSize: 9, color: '#68779b', fontWeight: '700', letterSpacing: 1, marginBottom: 3 },
   gridValue:      { fontSize: 14, fontWeight: '700', color: '#edf3ff' },
+
+  auditBlock:     { borderTopWidth: 1, borderTopColor: 'rgba(41, 33, 58, 0.82)', paddingTop: 10, marginBottom: 10, gap: 7 },
+  auditRow:       { flexDirection: 'row', gap: 10, alignItems: 'flex-start' },
+  auditLabel:     { width: 78, fontSize: 9, color: '#68779b', fontWeight: '800', letterSpacing: 0.8 },
+  auditValue:     { flex: 1, fontSize: 11, lineHeight: 15, color: '#aec0e5', fontWeight: '600' },
+  exitValue:      { color: '#5eead4' },
 
   cardBottom:     { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   channelRow:     { flexDirection: 'row', alignItems: 'center', gap: 5 },

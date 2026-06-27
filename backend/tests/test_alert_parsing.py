@@ -66,6 +66,20 @@ class AlertParsingTests(unittest.TestCase):
         self.assertEqual(parsed["sell_percentage"], 50.0)
         self.assertEqual(parsed["entry_price"], 1.40)
 
+    def test_sold_alert_parses_partial_fill_percentage_contract_and_fill(self):
+        from utils import parse_alert
+
+        parsed = parse_alert("SOLD 80% SPY $738 CALLS HERE AT $.59 FILL 80%")
+
+        self.assertIsNotNone(parsed)
+        self.assertEqual(parsed["alert_type"], "sell")
+        self.assertEqual(parsed["ticker"], "SPY")
+        self.assertEqual(parsed["strike"], 738.0)
+        self.assertEqual(parsed["option_type"], "CALL")
+        self.assertIsNone(parsed["expiration"])
+        self.assertEqual(parsed["sell_percentage"], 80.0)
+        self.assertEqual(parsed["entry_price"], 0.59)
+
     def test_sell_alert_parses_fractional_at_price_without_leading_zero(self):
         from utils import parse_alert
 

@@ -66,6 +66,7 @@ def build_alpaca_paper_settings_update(env: Mapping[str, str]) -> dict:
         },
         "simulation_mode": True,
         "auto_trading_enabled": True,
+        "sell_alert_listening_enabled": True,
         "shutdown_triggered": False,
         "shutdown_reason": "",
     }
@@ -98,6 +99,7 @@ def apply_alpaca_paper_settings(env_path: str | None = None) -> dict:
         "active_broker": settings.get("active_broker"),
         "simulation_mode": bool(settings.get("simulation_mode")),
         "auto_trading_enabled": bool(settings.get("auto_trading_enabled")),
+        "sell_alert_listening_enabled": bool(settings.get("sell_alert_listening_enabled", True)),
         "applied": safe_update,
     }
 
