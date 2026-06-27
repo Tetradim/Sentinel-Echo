@@ -15,6 +15,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import {
   STRIKE_STRATEGIES,
+  buildPreviewStrikeChain,
   StrikeChain,
   StrikeContract,
   StrikeOptionType,
@@ -35,24 +36,6 @@ const EXPIRATIONS = [
   { value: '60', label: '60D' },
   { value: '90', label: '90D' },
 ];
-
-const MOCK_CHAIN: StrikeChain = {
-  underlying: 450,
-  calls: [
-    { strike: 430, bid: 21.5, ask: 22.5, iv: 28, delta: 0.72, theta: -0.15, oi: 8500 },
-    { strike: 440, bid: 14.2, ask: 15.0, iv: 26, delta: 0.55, theta: -0.12, oi: 12000 },
-    { strike: 450, bid: 8.8, ask: 9.5, iv: 25, delta: 0.33, theta: -0.1, oi: 15000 },
-    { strike: 460, bid: 4.5, ask: 5.0, iv: 26, delta: 0.2, theta: -0.08, oi: 11000 },
-    { strike: 470, bid: 2.1, ask: 2.5, iv: 29, delta: 0.09, theta: -0.05, oi: 9000 },
-  ],
-  puts: [
-    { strike: 430, bid: 2.0, ask: 2.5, iv: 27, delta: -0.08, theta: -0.05, oi: 7500 },
-    { strike: 440, bid: 4.2, ask: 5.0, iv: 26, delta: -0.18, theta: -0.08, oi: 10000 },
-    { strike: 450, bid: 8.5, ask: 9.5, iv: 25, delta: -0.32, theta: -0.1, oi: 14000 },
-    { strike: 460, bid: 14.0, ask: 15.5, iv: 26, delta: -0.48, theta: -0.12, oi: 11000 },
-    { strike: 470, bid: 21.0, ask: 23.0, iv: 28, delta: -0.65, theta: -0.15, oi: 8000 },
-  ],
-};
 
 function formatCurrency(value: number): string {
   return `$${value.toFixed(2)}`;
@@ -179,7 +162,7 @@ export function StrikeSelectionPage() {
   const [selectedStrategy, setSelectedStrategy] = useState<StrikeStrategy>('ATM');
   const [selectedType, setSelectedType] = useState<StrikeOptionType>('CALL');
 
-  const chain = MOCK_CHAIN;
+  const chain = buildPreviewStrikeChain({ ticker, expirationDays: expiration });
   const digest = summarizeStrikeSelection({
     chain,
     optionType: selectedType,
@@ -311,7 +294,7 @@ export function StrikeSelectionPage() {
                 </Text>
               </View>
               <TouchableOpacity style={styles.primaryAction} onPress={confirmSelection}>
-                <Ionicons name="checkmark-circle-outline" size={18} color="transparent" />
+                <Ionicons name="checkmark-circle-outline" size={18} color="#070812" />
                 <Text style={styles.primaryActionText}>Use Strike</Text>
               </TouchableOpacity>
             </View>
@@ -321,15 +304,21 @@ export function StrikeSelectionPage() {
         {activeTab === 'compare' && (
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>Strategy Comparison</Text>
+            <View style={styles.compareHeaderRow}>
+              <Text style={[styles.compareHeaderText, styles.compareHeaderStrategy]}>Strategy</Text>
+              <Text style={[styles.compareHeaderText, styles.compareMetricStrike]}>Strike</Text>
+              <Text style={[styles.compareHeaderText, styles.compareMetricPremium]}>Mid Premium</Text>
+              <Text style={[styles.compareHeaderText, styles.compareMetricDelta]}>Delta</Text>
+            </View>
             {digest.comparisonRows.map((row) => (
               <View key={row.strategy} style={styles.compareRow}>
                 <View style={styles.compareCopy}>
                   <Text style={styles.compareTitle}>{row.strategyName}</Text>
                   <Text style={styles.compareDetail}>{row.scoreLabel}</Text>
                 </View>
-                <Text style={styles.compareMetric}>${row.strike}</Text>
-                <Text style={styles.compareMetric}>{row.premiumLabel}</Text>
-                <Text style={styles.compareMetric}>{row.deltaLabel}</Text>
+                <Text style={[styles.compareMetric, styles.compareMetricStrike]}>${row.strike}</Text>
+                <Text style={[styles.compareMetric, styles.compareMetricPremium]}>{row.premiumLabel}</Text>
+                <Text style={[styles.compareMetric, styles.compareMetricDelta]}>{row.deltaLabel}</Text>
               </View>
             ))}
           </View>
@@ -477,7 +466,23 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: 8,
   },
-  primaryActionText: { color: 'transparent', fontSize: 14, fontWeight: '900' },
+  primaryActionText: { color: '#070812', fontSize: 14, fontWeight: '900' },
+  compareHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderBottomColor: 'rgba(41, 33, 58, 0.82)',
+    borderBottomWidth: 1,
+    gap: 8,
+    paddingBottom: 8,
+  },
+  compareHeaderText: {
+    color: '#68779b',
+    fontSize: 9,
+    fontWeight: '900',
+    textAlign: 'right',
+    textTransform: 'uppercase',
+  },
+  compareHeaderStrategy: { flex: 1, textAlign: 'left' },
   compareRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -489,5 +494,8 @@ const styles = StyleSheet.create({
   compareCopy: { flex: 1 },
   compareTitle: { color: '#edf3ff', fontSize: 13, fontWeight: '900' },
   compareDetail: { color: '#68779b', fontSize: 11, fontWeight: '700', marginTop: 2 },
-  compareMetric: { width: 62, color: '#aec0e5', fontSize: 12, fontWeight: '900', textAlign: 'right' },
+  compareMetric: { color: '#aec0e5', fontSize: 12, fontWeight: '900', textAlign: 'right' },
+  compareMetricStrike: { width: 58 },
+  compareMetricPremium: { width: 82 },
+  compareMetricDelta: { width: 54 },
 });

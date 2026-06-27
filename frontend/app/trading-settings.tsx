@@ -350,7 +350,7 @@ export function TradingSettingsPage() {
             <Text style={styles.secondaryActionText}>Reset</Text>
           </TouchableOpacity>
           <TouchableOpacity style={styles.primaryAction} onPress={saveSettings}>
-            <Ionicons name="save-outline" size={18} color="transparent" />
+            <Ionicons name="save-outline" size={18} color="#070812" />
             <Text style={styles.primaryActionText}>Save Settings</Text>
           </TouchableOpacity>
         </View>
@@ -521,5 +521,5 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: 8,
   },
-  primaryActionText: { color: 'transparent', fontSize: 14, fontWeight: '900' },
+  primaryActionText: { color: '#070812', fontSize: 14, fontWeight: '900' },
 });

@@ -35,17 +35,17 @@ const guardedSettings = {
   maxPositionsPerSector: 3,
 };
 
-test('flags configured guards that are not wired into active execution', () => {
+test('flags configured guards that are not confirmed for active execution', () => {
   const digest = summarizeRiskSettings(guardedSettings);
 
-  assert.equal(digest.primaryStatus.title, 'Needs Live Wiring');
+  assert.equal(digest.primaryStatus.title, 'Needs Execution Confirmation');
   assert.equal(digest.primaryStatus.tone, 'attention');
   assert.equal(digest.enabledGuards, 2);
   assert.equal(digest.guardCoveragePercent, 33);
   assert.equal(digest.riskPerTradeLabel, '1%');
   assert.deepEqual(
     digest.warningItems.map((item) => item.title),
-    ['Exit automation not wired', 'Sector cap advisory']
+    ['Broker-side exits not staged', 'Sector cap advisory']
   );
 });
 

@@ -279,7 +279,7 @@ export function DiscordSettingsPage() {
             <Text style={styles.title}>Discord Configuration</Text>
           </View>
           <TouchableOpacity style={styles.addIconButton} onPress={addCommunity} accessibilityRole="button" accessibilityLabel="Add community">
-            <Ionicons name="add" size={20} color="transparent" />
+            <Ionicons name="add" size={20} color="#070812" />
           </TouchableOpacity>
         </View>
 
@@ -486,7 +486,7 @@ export function DiscordSettingsPage() {
             <Text style={styles.secondaryActionText}>Reset</Text>
           </TouchableOpacity>
           <TouchableOpacity style={styles.primaryAction} onPress={saveSettings}>
-            <Ionicons name="save-outline" size={18} color="transparent" />
+            <Ionicons name="save-outline" size={18} color="#070812" />
             <Text style={styles.primaryActionText}>Save Discord Settings</Text>
           </TouchableOpacity>
         </View>

@@ -524,7 +524,7 @@ export default function RiskSettingsScreen() {
               onPress={retryFetchSettings}
               accessibilityRole="button"
             >
-              <Ionicons name="refresh" size={13} color="transparent" />
+              <Ionicons name="refresh" size={13} color="#070812" />
               <Text style={styles.errorBannerRetryText}>Retry</Text>
             </TouchableOpacity>
           </View>
@@ -566,9 +566,9 @@ export default function RiskSettingsScreen() {
             accessibilityRole="button"
           >
             {saving ? (
-              <ActivityIndicator size="small" color="transparent" />
+              <ActivityIndicator size="small" color="#070812" />
             ) : (
-              <Ionicons name="save-outline" size={18} color="transparent" />
+              <Ionicons name="save-outline" size={18} color="#070812" />
             )}
             <Text style={styles.saveButtonText}>
               {saving ? 'Saving...' : !settingsLoaded ? 'Load Required' : hasInvalidSettings ? 'Fix Settings' : 'Save Settings'}
@@ -660,7 +660,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 9,
     paddingVertical: 6,
   },
-  errorBannerRetryText: { color: 'transparent', fontSize: 11, fontWeight: '900' },
+  errorBannerRetryText: { color: '#070812', fontSize: 11, fontWeight: '900' },
   tabBar: { marginBottom: 12 },
   tabRow: { flexDirection: 'row', gap: 8, paddingRight: 16 },
   tab: {
@@ -708,5 +708,5 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   saveButtonDisabled: { opacity: 0.7 },
-  saveButtonText: { color: 'transparent', fontSize: 15, fontWeight: '900' },
+  saveButtonText: { color: '#070812', fontSize: 15, fontWeight: '900' },
 });

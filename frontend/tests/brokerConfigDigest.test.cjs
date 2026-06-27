@@ -78,6 +78,28 @@ test('prioritizes missing fields on the selected broker', () => {
   );
 });
 
+test('treats backend configured secret flags as saved credentials', () => {
+  const digest = summarizeBrokerConfig(
+    brokers,
+    'alpaca',
+    'alpaca',
+    {
+      ibkr: configs.ibkr,
+      alpaca: { configured_fields: { api_key: true, secret_key: true } },
+    },
+    {
+      ibkr: configs.ibkr,
+      alpaca: { configured_fields: { api_key: true, secret_key: true } },
+    }
+  );
+
+  assert.equal(digest.primaryStatus.title, 'Broker Ready');
+  assert.equal(digest.primaryStatus.tone, 'live');
+  assert.equal(digest.configuredFields, 2);
+  assert.equal(digest.readinessPercent, 100);
+  assert.deepEqual(digest.warningItems, []);
+});
+
 test('surfaces unsaved broker edits before inactive broker warnings', () => {
   const digest = summarizeBrokerConfig(
     brokers,

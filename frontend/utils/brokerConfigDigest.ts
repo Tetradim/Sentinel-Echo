@@ -48,17 +48,40 @@ export interface BrokerConnectionResult {
   message: string;
 }
 
-type BrokerConfigMap = Record<string, Record<string, string | null | undefined>>;
+type ConfiguredFieldsMap = Record<string, BooleanLike | null | undefined>;
+type BrokerConfigRecord = Record<string, string | ConfiguredFieldsMap | null | undefined> & {
+  configured_fields?: ConfiguredFieldsMap | null;
+};
+type BrokerConfigMap = Record<string, BrokerConfigRecord>;
 
 function hasValue(value: string | null | undefined): boolean {
   return String(value || '').trim().length > 0;
 }
 
-function configsEqual(
-  current: Record<string, string | null | undefined> = {},
-  saved: Record<string, string | null | undefined> = {}
+function hasConfiguredFieldFlag(
+  config: BrokerConfigRecord = {},
+  key: string
 ): boolean {
-  const keys = new Set([...Object.keys(current), ...Object.keys(saved)]);
+  const configuredFields = config.configured_fields;
+  return Boolean(configuredFields && parseBooleanFlag(configuredFields[key]));
+}
+
+function hasConfiguredField(
+  config: BrokerConfigRecord = {},
+  key: string
+): boolean {
+  const value = config[key];
+  return (typeof value === 'string' && hasValue(value)) || hasConfiguredFieldFlag(config, key);
+}
+
+function configsEqual(
+  current: BrokerConfigRecord = {},
+  saved: BrokerConfigRecord = {}
+): boolean {
+  const keys = new Set([
+    ...Object.keys(current).filter((key) => key !== 'configured_fields'),
+    ...Object.keys(saved).filter((key) => key !== 'configured_fields'),
+  ]);
   for (const key of keys) {
     if (String(current[key] || '') !== String(saved[key] || '')) return false;
   }
@@ -75,9 +98,9 @@ function getFields(broker: DigestBroker | undefined): DigestConfigField[] {
 
 function configuredFieldCount(
   fields: DigestConfigField[],
-  config: Record<string, string | null | undefined> = {}
+  config: BrokerConfigRecord = {}
 ): number {
-  return fields.filter((field) => hasValue(config[field.key])).length;
+  return fields.filter((field) => hasConfiguredField(config, field.key)).length;
 }
 
 function isBrokerConfigured(
@@ -136,7 +159,7 @@ export function summarizeBrokerConfig(
   )).length;
 
   const missingWarnings: BrokerConfigDigestWarning[] = selectedFields
-    .filter((field) => !hasValue(selectedConfig[field.key]))
+    .filter((field) => !hasConfiguredField(selectedConfig, field.key))
     .map((field) => ({
       title: `${field.label} missing`,
       detail: `Add ${field.label.toLowerCase()} before this broker can be used reliably.`,

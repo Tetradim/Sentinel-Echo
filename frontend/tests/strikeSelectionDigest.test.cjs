@@ -15,6 +15,7 @@ require.extensions['.ts'] = function loadTs(module, filename) {
 };
 
 const {
+  buildPreviewStrikeChain,
   compareStrikeStrategies,
   summarizeStrikeSelection,
 } = require('../utils/strikeSelectionDigest.ts');
@@ -106,4 +107,22 @@ test('compares deterministic strategy selections without random returns', () => 
   );
   assert.equal(rows[0].scoreLabel, 'Balanced');
   assert.equal(rows[4].scoreLabel, 'Risk weighted');
+});
+
+test('builds preview chain values from ticker and expiration', () => {
+  const shortDated = buildPreviewStrikeChain({ ticker: 'QQQ', expirationDays: 7 });
+  const longDated = buildPreviewStrikeChain({ ticker: 'QQQ', expirationDays: 90 });
+
+  assert.equal(shortDated.underlying, 450);
+  assert.equal(longDated.underlying, 450);
+
+  const shortMomentum = shortDated.calls.find((contract) => contract.strike === 470);
+  const longMomentum = longDated.calls.find((contract) => contract.strike === 470);
+
+  assert.ok(shortMomentum);
+  assert.ok(longMomentum);
+  assert.notEqual(shortMomentum.ask, longMomentum.ask);
+  assert.notEqual(shortMomentum.iv, longMomentum.iv);
+  assert.notEqual(shortMomentum.theta, longMomentum.theta);
+  assert.notEqual(shortMomentum.oi, longMomentum.oi);
 });

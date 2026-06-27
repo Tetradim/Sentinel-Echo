@@ -41,8 +41,42 @@ interface ConfigField {
   options?: { value: string; label: string }[];
 }
 
+type ConfiguredFieldsMap = Record<string, boolean | string | number | null | undefined>;
+
 interface BrokerConfig {
-  [key: string]: string;
+  [key: string]: string | ConfiguredFieldsMap | null | undefined;
+  configured_fields?: ConfiguredFieldsMap | null;
+}
+
+const MASKED_SECRET = '********';
+const SENSITIVE_CONFIG_KEYS = new Set([
+  'api_key',
+  'api_secret',
+  'secret_key',
+  'access_token',
+  'refresh_token',
+  'password',
+  'trade_token',
+  'client_secret',
+  'ts_client_secret',
+  'tos_refresh_token',
+  'ws_password',
+]);
+
+function isSensitiveConfigField(field: ConfigField): boolean {
+  return field.type === 'password' || SENSITIVE_CONFIG_KEYS.has(field.key);
+}
+
+function hasConfiguredFieldFlag(config: BrokerConfig | undefined, key: string): boolean {
+  const value = config?.configured_fields?.[key];
+  return value === true || value === 'true' || value === 1 || value === '1';
+}
+
+function brokerFieldValue(config: BrokerConfig | undefined, field: ConfigField): string {
+  const value = config?.[field.key];
+  if (typeof value === 'string' && value.length > 0) return value;
+  if (isSensitiveConfigField(field) && hasConfiguredFieldFlag(config, field.key)) return MASKED_SECRET;
+  return '';
 }
 
 function DigestStat({ label, value, color }: { label: string; value: string; color?: string }) {
@@ -347,11 +381,11 @@ export default function BrokerConfigScreen() {
                     ) : (
                       <TextInput
                         style={styles.textInput}
-                        value={brokerConfigs[selectedBrokerInfo.id]?.[field.key] || ''}
+                        value={brokerFieldValue(brokerConfigs[selectedBrokerInfo.id], field)}
                         onChangeText={(text) => updateBrokerConfig(selectedBrokerInfo.id, field.key, text)}
                         placeholder={field.placeholder}
                         placeholderTextColor="#68779b"
-                        secureTextEntry={field.type === 'password'}
+                        secureTextEntry={isSensitiveConfigField(field)}
                         autoCapitalize="none"
                       />
                     )}

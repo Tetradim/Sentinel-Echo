@@ -287,7 +287,7 @@ export default function ProfilesScreen() {
               onPress={() => setShowCreateModal(true)}
               accessibilityRole="button"
             >
-              <Ionicons name="add-circle-outline" size={17} color="transparent" />
+              <Ionicons name="add-circle-outline" size={17} color="#070812" />
               <Text style={styles.emptyActionText}>Create Profile</Text>
             </TouchableOpacity>
           </View>
@@ -459,5 +459,5 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     marginTop: 16,
   },
-  emptyActionText: { color: 'transparent', fontSize: 13, fontWeight: '900' },
+  emptyActionText: { color: '#070812', fontSize: 13, fontWeight: '900' },
 });

@@ -62,6 +62,18 @@ export interface StrikeSelectionInput {
   targetDelta?: number | null;
 }
 
+export interface PreviewStrikeChainInput {
+  ticker?: string | null;
+  expirationDays?: number | string | null;
+}
+
+interface PreviewTickerProfile {
+  underlying: number;
+  strikeStep: number;
+  baseIv: number;
+  baseOi: number;
+}
+
 export const STRIKE_STRATEGIES: { id: StrikeStrategy; name: string; detail: string }[] = [
   { id: 'ATM', name: 'At the Money', detail: 'Closest strike to the underlying.' },
   { id: 'OTM', name: 'Momentum OTM', detail: 'Five percent out of the money.' },
@@ -73,6 +85,91 @@ export const STRIKE_STRATEGIES: { id: StrikeStrategy; name: string; detail: stri
 ];
 
 const STRATEGY_NAMES = new Map(STRIKE_STRATEGIES.map((strategy) => [strategy.id, strategy.name]));
+const PREVIEW_TICKER_PROFILES: Record<string, PreviewTickerProfile> = {
+  QQQ: { underlying: 450, strikeStep: 10, baseIv: 25, baseOi: 15000 },
+  SPY: { underlying: 735, strikeStep: 5, baseIv: 24, baseOi: 26000 },
+  AAPL: { underlying: 210, strikeStep: 5, baseIv: 28, baseOi: 12000 },
+  TSLA: { underlying: 320, strikeStep: 10, baseIv: 52, baseOi: 9500 },
+  NVDA: { underlying: 160, strikeStep: 5, baseIv: 42, baseOi: 18000 },
+};
+
+function clamp(value: number, minimum: number, maximum: number): number {
+  return Math.min(Math.max(value, minimum), maximum);
+}
+
+function roundToCents(value: number): number {
+  return Math.round(value * 100) / 100;
+}
+
+function normalizeExpirationDays(value: number | string | null | undefined): number {
+  const parsed = Number(value ?? 30);
+  return clamp(Number.isFinite(parsed) ? parsed : 30, 1, 365);
+}
+
+function previewDelta(optionType: StrikeOptionType, offset: number): number {
+  const absoluteDelta = optionType === 'CALL'
+    ? clamp(0.5 - (offset * 0.14), 0.05, 0.85)
+    : clamp(0.5 + (offset * 0.14), 0.05, 0.85);
+  return optionType === 'CALL' ? roundToCents(absoluteDelta) : -roundToCents(absoluteDelta);
+}
+
+function buildPreviewContract(
+  profile: PreviewTickerProfile,
+  optionType: StrikeOptionType,
+  offset: number,
+  expirationDays: number
+): StrikeContract {
+  const strike = Math.max(profile.strikeStep, profile.underlying + (offset * profile.strikeStep));
+  const delta = previewDelta(optionType, offset);
+  const absoluteDelta = Math.abs(delta);
+  const absOffset = Math.abs(offset);
+  const termVolAdjustment = clamp(((30 - expirationDays) / 30) * 2.8, -6, 4);
+  const skewAdjustment = optionType === 'CALL'
+    ? (offset > 0 ? absOffset * 1.5 : absOffset * 0.6)
+    : (offset < 0 ? absOffset * 1.6 : absOffset * 0.7);
+  const iv = roundToCents(clamp(profile.baseIv + termVolAdjustment + skewAdjustment, 8, 120));
+  const intrinsic = optionType === 'CALL'
+    ? Math.max(0, profile.underlying - strike)
+    : Math.max(0, strike - profile.underlying);
+  const extrinsic = profile.underlying
+    * (iv / 100)
+    * Math.sqrt(expirationDays / 365)
+    * (0.2 + (absoluteDelta * 0.2));
+  const proximityBoost = 1 + (Math.max(0, 2 - absOffset) * 0.08);
+  const mid = roundToCents(Math.max(0.05, intrinsic + (extrinsic * proximityBoost)));
+  const spreadWidth = Math.max(
+    0.05,
+    mid * (0.045 + (absOffset * 0.012) + (expirationDays <= 7 ? 0.01 : 0))
+  );
+  const bid = Math.max(0.01, roundToCents(mid - (spreadWidth / 2)));
+  const ask = Math.max(bid + 0.01, roundToCents(mid + (spreadWidth / 2)));
+  const theta = -roundToCents(Math.max(0.01, (extrinsic / expirationDays) * (1.05 + (absoluteDelta * 0.3))));
+  const expiryLiquidityFactor = 1 + (Math.min(expirationDays, 90) / 240);
+  const oi = Math.max(
+    100,
+    Math.round((profile.baseOi * Math.max(0.35, 1 - (absOffset * 0.16)) * expiryLiquidityFactor) / 100) * 100
+  );
+
+  return { strike, bid, ask, iv, delta, theta, oi };
+}
+
+export function buildPreviewStrikeChain(input: PreviewStrikeChainInput): StrikeChain {
+  const ticker = String(input.ticker || 'QQQ').trim().toUpperCase();
+  const profile = PREVIEW_TICKER_PROFILES[ticker] || {
+    underlying: 100,
+    strikeStep: 5,
+    baseIv: 30,
+    baseOi: 6000,
+  };
+  const expirationDays = normalizeExpirationDays(input.expirationDays);
+  const offsets = [-2, -1, 0, 1, 2];
+
+  return {
+    underlying: profile.underlying,
+    calls: offsets.map((offset) => buildPreviewContract(profile, 'CALL', offset, expirationDays)),
+    puts: offsets.map((offset) => buildPreviewContract(profile, 'PUT', offset, expirationDays)),
+  };
+}
 
 function contractsFor(chain: StrikeChain, optionType: StrikeOptionType): StrikeContract[] {
   return optionType === 'CALL' ? chain.calls : chain.puts;
