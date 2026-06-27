@@ -103,6 +103,19 @@ test('parses string booleans for simulated trade state', () => {
   ]);
 });
 
+test('normalizes string-backed trade quantities and pnl values', () => {
+  const stringBackedTrades = [
+    { ...trades[0], id: 'string-open', quantity: '3', unrealized_pnl: '45.5' },
+    { ...trades[2], id: 'string-closed', quantity: '2', realized_pnl: '-10' },
+    { ...trades[3], id: 'bad-number', quantity: 'oops', realized_pnl: 'not-a-number' },
+  ];
+
+  const digest = summarizeTrades(stringBackedTrades);
+
+  assert.equal(digest.openQuantity, 3);
+  assert.equal(digest.netPnl, 35.5);
+});
+
 test('returns an idle digest for no trades', () => {
   const digest = summarizeTrades([]);
 

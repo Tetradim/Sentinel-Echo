@@ -1097,7 +1097,7 @@ function OperatorActionPanel({
           const color = toneToColor(action.tone);
           return (
             <TouchableOpacity
-              key={`${action.label}-${action.target}`}
+              key={`${action.id}-${action.target}`}
               style={[styles.actionRow, { borderColor: hexToRgba(color, 0.32), backgroundColor: hexToRgba(theme.cardAlt, 0.55) }]}
               onPress={() => onAction(action.target)}
               accessibilityRole="button"

@@ -7,11 +7,11 @@ export type TradeDigestTone = 'live' | 'attention' | 'empty';
 export interface DigestTrade {
   id: string;
   ticker?: string | null;
-  quantity?: number | null;
+  quantity?: number | string | null;
   status?: string | null;
   simulated?: BooleanLike;
-  realized_pnl?: number | null;
-  unrealized_pnl?: number | null;
+  realized_pnl?: number | string | null;
+  unrealized_pnl?: number | string | null;
 }
 
 export interface TradeDigestStatus {
@@ -42,8 +42,13 @@ function isClosedTrade(trade: DigestTrade): boolean {
   return trade.status === 'closed' || trade.status === 'failed';
 }
 
+function numericValue(value: number | string | null | undefined): number {
+  const parsed = Number(value ?? 0);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
 function tradePnl(trade: DigestTrade): number {
-  return Number(trade.realized_pnl ?? trade.unrealized_pnl ?? 0);
+  return numericValue(trade.realized_pnl ?? trade.unrealized_pnl);
 }
 
 function normalizeTicker(ticker?: string | null): string | null {
@@ -109,7 +114,7 @@ export function summarizeTrades(trades: DigestTrade[]): TradeDigest {
     simulated: trades.filter((trade) => parseBooleanFlag(trade.simulated)).length,
     attention: attentionTrades.length,
     netPnl,
-    openQuantity: openTrades.reduce((total, trade) => total + Number(trade.quantity ?? 0), 0),
+    openQuantity: openTrades.reduce((total, trade) => total + numericValue(trade.quantity), 0),
     bestTicker: getExtremeTicker(trades, (candidate, current) => candidate > current),
     worstTicker: getExtremeTicker(trades, (candidate, current) => candidate < current),
     primaryStatus: primaryStatus(trades.length, attentionTrades.length, openTrades.length),

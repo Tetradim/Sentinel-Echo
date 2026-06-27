@@ -137,3 +137,37 @@ test('limits the dashboard queue to three actions', () => {
 
   assert.equal(queue.length, 3);
 });
+
+test('keeps stable action ids when duplicate labels target the same screen', () => {
+  const queue = buildOperatorActionQueue({
+    ...baseReadiness,
+    items: [
+      {
+        id: 'shutdown',
+        label: 'Shutdown',
+        detail: 'Auto shutdown is off.',
+        state: 'attention',
+        icon: 'power-outline',
+        actionLabel: 'Tune Risk',
+        actionTarget: '/risk-settings',
+      },
+      {
+        id: 'guards',
+        label: 'Exit Guards',
+        detail: 'Exit guards are configured but need review.',
+        state: 'attention',
+        icon: 'shield-half',
+        actionLabel: 'Tune Risk',
+        actionTarget: '/risk-settings',
+      },
+    ],
+  });
+
+  assert.deepEqual(
+    queue.map((action) => [action.id, action.label, action.target]),
+    [
+      ['shutdown', 'Tune Risk', '/risk-settings'],
+      ['guards', 'Tune Risk', '/risk-settings'],
+    ]
+  );
+});

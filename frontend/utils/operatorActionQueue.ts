@@ -12,6 +12,7 @@ export type OperatorActionTarget =
   | '/profiles';
 
 export interface OperatorAction {
+  id: string;
   label: string;
   detail: string;
   target: OperatorActionTarget;
@@ -27,6 +28,7 @@ const ISSUE_WEIGHT: Record<ReadinessState, number> = {
 
 const READY_ACTIONS: OperatorAction[] = [
   {
+    id: 'scan-strikes',
     label: 'Scan Strikes',
     detail: 'Compare liquid contracts before the next alert arrives.',
     target: '/strike-selection',
@@ -34,6 +36,7 @@ const READY_ACTIONS: OperatorAction[] = [
     icon: 'trending-up-outline',
   },
   {
+    id: 'review-trades',
     label: 'Review Trades',
     detail: 'Audit recent fills, simulation tags, and open outcomes.',
     target: '/trades',
@@ -41,6 +44,7 @@ const READY_ACTIONS: OperatorAction[] = [
     icon: 'receipt-outline',
   },
   {
+    id: 'tune-profiles',
     label: 'Tune Profiles',
     detail: 'Check account routing before switching broker profiles.',
     target: '/profiles',
@@ -55,6 +59,7 @@ export function buildOperatorActionQueue(readiness: DashboardReadiness): Operato
     .filter(({ item }) => item.state !== 'ready' && item.actionLabel && item.actionTarget)
     .sort((a, b) => ISSUE_WEIGHT[a.item.state] - ISSUE_WEIGHT[b.item.state] || a.index - b.index)
     .map(({ item }) => ({
+      id: item.id,
       label: item.actionLabel || item.label,
       detail: item.detail,
       target: item.actionTarget as OperatorActionTarget,
