@@ -86,6 +86,20 @@ class ApiAuthMiddlewareTests(unittest.TestCase):
 
         self.assertEqual(response.status_code, 200)
 
+    def test_pairing_status_endpoint_is_public_without_key(self):
+        import server
+
+        middleware = server.APIKeyMiddleware(lambda scope, receive, send: None)
+        original = self.with_auth_globals(server, api_key="", desktop_mode=False)
+        try:
+            response = asyncio.run(
+                middleware.dispatch(make_request("/api/pairing/status"), ok_response)
+            )
+        finally:
+            self.restore_auth_globals(server, original)
+
+        self.assertEqual(response.status_code, 200)
+
 
 if __name__ == "__main__":
     unittest.main()

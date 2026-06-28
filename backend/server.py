@@ -54,7 +54,7 @@ from routes import (
     health_router, brokers_router, settings_router, 
     discord_router, profiles_router, trading_router,
     operator_router, analytics_router, simulation_engine_router,
-    bot_bus_router, init_routes, update_bot_status, set_discord_bot
+    bot_bus_router, pairing_router, init_routes, update_bot_status, set_discord_bot
 )
 
 logging.basicConfig(level=logging.INFO)
@@ -1159,7 +1159,7 @@ if not _API_KEY:
             _BIND_HOST,
         )
 
-_PUBLIC_PATHS = {"/api/health"}  # paths that never require a key
+_PUBLIC_PATHS = {"/api/health", "/api/pairing/status"}  # paths that never require a key
 
 class APIKeyMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
@@ -1223,6 +1223,7 @@ api_router.include_router(operator_router)
 api_router.include_router(simulation_engine_router)
 api_router.include_router(analytics_router)
 api_router.include_router(bot_bus_router)
+api_router.include_router(pairing_router)
 
 app.include_router(api_router)
 

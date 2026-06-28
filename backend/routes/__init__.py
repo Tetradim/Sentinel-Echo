@@ -10,6 +10,7 @@ from .trading import router as trading_router, set_db as set_trading_db
 from .operator import router as operator_router, set_db as set_operator_db
 from .simulation_engine import router as simulation_engine_router, set_db as set_simulation_engine_db
 from .bot_bus import router as bot_bus_router
+from .pairing import router as pairing_router
 # Advanced analytics routes
 from .analytics import router as analytics_router
 
@@ -36,6 +37,7 @@ __all__ = [
     'operator_router',
     'simulation_engine_router',
     'bot_bus_router',
+    'pairing_router',
     'analytics_router',
     'init_routes',
     'bot_status',
