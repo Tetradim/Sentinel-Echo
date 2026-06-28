@@ -69,3 +69,16 @@ def test_launcher_closes_services_when_browser_or_launcher_closes() -> None:
         "Invoke-LauncherCleanup",
     ]:
         assert expected in text
+
+
+def test_launcher_loads_local_env_before_backend_start() -> None:
+    text = read_launcher()
+
+    for expected in [
+        "function Import-LauncherEnvFile",
+        "function Set-DefaultEnvValue",
+        'Import-LauncherEnvFile -Path (Join-Path $ProjectRoot ".env.local")',
+        'Set-DefaultEnvValue -Name "HOST" -Value "127.0.0.1"',
+        'Set-DefaultEnvValue -Name "USE_SQLITE" -Value "true"',
+    ]:
+        assert expected in text

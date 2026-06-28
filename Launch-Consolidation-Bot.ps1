@@ -51,6 +51,37 @@ function Write-Status {
     Add-Content -Path $LogFile -Value "$timestamp [$Level] $Message" -Encoding UTF8
 }
 
+function Import-LauncherEnvFile {
+    param([string]$Path)
+    if (-not (Test-Path -LiteralPath $Path)) { return }
+
+    foreach ($line in Get-Content -LiteralPath $Path -ErrorAction SilentlyContinue) {
+        $trimmed = $line.Trim()
+        if (-not $trimmed -or $trimmed.StartsWith("#")) { continue }
+        if ($trimmed -notmatch '^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)\s*$') { continue }
+
+        $name = $Matches[1]
+        $value = $Matches[2].Trim()
+        if (
+            ($value.StartsWith('"') -and $value.EndsWith('"')) -or
+            ($value.StartsWith("'") -and $value.EndsWith("'"))
+        ) {
+            $value = $value.Substring(1, $value.Length - 2)
+        }
+        [Environment]::SetEnvironmentVariable($name, $value, "Process")
+    }
+
+    Write-Status "Loaded local environment overrides: $Path"
+}
+
+function Set-DefaultEnvValue {
+    param([string]$Name, [string]$Value)
+    $current = [Environment]::GetEnvironmentVariable($Name, "Process")
+    if ([string]::IsNullOrWhiteSpace($current)) {
+        [Environment]::SetEnvironmentVariable($Name, $Value, "Process")
+    }
+}
+
 function Join-ProcessArguments {
     param([string[]]$Arguments)
     return (($Arguments | ForEach-Object {
@@ -448,9 +479,9 @@ function Start-InstalledConsolidationBot {
     }
 
     New-Item -ItemType Directory -Path $DataDir -Force | Out-Null
-    $env:HOST = "127.0.0.1"
+    Set-DefaultEnvValue -Name "HOST" -Value "127.0.0.1"
     $env:PORT = "$BackendPort"
-    $env:USE_SQLITE = "true"
+    Set-DefaultEnvValue -Name "USE_SQLITE" -Value "true"
     $env:DATABASE_PATH = Join-Path $DataDir "consolidation.sqlite3"
     $env:ALLOWED_ORIGINS = "http://localhost:$BackendPort,http://127.0.0.1:$BackendPort"
     $env:BROWSER = "none"
@@ -702,6 +733,7 @@ try {
     Write-Host ""
     Write-Status "Project root: $ProjectRoot"
     Write-Status "Launcher log: $LogFile"
+    Import-LauncherEnvFile -Path (Join-Path $ProjectRoot ".env.local")
 
     $installedExe = Join-Path $ProjectRoot "ConsolidationBot.exe"
     if (Test-Path -LiteralPath $installedExe) {
@@ -780,9 +812,9 @@ try {
     $dataDir = Join-Path $ProjectRoot "data"
     New-Item -ItemType Directory -Path $dataDir -Force | Out-Null
 
-    $env:HOST = "127.0.0.1"
+    Set-DefaultEnvValue -Name "HOST" -Value "127.0.0.1"
     $env:PORT = "$BackendPort"
-    $env:USE_SQLITE = "true"
+    Set-DefaultEnvValue -Name "USE_SQLITE" -Value "true"
     if (-not $env:DATABASE_PATH) {
         $env:DATABASE_PATH = Join-Path $dataDir "consolidation.sqlite3"
     }
