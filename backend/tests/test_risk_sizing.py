@@ -143,6 +143,27 @@ class RiskSizingTests(unittest.TestCase):
         self.assertFalse(risk.is_duplicate_alert(alert))
         self.assertTrue(risk.is_duplicate_alert(alert))
 
+    def test_duplicate_detection_can_use_shared_sqlite_store(self):
+        import tempfile
+        import risk
+
+        alert = {
+            "alert_type": "entry",
+            "ticker": "SPY",
+            "strike": 500.0,
+            "option_type": "CALL",
+            "expiration": "6/21",
+            "entry_price": 1.25,
+        }
+
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = f"{tmp}/duplicates.sqlite3"
+            first_worker_store = risk.SQLiteDuplicateAlertStore(db_path)
+            second_worker_store = risk.SQLiteDuplicateAlertStore(db_path)
+
+            self.assertFalse(risk.is_duplicate_alert(alert, store=first_worker_store))
+            self.assertTrue(risk.is_duplicate_alert(alert, store=second_worker_store))
+
     def test_average_down_duplicate_detection_includes_entry_price(self):
         import risk
 

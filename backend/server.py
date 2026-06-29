@@ -34,7 +34,12 @@ from discord_ingestion import DiscordIngestionDeps, handle_discord_message
 from openclaw_discord_config import resolve_saved_or_runtime_discord_config
 
 # Import new professional features
-from risk import is_duplicate_alert, calculate_position_size, check_correlation
+from risk import (
+    SQLiteDuplicateAlertStore,
+    is_duplicate_alert,
+    calculate_position_size,
+    check_correlation,
+)
 from source_config import apply_source_quantity_limits
 from notifications import (
     notify_trade_filled, notify_trade_failed,
@@ -64,6 +69,7 @@ logger = logging.getLogger(__name__)
 MONGO_URL = os.environ.get('MONGO_URL', 'mongodb://localhost:27017')
 DB_NAME = os.environ.get('DB_NAME', 'tradebot')
 SQLITE_PATH = configured_database_path()
+duplicate_alert_store = SQLiteDuplicateAlertStore(SQLITE_PATH) if USE_SQLITE else None
 
 # MongoDB clients (only used if not using SQLite)
 mongo_client = None
@@ -82,6 +88,36 @@ if not USE_SQLITE:
 # Discord bot reference
 discord_bot = None
 discord_bot_thread = None
+
+
+def check_duplicate_alert(parsed: dict) -> bool:
+    """Use a process-shared store in SQLite mode so workers do not double-enter alerts."""
+    return is_duplicate_alert(parsed, store=duplicate_alert_store)
+
+
+async def update_alert_status(alert_id: str, updates: dict[str, Any], *, db=None) -> None:
+    """Persist alert status through the database abstraction layer."""
+    db_obj = db if db is not None else get_db()
+    update_alert = getattr(db_obj, "update_alert", None)
+    if update_alert is not None:
+        result = update_alert(alert_id, updates)
+        if hasattr(result, "__await__"):
+            await result
+        return
+
+    if db is not None:
+        raise AttributeError(f"{type(db_obj).__name__} does not implement update_alert")
+
+    if USE_SQLITE:
+        from database_sqlite import update_alert as update_sqlite_alert
+
+        update_sqlite_alert(alert_id, updates)
+        return
+
+    sync_mongo_db.alerts.update_one(
+        {'id': alert_id},
+        {'$set': updates},
+    )
 
 
 def _load_settings_sync() -> dict:
@@ -142,7 +178,7 @@ def create_discord_bot(token: str, channel_ids: List[str]):
                 insert_alert=insert_alert_sync,
                 process_trade=process_trade,
                 update_status=update_bot_status,
-                is_duplicate_alert=is_duplicate_alert,
+                is_duplicate_alert=check_duplicate_alert,
                 increment_alerts_processed=increment_alerts_processed,
             ),
             bot_user=bot.user,
@@ -218,7 +254,7 @@ async def process_trade(alert: Alert, parsed: dict):
     if parsed['alert_type'] == 'buy':
         source_config = parsed.get("_source_config") or {}
 
-        # ── 1. Risk-based position sizing ─────────────────────────────────────
+        # 1. Risk-based position sizing.
         quantity = calculate_position_size(
             entry_price=alert.entry_price,
             default_quantity=settings.default_quantity,
@@ -231,24 +267,17 @@ async def process_trade(alert: Alert, parsed: dict):
                 "[process_trade] trade BLOCKED: one contract for %s exceeds max_position_size",
                 alert.ticker,
             )
-            if USE_SQLITE:
-                from database_sqlite import update_alert
-                update_alert(
-                    alert.id,
-                    {
-                        'processed': True,
-                        'trade_executed': False,
-                        'trade_result': 'blocked: position size limit',
-                    },
-                )
-            else:
-                sync_mongo_db.alerts.update_one(
-                    {'id': alert.id},
-                    {'$set': {'processed': True, 'trade_executed': False, 'trade_result': 'blocked: position size limit'}}
-                )
+            await update_alert_status(
+                alert.id,
+                {
+                    'processed': True,
+                    'trade_executed': False,
+                    'trade_result': 'blocked: position size limit',
+                },
+            )
             return
 
-        # ── 2. Correlation / concentration check ─────────────────────────────
+        # 2. Correlation / concentration check.
         # We need the async db abstraction here.  In the SQLite path we use
         # asyncio.get_event_loop() since we're already inside the Discord
         # bot's own event loop.
@@ -276,21 +305,14 @@ async def process_trade(alert: Alert, parsed: dict):
                 settings=settings_raw,
             )
             # Update alert as processed but not executed
-            if USE_SQLITE:
-                from database_sqlite import update_alert
-                update_alert(
-                    alert.id,
-                    {
-                        'processed': True,
-                        'trade_executed': False,
-                        'trade_result': f'blocked: {block_reason}',
-                    },
-                )
-            else:
-                sync_mongo_db.alerts.update_one(
-                    {'id': alert.id},
-                    {'$set': {'processed': True, 'trade_executed': False, 'trade_result': f'blocked: {block_reason}'}}
-                )
+            await update_alert_status(
+                alert.id,
+                {
+                    'processed': True,
+                    'trade_executed': False,
+                    'trade_result': f'blocked: {block_reason}',
+                },
+            )
             return
 
         if _requires_live_arming(settings, settings_raw):
@@ -301,60 +323,39 @@ async def process_trade(alert: Alert, parsed: dict):
                 runtime_state = await get_db().get_runtime_state()
                 if not is_live_trading_armed(runtime_state):
                     logger.warning("[process_trade] live BUY blocked because live trading is not armed")
-                    if USE_SQLITE:
-                        from database_sqlite import update_alert
-                        update_alert(
-                            alert.id,
-                            {
-                                'processed': True,
-                                'trade_executed': False,
-                                'trade_result': 'blocked: live trading not armed',
-                            },
-                        )
-                    else:
-                        sync_mongo_db.alerts.update_one(
-                            {'id': alert.id},
-                            {'$set': {'processed': True, 'trade_executed': False, 'trade_result': 'blocked: live trading not armed'}}
-                        )
-                    return
-                if not live_execution_role_enabled():
-                    logger.warning("[process_trade] live BUY blocked because Consolidation is not in live_executioner role")
-                    if USE_SQLITE:
-                        from database_sqlite import update_alert
-                        update_alert(
-                            alert.id,
-                            {
-                                'processed': True,
-                                'trade_executed': False,
-                                'trade_result': 'blocked: live executioner role disabled',
-                            },
-                        )
-                    else:
-                        sync_mongo_db.alerts.update_one(
-                            {'id': alert.id},
-                            {'$set': {'processed': True, 'trade_executed': False, 'trade_result': 'blocked: live executioner role disabled'}}
-                        )
-                    return
-            except Exception as exc:
-                logger.error("[process_trade] live BUY blocked while checking arming state: %s", exc)
-                if USE_SQLITE:
-                    from database_sqlite import update_alert
-                    update_alert(
+                    await update_alert_status(
                         alert.id,
                         {
                             'processed': True,
                             'trade_executed': False,
-                            'trade_result': f'blocked: live arming check failed: {exc}',
+                            'trade_result': 'blocked: live trading not armed',
                         },
                     )
-                else:
-                    sync_mongo_db.alerts.update_one(
-                        {'id': alert.id},
-                        {'$set': {'processed': True, 'trade_executed': False, 'trade_result': f'blocked: live arming check failed: {exc}'}}
+                    return
+                if not live_execution_role_enabled():
+                    logger.warning("[process_trade] live BUY blocked because Consolidation is not in live_executioner role")
+                    await update_alert_status(
+                        alert.id,
+                        {
+                            'processed': True,
+                            'trade_executed': False,
+                            'trade_result': 'blocked: live executioner role disabled',
+                        },
                     )
+                    return
+            except Exception as exc:
+                logger.error("[process_trade] live BUY blocked while checking arming state: %s", exc)
+                await update_alert_status(
+                    alert.id,
+                    {
+                        'processed': True,
+                        'trade_executed': False,
+                        'trade_result': f'blocked: live arming check failed: {exc}',
+                    },
+                )
                 return
 
-        # ── 3. Build the trade record ─────────────────────────────────────────
+        # 3. Build the trade record.
         trade = Trade(
             alert_id=alert.id,
             ticker=alert.ticker,
@@ -496,7 +497,7 @@ async def process_trade(alert: Alert, parsed: dict):
             else:
                 sync_mongo_db.trades.insert_one(trade.model_dump())
 
-            # ── 4. Fill confirmation monitor ───────────────────────────────
+            # 4. Fill confirmation monitor.
             if trade.status == "pending" and order_id:
                 try:
                     db_obj = get_db()
@@ -540,25 +541,13 @@ async def process_trade(alert: Alert, parsed: dict):
     else:
         logger.info("[process_trade] unsupported alert_type=%s", parsed.get("alert_type"))
 
-    # ── Update alert status ───────────────────────────────────────────────────
-    if USE_SQLITE:
-        from database_sqlite import update_alert
-        updates = {'processed': True, 'trade_executed': trade_executed}
-        if is_exit_alert(parsed):
-            updates['exit_trigger'] = str(parsed.get("exit_trigger") or "sell_alert")
-        if trade_result is not None:
-            updates['trade_result'] = trade_result
-        update_alert(alert.id, updates)
-    else:
-        updates = {'processed': True, 'trade_executed': trade_executed}
-        if is_exit_alert(parsed):
-            updates['exit_trigger'] = str(parsed.get("exit_trigger") or "sell_alert")
-        if trade_result is not None:
-            updates['trade_result'] = trade_result
-        sync_mongo_db.alerts.update_one(
-            {'id': alert.id},
-            {'$set': updates}
-        )
+    # Update alert status.
+    updates = {'processed': True, 'trade_executed': trade_executed}
+    if is_exit_alert(parsed):
+        updates['exit_trigger'] = str(parsed.get("exit_trigger") or "sell_alert")
+    if trade_result is not None:
+        updates['trade_result'] = trade_result
+    await update_alert_status(alert.id, updates)
 
 
 async def process_average_down_alert(
@@ -1035,6 +1024,81 @@ async def process_exit_alert(
     return any_executed
 
 
+def _default_schedule_fill_monitor(**kwargs):
+    asyncio.create_task(monitor_fill(**kwargs))
+
+
+def _pending_trade_order_context(trade: dict) -> OrderContext | None:
+    order_id = str(trade.get("order_id") or "").strip()
+    trade_id = str(trade.get("id") or "").strip()
+    if not trade_id or not order_id:
+        return None
+    return OrderContext(
+        trade_id=trade_id,
+        order_id=order_id,
+        side=str(trade.get("side") or "BUY").upper(),
+        ticker=str(trade.get("ticker") or ""),
+        strike=float(trade.get("strike") or 0.0),
+        option_type=str(trade.get("option_type") or ""),
+        expiration=str(trade.get("expiration") or ""),
+        requested_quantity=max(1, int(trade.get("quantity") or 1)),
+        broker=str(trade.get("broker") or ""),
+        position_id=trade.get("position_id"),
+        alert_id=trade.get("alert_id"),
+        alert_price=float(trade.get("entry_price") or trade.get("exit_price") or 0.0) or None,
+        simulated=bool(trade.get("simulated")),
+        sell_percentage=trade.get("sell_percentage"),
+        exit_trigger=trade.get("exit_trigger"),
+    )
+
+
+async def resume_pending_fill_monitors(
+    db,
+    settings: dict[str, Any],
+    *,
+    broker_client=None,
+    schedule_monitor=None,
+    limit: int = 500,
+) -> int:
+    """Restart broker fill polling for persisted pending orders after process restart."""
+    schedule_monitor = schedule_monitor or _default_schedule_fill_monitor
+    trades = await db.get_trades(limit=limit)
+    pending_trades = [
+        trade for trade in trades
+        if str(trade.get("status") or "").lower() == "pending" and trade.get("order_id")
+    ]
+    if not pending_trades:
+        return 0
+
+    if broker_client is None:
+        from order_execution import get_configured_broker_client
+
+        active_broker = str(settings.get("active_broker") or "").lower()
+        broker_client = get_configured_broker_client(
+            settings,
+            active_broker,
+            require_order_status=True,
+        )
+
+    scheduled = 0
+    for trade in pending_trades:
+        order_context = _pending_trade_order_context(trade)
+        if order_context is None:
+            continue
+        result = schedule_monitor(
+            order_context=order_context,
+            broker_client=broker_client,
+            db=db,
+            settings=settings,
+        )
+        if asyncio.iscoroutine(result):
+            await result
+        scheduled += 1
+    if scheduled:
+        logger.info("Rescheduled %s pending broker fill monitor(s) after startup.", scheduled)
+    return scheduled
+
+
 def run_discord_bot(token: str, channel_ids: List[str]):
     """Run the Discord bot in a separate thread"""
     global discord_bot, discord_bot_thread
@@ -1060,6 +1124,19 @@ def _normalize_channel_ids(channel_ids: List[str] | str) -> List[str]:
     return [str(channel_id).strip() for channel_id in raw_ids if str(channel_id).strip()]
 
 
+async def _wait_for_discord_bot_ready(thread: threading.Thread, timeout_seconds: float = 5.0) -> bool:
+    """Wait briefly for the Discord worker thread to create and publish the bot object."""
+    deadline = asyncio.get_running_loop().time() + timeout_seconds
+    while asyncio.get_running_loop().time() < deadline:
+        if discord_bot is not None:
+            set_discord_bot(discord_bot, thread)
+            return True
+        if not thread.is_alive():
+            return discord_bot is not None
+        await asyncio.sleep(0.01)
+    return False
+
+
 async def init_discord_bot(token: str, channel_ids: List[str] | str):
     """Start the Discord bot in the background without blocking API startup."""
     global discord_bot_thread
@@ -1082,7 +1159,8 @@ async def init_discord_bot(token: str, channel_ids: List[str] | str):
         name="ConsolidationDiscordBot",
     )
     discord_bot_thread.start()
-    set_discord_bot(discord_bot, discord_bot_thread)
+    if not await _wait_for_discord_bot_ready(discord_bot_thread):
+        logger.warning("Discord bot thread started but bot object was not initialized before timeout.")
     return discord_bot_thread
 
 
@@ -1112,6 +1190,11 @@ async def lifespan(app: FastAPI):
     init_routes(db)
 
     settings = await db.get_settings()
+    try:
+        await resume_pending_fill_monitors(db, settings)
+    except Exception as exc:
+        logger.error("Failed to resume pending fill monitors on startup: %s", exc)
+
     discord_config = resolve_saved_or_runtime_discord_config(settings, os.environ)
     if discord_config.token and discord_config.channel_ids:
         logger.info(
@@ -1136,15 +1219,53 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="Trading Bot API", lifespan=lifespan)
 
-# ── Authentication middleware (C2 fix) ──────────────────────────────────────
+# Authentication middleware.
 # Set API_KEY env var to a secret string. All requests must include:
 #   X-API-Key: <your-secret>
 # /api/health is exempt so uptime monitors work without a key.
 # If API_KEY is not set, auth is disabled only for explicit localhost desktop mode.
+_LOCAL_BIND_HOSTS = {"127.0.0.1", "localhost", "::1"}
+
+
+def _is_production_env(value: str | None) -> bool:
+    return str(value or "").strip().lower() in {"prod", "production", "live"}
+
+
+def validate_api_auth_startup(
+    *,
+    api_key: str,
+    use_sqlite: bool,
+    bind_host: str,
+    app_env: str | None,
+) -> dict[str, bool]:
+    normalized_key = str(api_key or "").strip()
+    normalized_host = str(bind_host or "").strip().lower()
+    authless_desktop_mode = (
+        not normalized_key
+        and use_sqlite
+        and normalized_host in _LOCAL_BIND_HOSTS
+        and not _is_production_env(app_env)
+    )
+    if not normalized_key and _is_production_env(app_env):
+        raise RuntimeError("API_KEY is required when ENV/APP_ENV/ENVIRONMENT is production.")
+    return {"authless_desktop_mode": authless_desktop_mode}
+
+
 _API_KEY = os.environ.get("API_KEY", "").strip()
 _BIND_HOST = os.environ.get("HOST", "127.0.0.1").strip().lower()
-_LOCAL_BIND_HOSTS = {"127.0.0.1", "localhost", "::1"}
-_AUTHLESS_DESKTOP_MODE = not _API_KEY and USE_SQLITE and _BIND_HOST in _LOCAL_BIND_HOSTS
+_APP_ENV = (
+    os.environ.get("ENV")
+    or os.environ.get("APP_ENV")
+    or os.environ.get("ENVIRONMENT")
+    or ""
+)
+_AUTH_CONFIG = validate_api_auth_startup(
+    api_key=_API_KEY,
+    use_sqlite=USE_SQLITE,
+    bind_host=_BIND_HOST,
+    app_env=_APP_ENV,
+)
+_AUTHLESS_DESKTOP_MODE = _AUTH_CONFIG["authless_desktop_mode"]
 if not _API_KEY:
     if _AUTHLESS_DESKTOP_MODE:
         logger.warning(

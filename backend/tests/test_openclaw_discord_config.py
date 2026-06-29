@@ -2,6 +2,7 @@ import pathlib
 import asyncio
 import sys
 import tempfile
+from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
@@ -254,7 +255,7 @@ class OpenClawDiscordConfigTests(unittest.TestCase):
                 self.started = True
 
             def is_alive(self):
-                return self.started
+                return False
 
         server.discord_bot_thread = None
         server.discord_bot = None
@@ -262,7 +263,7 @@ class OpenClawDiscordConfigTests(unittest.TestCase):
         health_route.update_bot_status("discord_token_configured", False)
         health_route.update_bot_status("discord_channel_count", 0)
 
-        with patch("server.threading.Thread", FakeThread):
+        with patch("server.threading", SimpleNamespace(Thread=FakeThread)):
             thread = asyncio.run(server.init_discord_bot("runtime-secret-token", ["111", "222"]))
 
         status = health_route.get_bot_status()
@@ -272,6 +273,38 @@ class OpenClawDiscordConfigTests(unittest.TestCase):
         self.assertTrue(status["discord_token_configured"])
         self.assertEqual(status["discord_channel_count"], 2)
         self.assertNotIn("runtime-secret-token", str(status))
+
+    def test_init_discord_bot_waits_until_route_bot_is_initialized_before_returning(self):
+        import time
+        import threading
+        import server
+        from routes import get_discord_bot, set_discord_bot
+
+        class FakeBot:
+            async def close(self):
+                return None
+
+        fake_bot = FakeBot()
+
+        def slow_run_discord_bot(token, channels):
+            time.sleep(0.05)
+            server.discord_bot = fake_bot
+            set_discord_bot(fake_bot, threading.current_thread())
+
+        server.discord_bot_thread = None
+        server.discord_bot = None
+        set_discord_bot(None, None)
+
+        with patch("server.run_discord_bot", side_effect=slow_run_discord_bot):
+            thread = asyncio.run(server.init_discord_bot("runtime-secret-token", ["111"]))
+
+        bot, published_thread = get_discord_bot()
+        try:
+            self.assertIs(bot, fake_bot)
+            self.assertIs(published_thread, thread)
+        finally:
+            if thread:
+                thread.join(timeout=1)
 
 
 if __name__ == "__main__":

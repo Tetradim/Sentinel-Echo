@@ -147,6 +147,7 @@ class Position:
     expiration: str
     quantity: int
     entry_price: float
+    contract_multiplier: float = 100.0
     filled_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     
     # Bracket order
@@ -198,6 +199,7 @@ class Position:
             'expiration': self.expiration,
             'quantity': self.quantity,
             'entry_price': self.entry_price,
+            'contract_multiplier': self.contract_multiplier,
             'filled_at': self.filled_at.isoformat(),
             'status': self.status.value,
             'peak_price': self.peak_price,
@@ -209,7 +211,7 @@ class Position:
     def calculate_pnl(self) -> float:
         """Calculate unrealized P&L"""
         if self.current_price and self.quantity:
-            return (self.current_price - self.entry_price) * self.quantity * 100
+            return (self.current_price - self.entry_price) * self.quantity * self.contract_multiplier
         return 0.0
 
 
@@ -297,9 +299,10 @@ class PositionManager:
 
 
 class DefaultPositionManager:
-    """Default position manager using in-memory storage"""
+    """Default position manager with optional database-backed storage."""
     
-    def __init__(self):
+    def __init__(self, db=None):
+        self._db = db
         self._positions: Dict[str, Dict] = {}
     
     async def open_position(
@@ -332,14 +335,30 @@ class DefaultPositionManager:
             'trailing_stop': trailing_stop,
             'trailing_percentage': 25.0 if trailing_stop else None,
         }
-        
-        self._positions[position_id] = position
+
+        if self._db is not None:
+            await self._db.insert_position(position)
+        else:
+            self._positions[position_id] = position
         logger.info(f"[DefaultPositionManager] Opened position {position_id}")
         
         return position
     
     async def close_position(self, position_id: str, reason: str) -> Optional[Dict]:
         """Close a position"""
+        if self._db is not None:
+            pos = await self._db.get_position_by_id(position_id)
+            if not pos:
+                return None
+            updates = {
+                'status': reason,
+                'closed_at': datetime.now(timezone.utc).isoformat(),
+            }
+            await self._db.update_position(position_id, {'$set': updates})
+            pos.update(updates)
+            logger.info(f"[DefaultPositionManager] Closed position {position_id}: {reason}")
+            return pos
+
         if position_id in self._positions:
             pos = self._positions[position_id]
             pos['status'] = reason
@@ -351,6 +370,8 @@ class DefaultPositionManager:
     
     async def get_positions(self, status: str = None) -> List[Dict]:
         """Get positions"""
+        if self._db is not None:
+            return await self._db.get_positions(status)
         if status:
             return [p for p in self._positions.values() if p.get('status') == status]
         return list(self._positions.values())

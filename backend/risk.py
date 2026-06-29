@@ -24,20 +24,77 @@ Covers three gaps vs a professional system:
 
 import hashlib
 import logging
+import sqlite3
+import threading
 from datetime import datetime, timezone, timedelta
-from typing import Optional
+from typing import Optional, Protocol
 
 from settings_flags import coerce_bool
 
 logger = logging.getLogger(__name__)
 
-# ── Duplicate alert detection ──────────────────────────────────────────────────
+# Duplicate alert detection.
 DUPLICATE_WINDOW_SECS = 60   # suppress identical alert within this window
 
 # In-memory store: { fingerprint: datetime_of_first_seen }
 # This resets on restart which is fine; the window is short enough that
 # a restart during normal operation causes at most one extra trade.
 _seen_fingerprints: dict[str, datetime] = {}
+
+
+class DuplicateAlertStore(Protocol):
+    def seen_recently(self, fingerprint: str, now: datetime, window_seconds: int) -> bool:
+        """Return True when fingerprint already exists inside the duplicate window."""
+
+
+class SQLiteDuplicateAlertStore:
+    """Process-shared duplicate alert store backed by a SQLite uniqueness constraint."""
+
+    def __init__(self, db_path: str):
+        self.db_path = db_path
+        self._lock = threading.Lock()
+        self._ensure_table()
+
+    def _connect(self):
+        return sqlite3.connect(self.db_path, timeout=30)
+
+    def _ensure_table(self) -> None:
+        with self._lock:
+            conn = self._connect()
+            try:
+                conn.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS duplicate_alert_fingerprints (
+                        fingerprint TEXT PRIMARY KEY,
+                        seen_at TEXT NOT NULL
+                    )
+                    """
+                )
+                conn.commit()
+            finally:
+                conn.close()
+
+    def seen_recently(self, fingerprint: str, now: datetime, window_seconds: int) -> bool:
+        cutoff = now - timedelta(seconds=window_seconds)
+        with self._lock:
+            conn = self._connect()
+            try:
+                conn.execute(
+                    "DELETE FROM duplicate_alert_fingerprints WHERE seen_at < ?",
+                    (cutoff.isoformat(),),
+                )
+                try:
+                    conn.execute(
+                        "INSERT INTO duplicate_alert_fingerprints (fingerprint, seen_at) VALUES (?, ?)",
+                        (fingerprint, now.isoformat()),
+                    )
+                    conn.commit()
+                    return False
+                except sqlite3.IntegrityError:
+                    conn.commit()
+                    return True
+            finally:
+                conn.close()
 
 
 def _alert_fingerprint(parsed: dict) -> str:
@@ -80,15 +137,24 @@ def _purge_old_fingerprints():
         del _seen_fingerprints[k]
 
 
-def is_duplicate_alert(parsed: dict) -> bool:
+def _is_duplicate_alert(parsed: dict, store: Optional[DuplicateAlertStore] = None) -> bool:
     """
     Returns True if this alert is a duplicate of one seen within the last
     DUPLICATE_WINDOW_SECS seconds.  Records the fingerprint if new.
     """
-    _purge_old_fingerprints()
     fp = _alert_fingerprint(parsed)
     now = datetime.now(timezone.utc)
 
+    if store is not None:
+        if store.seen_recently(fp, now, DUPLICATE_WINDOW_SECS):
+            logger.warning(
+                f"[risk] duplicate alert suppressed (fingerprint={fp}): "
+                f"{parsed.get('ticker')} {parsed.get('alert_type')}"
+            )
+            return True
+        return False
+
+    _purge_old_fingerprints()
     if fp in _seen_fingerprints:
         age = (now - _seen_fingerprints[fp]).total_seconds()
         logger.warning(
@@ -101,7 +167,11 @@ def is_duplicate_alert(parsed: dict) -> bool:
     return False
 
 
-# ── Risk-based position sizing ─────────────────────────────────────────────────
+def is_duplicate_alert(parsed: dict, store: Optional[DuplicateAlertStore] = None) -> bool:
+    return _is_duplicate_alert(parsed, store=store)
+
+
+# Risk-based position sizing.
 def calculate_position_size(
     entry_price: float,
     default_quantity: int,
@@ -159,7 +229,7 @@ def calculate_position_size(
     return quantity
 
 
-# ── Correlation / concentration check ─────────────────────────────────────────
+# Correlation / concentration check.
 DEFAULT_MAX_POSITIONS_PER_TICKER = 3   # sensible default if not in settings
 
 

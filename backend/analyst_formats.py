@@ -519,15 +519,60 @@ def parse_with_format(message: str, format_name: str) -> Optional[ParsedSignal]:
     return None
 
 
-def auto_parse(message: str) -> Optional[ParsedSignal]:
-    """
-    Auto-detect format and parse message
-    Tries all formats until one matches
-    """
+def _identifier_match_count(message_upper: str, format_parser: AnalystFormat) -> int:
+    return sum(1 for kw in format_parser.identifiers if kw.upper() in message_upper)
+
+
+def _identifier_specificity(message_upper: str, format_parser: AnalystFormat) -> int:
+    matched_lengths = [
+        len(kw)
+        for kw in format_parser.identifiers
+        if kw.upper() in message_upper
+    ]
+    return max(matched_lengths, default=0)
+
+
+def _candidate_format_names(message: str, preferred_format: Optional[str] = None) -> List[str]:
+    """Return a prioritized parse order before falling back to every format."""
     msg_upper = message.upper()
-    
-    # Try each format
-    for name, format_parser in ANALYST_FORMATS.items():
+    candidates: List[str] = []
+
+    def add_candidate(name: str) -> None:
+        if name in ANALYST_FORMATS and name not in candidates:
+            candidates.append(name)
+
+    if preferred_format:
+        add_candidate(preferred_format)
+
+    scored_matches: List[Tuple[int, int, int, str]] = []
+    for index, (name, format_parser) in enumerate(ANALYST_FORMATS.items()):
+        if not format_parser.identifiers:
+            continue
+        match_count = _identifier_match_count(msg_upper, format_parser)
+        if match_count > 0:
+            specificity = _identifier_specificity(msg_upper, format_parser)
+            scored_matches.append((-match_count, -specificity, index, name))
+
+    for _, _, _, name in sorted(scored_matches):
+        add_candidate(name)
+
+    for name in ANALYST_FORMATS:
+        add_candidate(name)
+
+    return candidates
+
+
+def auto_parse(message: str, preferred_format: Optional[str] = None) -> Optional[ParsedSignal]:
+    """
+    Auto-detect format and parse message.
+
+    If a channel/source has a configured parser, try that first.  Otherwise,
+    try formats whose identifiers are present before falling back to the full
+    registry.  This keeps behavior compatible while avoiding the common
+    worst-case scan across every analyst parser.
+    """
+    for name in _candidate_format_names(message, preferred_format=preferred_format):
+        format_parser = ANALYST_FORMATS[name]
         signal = format_parser.parse(message)
         if signal:
             return signal
@@ -545,8 +590,8 @@ def detect_format(message: str) -> str:
     for name, format_parser in ANALYST_FORMATS.items():
         if not format_parser.identifiers:
             continue
-        
-        matches = sum(1 for kw in format_parser.identifiers if kw.upper() in msg_upper)
+
+        matches = _identifier_match_count(msg_upper, format_parser)
         if matches > max_matches:
             max_matches = matches
             best_match = name

@@ -100,6 +100,29 @@ class ApiAuthMiddlewareTests(unittest.TestCase):
 
         self.assertEqual(response.status_code, 200)
 
+    def test_production_mode_without_api_key_is_invalid_even_for_local_sqlite(self):
+        import server
+
+        with self.assertRaises(RuntimeError):
+            server.validate_api_auth_startup(
+                api_key="",
+                use_sqlite=True,
+                bind_host="127.0.0.1",
+                app_env="production",
+            )
+
+    def test_local_sqlite_desktop_mode_without_api_key_is_allowed_outside_production(self):
+        import server
+
+        result = server.validate_api_auth_startup(
+            api_key="",
+            use_sqlite=True,
+            bind_host="127.0.0.1",
+            app_env="development",
+        )
+
+        self.assertTrue(result["authless_desktop_mode"])
+
 
 if __name__ == "__main__":
     unittest.main()
