@@ -425,7 +425,7 @@ class LiveOrderSubmissionStatusTests(unittest.TestCase):
         self.assertEqual(FakeBrokerClient.orders, [])
         self.assertEqual(fake_db.inserted_trades, [])
 
-    def test_live_buy_premium_buffer_is_applied_as_cents(self):
+    def test_live_buy_premium_buffer_caps_fill_price_above_alert_price(self):
         from models import Alert
         import server
 
@@ -459,7 +459,7 @@ class LiveOrderSubmissionStatusTests(unittest.TestCase):
         finally:
             self.restore_server(server, originals)
 
-        self.assertEqual(FakeBrokerClient.orders[0]["price"], 4.90)
+        self.assertEqual(FakeBrokerClient.orders[0]["price"], 5.10)
 
     def test_simulated_buy_position_includes_oco_exit_plan_when_guards_are_enabled(self):
         from models import Alert

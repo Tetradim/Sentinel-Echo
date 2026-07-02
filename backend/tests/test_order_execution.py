@@ -93,6 +93,26 @@ class OrderExecutionTests(unittest.TestCase):
             ),
         )
 
+    def test_calculate_option_buy_limit_price_uses_buffer_as_max_premium_cap(self):
+        from order_execution import calculate_option_buy_limit_price
+
+        self.assertEqual(
+            calculate_option_buy_limit_price(
+                0.42,
+                premium_buffer_enabled=True,
+                premium_buffer_amount=5.0,
+            ),
+            0.47,
+        )
+        self.assertEqual(
+            calculate_option_buy_limit_price(
+                0.42,
+                premium_buffer_enabled=False,
+                premium_buffer_amount=5.0,
+            ),
+            0.42,
+        )
+
     def test_resolve_broker_config_decrypts_stored_credentials(self):
         from order_execution import resolve_broker_config
 

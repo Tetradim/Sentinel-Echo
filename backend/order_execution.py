@@ -45,6 +45,30 @@ def _client_order_id_token(value: Any, *, fallback: str) -> str:
     return token or fallback
 
 
+def calculate_option_buy_limit_price(
+    alert_price: Any,
+    *,
+    premium_buffer_enabled: Any = False,
+    premium_buffer_amount: Any = 0.0,
+) -> float:
+    """Return the max buy limit allowed for an option alert.
+
+    The premium buffer is a slippage cap above the Discord alert price. A
+    limit order at that cap can still fill at a better price, but it will not
+    chase fills beyond the configured buffer.
+    """
+    entry = _positive_float(alert_price)
+    if entry is None:
+        return 0.01
+
+    limit_price = entry
+    if coerce_bool(premium_buffer_enabled, default=False):
+        buffer_dollars = max(0.0, _float_or_default(premium_buffer_amount, 0.0)) / 100
+        limit_price = entry + buffer_dollars
+
+    return round(max(limit_price, 0.01), 2)
+
+
 def build_oco_exit_plan(
     settings: Any,
     *,
@@ -124,6 +148,13 @@ def _positive_float(value: Any) -> Optional[float]:
     if parsed <= 0:
         return None
     return parsed
+
+
+def _float_or_default(value: Any, default: float) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
 
 
 def _positive_int(value: Any) -> int:

@@ -27,6 +27,7 @@ from utils import AVG_DOWN_KEYWORDS, BUY_KEYWORDS, SELL_KEYWORDS, parse_alert
 from openclaw_discord_config import DiscordRuntimeConfig, resolve_saved_or_runtime_discord_config
 from datetime import datetime, timezone
 import asyncio
+import hashlib
 import threading
 import logging
 import os
@@ -58,6 +59,9 @@ db = None
 # Discord bot references (will be set by main server)
 discord_bot = None
 discord_bot_thread = None
+discord_runtime_loop = None
+discord_runtime_token_fingerprint = ""
+discord_runtime_channel_ids: list[str] = []
 _chrome_bridge_seen_event_ids: set[str] = set()
 _chrome_bridge_seen_event_order: list[str] = []
 _chrome_bridge_seen_alert_fingerprints: dict[str, datetime] = {}
@@ -113,11 +117,28 @@ def set_db(database):
     db = database
 
 
-def set_discord_bot(bot, thread):
+def set_discord_bot(
+    bot,
+    thread,
+    *,
+    token: str = "",
+    channel_ids: list[str] | str | None = None,
+    loop=None,
+):
     """Set discord bot references"""
-    global discord_bot, discord_bot_thread
+    global discord_bot, discord_bot_thread, discord_runtime_loop, discord_runtime_token_fingerprint, discord_runtime_channel_ids
     discord_bot = bot
     discord_bot_thread = thread
+    if bot is None and thread is None:
+        discord_runtime_loop = None
+        discord_runtime_token_fingerprint = ""
+        discord_runtime_channel_ids = []
+        return
+    if loop is not None:
+        discord_runtime_loop = loop
+    if token or channel_ids is not None:
+        discord_runtime_token_fingerprint = _token_fingerprint(token)
+        discord_runtime_channel_ids = _normalize_channel_ids(channel_ids or [])
 
 
 def get_discord_bot():
@@ -160,6 +181,38 @@ def _normalize_channel_ids(channel_ids: list[str] | str) -> list[str]:
     return result
 
 
+def _token_fingerprint(token: str) -> str:
+    normalized = str(token or "").strip()
+    if not normalized:
+        return ""
+    return hashlib.sha256(normalized.encode("utf-8")).hexdigest()
+
+
+def _discord_runtime_matches(token: str, channel_ids: list[str] | str) -> bool:
+    return (
+        discord_runtime_token_fingerprint == _token_fingerprint(token)
+        and discord_runtime_channel_ids == _normalize_channel_ids(channel_ids)
+    )
+
+
+async def _close_current_discord_bot() -> None:
+    from routes.health import update_bot_status
+
+    global discord_bot, discord_bot_thread
+    if discord_bot:
+        current_loop = asyncio.get_running_loop()
+        if discord_runtime_loop is not None and discord_runtime_loop is not current_loop:
+            close_future = asyncio.run_coroutine_threadsafe(
+                discord_bot.close(),
+                discord_runtime_loop,
+            )
+            await asyncio.wrap_future(close_future)
+        else:
+            await discord_bot.close()
+    update_bot_status("discord_connected", False)
+    set_discord_bot(None, None)
+
+
 @router.post("/discord/start")
 async def start_discord_bot(background_tasks: BackgroundTasks):
     """Start the Discord bot"""
@@ -174,25 +227,36 @@ async def start_discord_bot(background_tasks: BackgroundTasks):
     
     token = discord_config.token
     channel_ids = discord_config.channel_ids
-    
+
+    restart_required = False
     with _bot_start_lock:  # FIXED M17: atomic check-and-start
         if discord_bot_thread and discord_bot_thread.is_alive():
-            return {"message": "Discord bot already running"}
+            if _discord_runtime_matches(token, channel_ids):
+                return {"message": "Discord bot already running"}
+            restart_required = True
+
+    if restart_required:
+        await _close_current_discord_bot()
+
+    with _bot_start_lock:
+        if discord_bot_thread and discord_bot_thread.is_alive():
+            if _discord_runtime_matches(token, channel_ids):
+                return {"message": "Discord bot already running"}
+            return {"message": "Discord bot is stopping before restart"}
         from server import run_discord_bot
         discord_bot_thread = threading.Thread(target=run_discord_bot, args=(token, channel_ids), daemon=True)
         discord_bot_thread.start()
-    
+
+    if restart_required:
+        return {"message": "Discord bot restarting with updated configuration..."}
     return {"message": "Discord bot starting..."}
 
 
 @router.post("/discord/stop")
 async def stop_discord_bot():
     """Stop the Discord bot"""
-    from routes.health import update_bot_status
-    
     if discord_bot:
-        await discord_bot.close()
-        update_bot_status('discord_connected', False)
+        await _close_current_discord_bot()
         return {"message": "Discord bot stopped"}
     return {"message": "Discord bot not running"}
 

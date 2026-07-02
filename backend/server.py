@@ -22,7 +22,11 @@ import asyncio
 
 # Import models
 from models import Alert, Settings
-from order_execution import build_client_order_id, build_oco_exit_plan
+from order_execution import (
+    build_client_order_id,
+    build_oco_exit_plan,
+    calculate_option_buy_limit_price,
+)
 from paper_shadow import (
     build_entry_shadow_records,
     build_exit_shadow_records,
@@ -445,14 +449,18 @@ async def process_trade(alert: Alert, parsed: dict):
             trade.status = "pending"
             order_id = None
             
-            # Apply price buffer for safety (default 3% below entry)
-            limit_price = alert.entry_price
-            buffer_applied = 0.0
+            limit_price = calculate_option_buy_limit_price(
+                alert.entry_price,
+                premium_buffer_enabled=settings.premium_buffer_enabled,
+                premium_buffer_amount=settings.premium_buffer_amount,
+            )
             if settings.premium_buffer_enabled:
-                buffer_dollars = max(0.0, settings.premium_buffer_amount) / 100
-                limit_price = max(0.01, round(alert.entry_price - buffer_dollars, 2))
-                buffer_applied = alert.entry_price - limit_price
-                logger.info(f"[process_trade] applying buffer: ${buffer_applied:.2f} (limit: ${limit_price})")
+                buffer_applied = limit_price - alert.entry_price
+                logger.info(
+                    "[process_trade] applying premium cap: +$%.2f (limit: $%.2f)",
+                    buffer_applied,
+                    limit_price,
+                )
             
             try:
                 from order_execution import get_configured_broker_client
@@ -469,7 +477,7 @@ async def process_trade(alert: Alert, parsed: dict):
                     expiration=alert.expiration,
                     side="BUY",
                     quantity=quantity,
-                    price=limit_price,  # Use buffered price
+                    price=limit_price,
                     client_order_id=build_client_order_id(alert.id, "BUY"),
                 )
                 order_id = order_result.get("order_id")
@@ -513,7 +521,7 @@ async def process_trade(alert: Alert, parsed: dict):
                             requested_quantity=quantity,
                             broker=settings.active_broker.value,
                             alert_id=alert.id,
-                            alert_price=limit_price,
+                            alert_price=alert.entry_price,
                             simulated=False,
                         ),
                         broker_client=broker_client,
@@ -658,10 +666,17 @@ async def process_average_down_alert(
             logger.error("[process_average_down_alert] live BUY blocked while checking arming state: %s", exc)
             return False
 
-    limit_price = alert_price
+    limit_price = calculate_option_buy_limit_price(
+        alert_price,
+        premium_buffer_enabled=settings.premium_buffer_enabled,
+        premium_buffer_amount=settings.premium_buffer_amount,
+    )
     if settings.premium_buffer_enabled:
-        buffer_dollars = max(0.0, settings.premium_buffer_amount) / 100
-        limit_price = max(0.01, round(alert_price - buffer_dollars, 2))
+        logger.info(
+            "[process_average_down_alert] applying premium cap: +$%.2f (limit: $%.2f)",
+            limit_price - alert_price,
+            limit_price,
+        )
 
     try:
         from order_execution import get_configured_broker_client
@@ -701,7 +716,7 @@ async def process_average_down_alert(
                     broker=settings.active_broker.value,
                     position_id=position["id"],
                     alert_id=alert.id,
-                    alert_price=limit_price,
+                    alert_price=alert_price,
                     simulated=False,
                 ),
                 broker_client=broker_client,
@@ -1108,7 +1123,7 @@ def run_discord_bot(token: str, channel_ids: List[str]):
     discord_bot = create_discord_bot(token, channel_ids)
     if discord_bot_thread is None or not discord_bot_thread.is_alive():
         discord_bot_thread = threading.current_thread()
-    set_discord_bot(discord_bot, discord_bot_thread)
+    set_discord_bot(discord_bot, discord_bot_thread, token=token, channel_ids=channel_ids, loop=loop)
     try:
         loop.run_until_complete(discord_bot.start(token))
     finally:
