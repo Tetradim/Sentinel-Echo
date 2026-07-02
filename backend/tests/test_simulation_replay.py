@@ -12,7 +12,7 @@ class SimulationReplayTests(unittest.TestCase):
         from simulation_replay import build_replay_preview
 
         replay = {
-            "contract_version": "simulation.consolidation.replay.v1",
+            "contract_version": "simulation.sentinel-echo.replay.v1",
             "events": [
                 {
                     "event_id": "discord_alert:m1",
@@ -38,7 +38,7 @@ class SimulationReplayTests(unittest.TestCase):
             },
         )
 
-        self.assertEqual(preview["contract_version"], "consolidation.simulation_replay_preview.v1")
+        self.assertEqual(preview["contract_version"], "sentinel-echo.simulation_replay_preview.v1")
         self.assertEqual(preview["execution_mode"], "preview_only_no_trades")
         self.assertEqual(preview["event_count"], 1)
         self.assertEqual(preview["parsed_count"], 1)
@@ -52,7 +52,7 @@ class SimulationReplayTests(unittest.TestCase):
         from simulation_replay import build_replay_preview
 
         replay = {
-            "contract_version": "simulation.consolidation.replay.v1",
+            "contract_version": "simulation.sentinel-echo.replay.v1",
             "events": [
                 {
                     "event_id": "discord_alert:m-risk",
@@ -99,7 +99,7 @@ class SimulationReplayTests(unittest.TestCase):
         from simulation_replay import build_replay_preview
 
         replay = {
-            "contract_version": "simulation.consolidation.replay.v1",
+            "contract_version": "simulation.sentinel-echo.replay.v1",
             "events": [
                 {
                     "event_id": "discord_alert:m-malformed-settings",
@@ -132,7 +132,7 @@ class SimulationReplayTests(unittest.TestCase):
         from simulation_replay import build_replay_preview
 
         replay = {
-            "contract_version": "simulation.consolidation.replay.v1",
+            "contract_version": "simulation.sentinel-echo.replay.v1",
             "events": [
                 {
                     "event_id": "discord_alert:m-string-flags",
@@ -170,7 +170,7 @@ class SimulationReplayTests(unittest.TestCase):
         from simulation_replay import build_replay_preview
 
         replay = {
-            "contract_version": "simulation.consolidation.replay.v1",
+            "contract_version": "simulation.sentinel-echo.replay.v1",
             "events": [
                 {
                     "event_id": "discord_alert:m-expected-pass",
@@ -219,7 +219,7 @@ class SimulationReplayTests(unittest.TestCase):
         from simulation_replay import build_replay_preview
 
         replay = {
-            "contract_version": "simulation.consolidation.replay.v1",
+            "contract_version": "simulation.sentinel-echo.replay.v1",
             "expected_results": {
                 "discord_alert:m-expected-fail": {
                     "parsed": {
@@ -290,7 +290,7 @@ class SimulationReplayTests(unittest.TestCase):
         from simulation_replay import build_replay_preview
 
         replay = {
-            "contract_version": "simulation.consolidation.replay.v1",
+            "contract_version": "simulation.sentinel-echo.replay.v1",
             "expected_results": {
                 "discord_alert:missing": {
                     "parsed": {"ticker": "SPY"},
@@ -323,11 +323,11 @@ class SimulationReplayTests(unittest.TestCase):
 
         self.assertEqual(
             normalize_replay_url("http://127.0.0.1:9200"),
-            "http://127.0.0.1:9200/api/consolidation/replay/events",
+            "http://127.0.0.1:9200/api/sentinel-echo/replay/events",
         )
         self.assertEqual(
-            normalize_replay_url("http://127.0.0.1:9200/api/consolidation/replay/events"),
-            "http://127.0.0.1:9200/api/consolidation/replay/events",
+            normalize_replay_url("http://127.0.0.1:9200/api/sentinel-echo/replay/events"),
+            "http://127.0.0.1:9200/api/sentinel-echo/replay/events",
         )
 
 

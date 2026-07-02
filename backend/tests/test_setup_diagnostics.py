@@ -18,7 +18,7 @@ REPLAY_READY_RUNTIME = {
     "simulation_replay_acceptance_passed_count": 4,
     "simulation_replay_acceptance_failed_count": 0,
     "simulation_replay_acceptance_updated_at": "2026-06-22T23:04:00Z",
-    "simulation_replay_acceptance_replay_url": "http://127.0.0.1:9200/api/consolidation/replay/events",
+    "simulation_replay_acceptance_replay_url": "http://127.0.0.1:9200/api/sentinel-echo/replay/events",
 }
 READINESS_GATE_READY_RUNTIME = {
     **REPLAY_READY_RUNTIME,
@@ -968,7 +968,7 @@ class SetupDiagnosticsTests(unittest.TestCase):
                 "CREDENTIAL_KEY": "0" * 64,
                 "HOST": "0.0.0.0",
                 "USE_SQLITE": "false",
-                "CONSOLIDATION_BOT_ROLE": "live_executioner",
+                "SENTINEL_ECHO_BOT_ROLE": "live_executioner",
             },
         ):
             result = asyncio.run(health_route.setup_diagnostics())

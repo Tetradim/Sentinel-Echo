@@ -37,7 +37,7 @@ chrome.storage.onChanged.addListener((changes, areaName) => {
 });
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
-  if (!message || (message.type !== "discord-bridge:bridge-ping" && message.type !== "consolidation:bridge-ping")) {
+  if (!message || (message.type !== "discord-bridge:bridge-ping" && message.type !== "sentinel-echo:bridge-ping")) {
     return false;
   }
   if (message.restart) {
@@ -293,7 +293,7 @@ async function forwardPayloadDirectlyToTarget(target, payload, kind) {
     bridge_target_id: target.id,
     bridge_target_name: target.name,
   });
-  const urls = [primaryUrl, ...localConsolidationFallbackUrls(target, kind, primaryUrl)];
+  const urls = [primaryUrl, ...localSentinelEchoFallbackUrls(target, kind, primaryUrl)];
   const failures = [];
 
   for (const url of urls) {

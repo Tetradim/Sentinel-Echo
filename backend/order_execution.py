@@ -23,7 +23,7 @@ def build_client_order_id(
 ) -> str:
     """Build a deterministic broker-safe ID for tracking submitted orders."""
     parts = [
-        "consolidation",
+        "sentinel-echo",
         _client_order_id_token(side, fallback="order").lower(),
         _client_order_id_token(alert_id, fallback="alert"),
     ]

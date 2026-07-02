@@ -13,7 +13,7 @@ function getRuntimeBackendUrl(): string | null {
     const params = new URLSearchParams(window.location.search);
     const urlFromQuery = params.get('backend_url') || params.get('backendUrl');
     if (urlFromQuery) {
-      window.localStorage?.setItem('consolidation.backendUrl', urlFromQuery);
+      window.localStorage?.setItem('sentinel-echo.backendUrl', urlFromQuery);
       return urlFromQuery;
     }
 
@@ -23,7 +23,7 @@ function getRuntimeBackendUrl(): string | null {
       if (window.location.port === '3003') return 'http://127.0.0.1:8003';
     }
 
-    return window.localStorage?.getItem('consolidation.backendUrl');
+    return window.localStorage?.getItem('sentinel-echo.backendUrl');
   } catch {
     return null;
   }

@@ -27,12 +27,12 @@ class FakeSimulationEngineDb:
 
 class SimulationEngineRouteTests(unittest.TestCase):
     def test_replay_preview_caches_acceptance_summary_for_readiness(self):
-        from routes import simulation_engine as simulation_engine_route
+        from routes import sentinel_archive as sentinel_archive_route
 
         fake_db = FakeSimulationEngineDb()
-        simulation_engine_route.set_db(fake_db)
+        sentinel_archive_route.set_db(fake_db)
         replay = {
-            "contract_version": "simulation.consolidation.replay.v1",
+            "contract_version": "simulation.sentinel-echo.replay.v1",
             "expected_results": {
                 "discord_alert:one": {
                     "parsed": {"ticker": "QQQ"},
@@ -59,9 +59,9 @@ class SimulationEngineRouteTests(unittest.TestCase):
         async def fake_fetch(**kwargs):
             return replay
 
-        with patch("routes.simulation_engine.fetch_engine_replay", side_effect=fake_fetch):
+        with patch("routes.sentinel_archive.fetch_engine_replay", side_effect=fake_fetch):
             response = asyncio.run(
-                simulation_engine_route.preview_simulation_engine_replay({"replay_url": "http://127.0.0.1:9200"})
+                sentinel_archive_route.preview_sentinel_archive_replay({"replay_url": "http://127.0.0.1:9200"})
             )
 
         self.assertEqual(response["acceptance"]["status"], "failed")
@@ -76,16 +76,16 @@ class SimulationEngineRouteTests(unittest.TestCase):
         self.assertIn("simulation_replay_acceptance_updated_at", fake_db.runtime_updates[-1])
         self.assertEqual(
             fake_db.runtime_updates[-1]["simulation_replay_acceptance_replay_url"],
-            "http://127.0.0.1:9200/api/consolidation/replay/events",
+            "http://127.0.0.1:9200/api/sentinel-echo/replay/events",
         )
 
     def test_replay_preview_caches_missing_expected_event_ids_for_readiness(self):
-        from routes import simulation_engine as simulation_engine_route
+        from routes import sentinel_archive as sentinel_archive_route
 
         fake_db = FakeSimulationEngineDb()
-        simulation_engine_route.set_db(fake_db)
+        sentinel_archive_route.set_db(fake_db)
         replay = {
-            "contract_version": "simulation.consolidation.replay.v1",
+            "contract_version": "simulation.sentinel-echo.replay.v1",
             "expected_results": {
                 "discord_alert:missing": {
                     "parsed": {"ticker": "SPY"},
@@ -98,9 +98,9 @@ class SimulationEngineRouteTests(unittest.TestCase):
         async def fake_fetch(**kwargs):
             return replay
 
-        with patch("routes.simulation_engine.fetch_engine_replay", side_effect=fake_fetch):
+        with patch("routes.sentinel_archive.fetch_engine_replay", side_effect=fake_fetch):
             response = asyncio.run(
-                simulation_engine_route.preview_simulation_engine_replay({"replay_url": "http://127.0.0.1:9200"})
+                sentinel_archive_route.preview_sentinel_archive_replay({"replay_url": "http://127.0.0.1:9200"})
             )
 
         self.assertEqual(response["acceptance"]["missing_event_count"], 1)
@@ -120,12 +120,12 @@ class SimulationEngineRouteTests(unittest.TestCase):
         )
 
     def test_replay_preview_accepts_request_body_expectations_for_readiness_proof(self):
-        from routes import simulation_engine as simulation_engine_route
+        from routes import sentinel_archive as sentinel_archive_route
 
         fake_db = FakeSimulationEngineDb()
-        simulation_engine_route.set_db(fake_db)
+        sentinel_archive_route.set_db(fake_db)
         replay = {
-            "contract_version": "simulation.consolidation.replay.v1",
+            "contract_version": "simulation.sentinel-echo.replay.v1",
             "events": [
                 {
                     "event_id": "discord_alert:one",
@@ -157,8 +157,8 @@ class SimulationEngineRouteTests(unittest.TestCase):
                 }
             },
         }
-        with patch("routes.simulation_engine.fetch_engine_replay", side_effect=fake_fetch):
-            response = asyncio.run(simulation_engine_route.preview_simulation_engine_replay(body))
+        with patch("routes.sentinel_archive.fetch_engine_replay", side_effect=fake_fetch):
+            response = asyncio.run(sentinel_archive_route.preview_sentinel_archive_replay(body))
 
         self.assertEqual(response["acceptance"]["status"], "passed")
         self.assertEqual(response["acceptance"]["expected_count"], 1)

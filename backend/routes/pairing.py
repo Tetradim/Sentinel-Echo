@@ -182,7 +182,7 @@ def build_pairing_status(*, now=_now_iso) -> dict[str, object]:
 def build_pairing_config(*, base_api_url: str, now=_now_iso) -> dict[str, object]:
     return {
         "version": 1,
-        "app": "mobile-consolidation",
+        "app": "mobile-sentinel-echo",
         "created_at": now(),
         "remote_api_url": base_api_url.rstrip("/"),
         "api_key": _api_key(),

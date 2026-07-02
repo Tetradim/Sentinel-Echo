@@ -1,12 +1,12 @@
 # One Closes The Other Lifecycle
 
-Status: reusable launcher feature pattern, inspected from Sentinel Pulse on 2026-06-22 and implemented in Consolidation on 2026-06-22.
+Status: reusable launcher feature pattern, inspected from Sentinel Pulse on 2026-06-22 and implemented in Sentinel Echo on 2026-06-22.
 
 Source implementation:
 
 - `C:\Users\Lite OS\Documents\Codex\2026-05-22\based-on-my-analysis-of-the\Sentinel-Pulse-branch-audit\Launch-Sentinel-Pulse.ps1`
 - `C:\Users\Lite OS\Documents\Codex\2026-05-22\based-on-my-analysis-of-the\Sentinel-Pulse-branch-audit\Launch-Sentinel-Pulse-Local.ps1`
-- `C:\Users\Lite OS\Documents\Codex\2026-05-22\based-on-my-analysis-of-the\Sentinel-Pulse-branch-audit\backend\tests\test_launcher_consolidation_static.py`
+- `C:\Users\Lite OS\Documents\Codex\2026-05-22\based-on-my-analysis-of-the\Sentinel-Pulse-branch-audit\backend\tests\test_launcher_sentinel_echo_static.py`
 - Sentinel Pulse README sections: `v1.0.5 - Local Launcher Lifecycle Alignment` and `Local Launcher Lifecycle`
 
 ## Purpose
@@ -76,9 +76,9 @@ When inserting this feature into another bot launcher:
 - Keep live trading disabled by default. Launcher lifecycle cleanup is separate from broker/source arming.
 - Log every cleanup action with PID and label so beta testers can report what stopped.
 
-## Consolidation Insertion Notes
+## Sentinel Echo Insertion Notes
 
-`Launch-Consolidation-Bot.ps1` now implements this pattern for the Consolidation operator UI:
+`Launch-Sentinel-Echo.ps1` now implements this pattern for the Sentinel Echo operator UI:
 
 - `$OwnedProcesses`
 - `Start-OwnedProcess`
@@ -99,7 +99,7 @@ Regression coverage:
 
 - `backend/tests/test_launcher_lifecycle_static.py`
 
-The launcher preserves `-NoBrowser` for headless runs. When a supported browser executable is available, it opens `http://127.0.0.1:$FrontendPort` in a dedicated app window. Closing that app window logs `Browser window closed; shutting down Consolidation bot` and enters normal cleanup. Closing the launcher host or pressing Ctrl+C closes the dedicated browser profile and stops the owned backend/frontend process trees.
+The launcher preserves `-NoBrowser` for headless runs. When a supported browser executable is available, it opens `http://127.0.0.1:$FrontendPort` in a dedicated app window. Closing that app window logs `Browser window closed; shutting down Sentinel Echo` and enters normal cleanup. Closing the launcher host or pressing Ctrl+C closes the dedicated browser profile and stops the owned backend/frontend process trees.
 
 ## Acceptance Tests To Copy
 

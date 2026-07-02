@@ -1,6 +1,6 @@
 # Chrome Discord Bridge
 
-Consolidation accepts local Chrome bridge traffic at:
+Sentinel Echo accepts local Chrome bridge traffic at:
 
 ```text
 POST /api/discord/chrome-bridge/message

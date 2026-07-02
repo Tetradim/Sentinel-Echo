@@ -1,7 +1,7 @@
 (function bridgeConfigModule(root) {
   const DEFAULT_MESSAGE_URL = "http://127.0.0.1:8003/api/discord/chrome-bridge/message";
   const DEFAULT_HEARTBEAT_URL = "http://127.0.0.1:8003/api/discord/chrome-bridge/heartbeat";
-  const LOCAL_CONSOLIDATION_FALLBACK_PORTS = ["8010", "8003"];
+  const LOCAL_SENTINEL_ECHO_FALLBACK_PORTS = ["8010", "8003"];
 
   function heartbeatUrlFor(messageUrl) {
     return String(messageUrl || DEFAULT_MESSAGE_URL).replace(/\/message$/, "/heartbeat");
@@ -66,12 +66,12 @@
     };
   }
 
-  function legacyConsolidationTarget(settings) {
+  function legacySentinelEchoTarget(settings) {
     const raw = settings && typeof settings === "object" ? settings : {};
     return normalizeBridgeTarget(
       {
-        id: "consolidation",
-        name: "Consolidation",
+        id: "sentinel-echo",
+        name: "Sentinel Echo",
         enabled: true,
         messageUrl: raw.targetUrl || DEFAULT_MESSAGE_URL,
         heartbeatUrl: raw.heartbeatUrl || heartbeatUrlFor(raw.targetUrl || DEFAULT_MESSAGE_URL),
@@ -88,7 +88,7 @@
       .map((target, index) => normalizeBridgeTarget(target, index))
       .filter(Boolean);
     if (normalized.length > 0) return normalized;
-    return [legacyConsolidationTarget(raw)].filter(Boolean);
+    return [legacySentinelEchoTarget(raw)].filter(Boolean);
   }
 
   function targetMatchesDiscordChannel(target, url, channelId) {
@@ -113,8 +113,8 @@
     return normalizeBridgeTargets(settings).filter((target) => target.enabled);
   }
 
-  function localConsolidationFallbackUrls(target, kind, primaryUrl) {
-    if (!isLocalConsolidationTarget(target)) return [];
+  function localSentinelEchoFallbackUrls(target, kind, primaryUrl) {
+    if (!isLocalSentinelEchoTarget(target)) return [];
 
     let url;
     try {
@@ -128,7 +128,7 @@
     }
 
     const primaryPort = url.port || (url.protocol === "https:" ? "443" : "80");
-    return LOCAL_CONSOLIDATION_FALLBACK_PORTS
+    return LOCAL_SENTINEL_ECHO_FALLBACK_PORTS
       .filter((port) => port !== primaryPort)
       .map((port) => {
         const fallback = new URL(url.href);
@@ -137,12 +137,12 @@
       });
   }
 
-  function isLocalConsolidationTarget(target) {
+  function isLocalSentinelEchoTarget(target) {
     if (!target || target.enabled === false) return false;
     const id = String(target.id || "").toLowerCase();
     const name = String(target.name || "").toLowerCase();
     const messageUrl = String(target.messageUrl || target.targetUrl || "");
-    if (!id.includes("consolidation") && !name.includes("consolidation")) return false;
+    if (!id.includes("sentinel-echo") && !name.includes("sentinel-echo")) return false;
     try {
       const url = new URL(messageUrl);
       return isLocalHost(url.hostname);
@@ -162,7 +162,7 @@
     channelIdFromDiscordUrl,
     enabledBridgeTargets,
     heartbeatUrlFor,
-    localConsolidationFallbackUrls,
+    localSentinelEchoFallbackUrls,
     normalizeBridgeTarget,
     normalizeBridgeTargets,
     targetMatchesDiscordChannel,

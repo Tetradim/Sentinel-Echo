@@ -133,8 +133,8 @@ class ChromeBridgeRouteTests(unittest.TestCase):
             channel_id="chrome-alerts",
             channel_name="chrome-alerts",
             channel_url="https://discord.com/channels/1/chrome-alerts",
-            bridge_target_id="consolidation",
-            bridge_target_name="Consolidation",
+            bridge_target_id="sentinel-echo",
+            bridge_target_name="Sentinel Echo",
             author_name="Analyst",
             content="BTO SPY 500C 6/21 @ 1.25",
             url="https://discord.com/channels/1/chrome-alerts/999",
@@ -145,10 +145,10 @@ class ChromeBridgeRouteTests(unittest.TestCase):
 
         self.assertEqual(result["status"], "accepted")
         self.assertEqual(result["channel_url"], "https://discord.com/channels/1/chrome-alerts")
-        self.assertEqual(result["bridge_target_id"], "consolidation")
+        self.assertEqual(result["bridge_target_id"], "sentinel-echo")
         self.assertEqual(events[0]["payload"]["channel_url"], "https://discord.com/channels/1/chrome-alerts")
-        self.assertEqual(events[0]["payload"]["bridge_target_id"], "consolidation")
-        self.assertEqual(events[0]["payload"]["bridge_target_name"], "Consolidation")
+        self.assertEqual(events[0]["payload"]["bridge_target_id"], "sentinel-echo")
+        self.assertEqual(events[0]["payload"]["bridge_target_name"], "Sentinel Echo")
         self.assertEqual(events[0]["payload"]["url"], "https://discord.com/channels/1/chrome-alerts/999")
 
     def test_chrome_bridge_message_treats_malformed_settings_as_safe_defaults(self):

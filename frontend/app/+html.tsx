@@ -31,7 +31,7 @@ export default function Root({ children }: PropsWithChildren) {
               body { background: #050416; color: #edf3ff; font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
               * { box-sizing: border-box; }
               body > div:first-child { position: fixed !important; top: 0; left: 0; right: 0; bottom: 0; background: #050416; }
-              body[data-consolidation-customizer="open"] [data-testid="operator-bottom-tab"] { display: none !important; }
+              body[data-sentinel-echo-customizer="open"] [data-testid="operator-bottom-tab"] { display: none !important; }
               [role="tablist"] [role="tab"] * { overflow: visible !important; }
               [role="heading"], [role="heading"] * { overflow: visible !important; }
               ::selection { background: rgba(244, 63, 94, 0.32); color: #fff; }

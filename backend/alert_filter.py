@@ -92,7 +92,7 @@ class AlertFilter:
         ticker = parsed['ticker']
         signal_type = parsed.get('signal_type', 'BTO')
         
-        # Consolidation is not the decision brain. If Edge cannot evaluate the
+        # Sentinel Echo is not the decision brain. If Edge cannot evaluate the
         # signal, the alert must stay blocked until an external decision exists.
         if not self.enabled:
             return FilteredAlert(

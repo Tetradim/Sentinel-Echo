@@ -2,7 +2,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[2]
-LAUNCHER = ROOT / "Launch-Consolidation-Bot.ps1"
+LAUNCHER = ROOT / "Launch-Sentinel-Echo.ps1"
 
 
 def read_launcher() -> str:
@@ -64,7 +64,7 @@ def test_launcher_closes_services_when_browser_or_launcher_closes() -> None:
         "Stop-BrowserWindow",
         "Stop-OwnedProcesses",
         "Test-BrowserWindowClosed",
-        "Browser window closed; shutting down Consolidation bot",
+        "Browser window closed; shutting down Sentinel Echo",
         "finally {",
         "Invoke-LauncherCleanup",
     ]:

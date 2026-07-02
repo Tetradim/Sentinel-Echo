@@ -45,7 +45,7 @@ READY_REPLAY_STATUS = {
     "simulation_replay_acceptance_passed_count": 4,
     "simulation_replay_acceptance_failed_count": 0,
     "simulation_replay_acceptance_updated_at": "2026-06-22T23:04:00Z",
-    "simulation_replay_acceptance_replay_url": "http://127.0.0.1:9200/api/consolidation/replay/events",
+    "simulation_replay_acceptance_replay_url": "http://127.0.0.1:9200/api/sentinel-echo/replay/events",
 }
 
 
@@ -130,7 +130,7 @@ class LiveReadinessTests(unittest.TestCase):
     def test_ready_settings_pass_live_readiness(self):
         from live_readiness import evaluate_live_readiness
 
-        env = {**READY_ENV, "CONSOLIDATION_BOT_ROLE": "live_executioner"}
+        env = {**READY_ENV, "SENTINEL_ECHO_BOT_ROLE": "live_executioner"}
         result = evaluate_live_readiness(
             READY_SETTINGS,
             {"shutdown_triggered": False},
@@ -153,7 +153,7 @@ class LiveReadinessTests(unittest.TestCase):
         )
 
         self.assertFalse(result["ready_for_live"])
-        self.assertIn("consolidation_role_not_live_executioner", result["blocking_codes"])
+        self.assertIn("sentinel_echo_role_not_live_executioner", result["blocking_codes"])
         self.assertEqual(result["checks"]["role"]["active_role"], "paper_shadow")
         self.assertFalse(result["checks"]["role"]["live_execution_allowed"])
 
@@ -168,7 +168,7 @@ class LiveReadinessTests(unittest.TestCase):
             settings,
             {"shutdown_triggered": False},
             status={**READY_STATUS, "broker_connected": True, "discord_connected": True},
-            env={**READY_ENV, "CONSOLIDATION_BOT_ROLE": "live_executioner"},
+            env={**READY_ENV, "SENTINEL_ECHO_BOT_ROLE": "live_executioner"},
         )
 
         self.assertTrue(result["ready_for_live"])
@@ -182,7 +182,7 @@ class LiveReadinessTests(unittest.TestCase):
             READY_SETTINGS,
             {"shutdown_triggered": False},
             status={**READY_REPLAY_STATUS, "broker_connected": True, "discord_connected": True},
-            env={**READY_ENV, "CONSOLIDATION_BOT_ROLE": "live_executioner"},
+            env={**READY_ENV, "SENTINEL_ECHO_BOT_ROLE": "live_executioner"},
         )
 
         expected_codes = {
@@ -221,7 +221,7 @@ class LiveReadinessTests(unittest.TestCase):
                 "broker_connected": True,
                 "discord_connected": True,
             },
-            env={**READY_ENV, "CONSOLIDATION_BOT_ROLE": "live_executioner"},
+            env={**READY_ENV, "SENTINEL_ECHO_BOT_ROLE": "live_executioner"},
         )
 
         self.assertFalse(result["ready_for_live"])
@@ -259,7 +259,7 @@ class LiveReadinessTests(unittest.TestCase):
                         "broker_connected": True,
                         "discord_connected": True,
                     },
-                    env={**READY_ENV, "CONSOLIDATION_BOT_ROLE": "live_executioner"},
+                    env={**READY_ENV, "SENTINEL_ECHO_BOT_ROLE": "live_executioner"},
                 )
 
                 self.assertFalse(result["ready_for_live"])
@@ -297,7 +297,7 @@ class LiveReadinessTests(unittest.TestCase):
                 "broker_connected": True,
                 "discord_connected": True,
             },
-            env={**READY_ENV, "CONSOLIDATION_BOT_ROLE": "live_executioner"},
+            env={**READY_ENV, "SENTINEL_ECHO_BOT_ROLE": "live_executioner"},
         )
 
         self.assertFalse(result["ready_for_live"])
@@ -771,7 +771,7 @@ class LiveReadinessTests(unittest.TestCase):
                 "discord_connected": False,
                 "chrome_bridge_healthy": True,
             },
-            env={**READY_ENV, "CONSOLIDATION_BOT_ROLE": "live_executioner"},
+            env={**READY_ENV, "SENTINEL_ECHO_BOT_ROLE": "live_executioner"},
         )
         codes = {issue["code"] for issue in result["blocking_issues"]}
 
@@ -842,7 +842,7 @@ class LiveReadinessTests(unittest.TestCase):
                 "simulation_replay_acceptance_failed_event_ids": '["discord_alert:bad-one","discord_alert:bad-two"]',
                 "simulation_replay_acceptance_expected_count": "4",
                 "simulation_replay_acceptance_updated_at": "2026-06-22T22:52:00Z",
-                "simulation_replay_acceptance_replay_url": "http://127.0.0.1:9200/api/consolidation/replay/events",
+                "simulation_replay_acceptance_replay_url": "http://127.0.0.1:9200/api/sentinel-echo/replay/events",
             },
             env=READY_ENV,
         )
@@ -871,7 +871,7 @@ class LiveReadinessTests(unittest.TestCase):
                 "simulation_replay_acceptance_missing_event_count": 1,
                 "simulation_replay_acceptance_missing_event_ids": ["discord_alert:missing"],
                 "simulation_replay_acceptance_updated_at": "2026-06-23T01:11:00Z",
-                "simulation_replay_acceptance_replay_url": "http://127.0.0.1:9200/api/consolidation/replay/events",
+                "simulation_replay_acceptance_replay_url": "http://127.0.0.1:9200/api/sentinel-echo/replay/events",
             },
             status={
                 "broker_connected": True,
@@ -902,7 +902,7 @@ class LiveReadinessTests(unittest.TestCase):
                 "simulation_replay_acceptance_missing_event_count": "1",
                 "simulation_replay_acceptance_missing_event_ids": '["discord_alert:missing"]',
                 "simulation_replay_acceptance_updated_at": "2026-06-23T01:16:00Z",
-                "simulation_replay_acceptance_replay_url": "http://127.0.0.1:9200/api/consolidation/replay/events",
+                "simulation_replay_acceptance_replay_url": "http://127.0.0.1:9200/api/sentinel-echo/replay/events",
             },
             status={
                 "broker_connected": True,

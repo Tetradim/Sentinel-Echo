@@ -223,13 +223,13 @@ function WebOperatorShell({
     const body = (globalThis as any).document?.body;
     if (!body) return;
 
-    if (showCustomizer) body.setAttribute('data-consolidation-customizer', 'open');
-    else body.removeAttribute('data-consolidation-customizer');
-    globalThis.dispatchEvent?.(new Event('consolidation-customizer-change'));
+    if (showCustomizer) body.setAttribute('data-sentinel-echo-customizer', 'open');
+    else body.removeAttribute('data-sentinel-echo-customizer');
+    globalThis.dispatchEvent?.(new Event('sentinel-echo-customizer-change'));
 
     return () => {
-      body.removeAttribute('data-consolidation-customizer');
-      globalThis.dispatchEvent?.(new Event('consolidation-customizer-change'));
+      body.removeAttribute('data-sentinel-echo-customizer');
+      globalThis.dispatchEvent?.(new Event('sentinel-echo-customizer-change'));
     };
   }, [showCustomizer]);
 
@@ -452,14 +452,14 @@ export default function RootLayout() {
 
     const updateCustomizerState = () => {
       const body = (globalThis as any).document?.body;
-      setCustomizerOpen(body?.getAttribute('data-consolidation-customizer') === 'open');
+      setCustomizerOpen(body?.getAttribute('data-sentinel-echo-customizer') === 'open');
     };
 
     updateCustomizerState();
-    globalThis.addEventListener?.('consolidation-customizer-change', updateCustomizerState);
+    globalThis.addEventListener?.('sentinel-echo-customizer-change', updateCustomizerState);
 
     return () => {
-      globalThis.removeEventListener?.('consolidation-customizer-change', updateCustomizerState);
+      globalThis.removeEventListener?.('sentinel-echo-customizer-change', updateCustomizerState);
     };
   }, []);
 

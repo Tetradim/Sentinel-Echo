@@ -1,4 +1,4 @@
-# Consolidation Discord Options Bot Local Source Launcher
+# Sentinel Echo Local Source Launcher
 # Starts the FastAPI backend and Expo web frontend on separate localhost ports.
 
 param(
@@ -17,7 +17,7 @@ $Backend = Join-Path $ProjectRoot "backend"
 $Frontend = Join-Path $ProjectRoot "frontend"
 $DesktopPath = [Environment]::GetFolderPath("Desktop")
 if (-not $DesktopPath) { $DesktopPath = Join-Path $HOME "Desktop" }
-$LogFile = Join-Path $DesktopPath "Consolidation-Discord-Bot.log"
+$LogFile = Join-Path $DesktopPath "Sentinel-Echo.log"
 $OwnedProcesses = New-Object System.Collections.Generic.List[System.Diagnostics.Process]
 $BrowserProcess = $null
 $BrowserProfileDir = $null
@@ -33,7 +33,7 @@ $LauncherWatchdogStopFile = $null
 $LauncherWatchdogScriptFile = $null
 $VcRedistUrl = "https://aka.ms/vc14/vc_redist.x64.exe"
 $DependencyRoot = if ($env:LOCALAPPDATA) {
-    Join-Path $env:LOCALAPPDATA "Consolidation Bot\dependencies"
+    Join-Path $env:LOCALAPPDATA "Sentinel Echo\dependencies"
 } else {
     Join-Path $ProjectRoot ".dependencies"
 }
@@ -208,7 +208,7 @@ function Ensure-InstalledRuntimeDependencies {
     Invoke-DependencyDownload -Url $VcRedistUrl -OutFile $installer -Label "Microsoft Visual C++ Runtime" | Out-Null
     $process = Start-Process -FilePath $installer -ArgumentList "/install", "/quiet", "/norestart" -Wait -PassThru
     if (-not (@(0, 3010, 1638) -contains $process.ExitCode)) {
-        Write-Status "Microsoft Visual C++ Runtime installer exited with code $($process.ExitCode). Consolidation bot will continue and report any startup error." "WARN"
+        Write-Status "Microsoft Visual C++ Runtime installer exited with code $($process.ExitCode). Sentinel Echo will continue and report any startup error." "WARN"
     }
 }
 
@@ -367,7 +367,7 @@ function Start-BrowserWindow {
     $browserExe = Find-BrowserExecutable
     if ($browserExe) {
         Write-Status "Opening dedicated browser window"
-        $script:BrowserProfileDir = Join-Path ([System.IO.Path]::GetTempPath()) "Consolidation-Browser-$PID"
+        $script:BrowserProfileDir = Join-Path ([System.IO.Path]::GetTempPath()) "Sentinel-Echo-Browser-$PID"
         $script:BrowserStartedAt = Get-Date
         New-Item -ItemType Directory -Path $script:BrowserProfileDir -Force | Out-Null
         $browserArgs = Join-ProcessArguments -Arguments @("--new-window", "--app=$Url", "--user-data-dir=$script:BrowserProfileDir", "--no-first-run", "--disable-background-mode")
@@ -435,8 +435,8 @@ function Start-BackendAndWait {
         [string]$FrontendOrigin
     )
     Write-Status "Starting backend on port $BackendPort"
-    $backendOutLog = Join-Path $DesktopPath "Consolidation-Backend.out.log"
-    $backendErrLog = Join-Path $DesktopPath "Consolidation-Backend.err.log"
+    $backendOutLog = Join-Path $DesktopPath "Sentinel-Echo-Backend.out.log"
+    $backendErrLog = Join-Path $DesktopPath "Sentinel-Echo-Backend.err.log"
     Remove-Item -LiteralPath $backendOutLog, $backendErrLog -ErrorAction SilentlyContinue
     $backendProcess = Start-OwnedProcess `
         -FilePath $PythonPath `
@@ -461,7 +461,7 @@ function Start-BackendAndWait {
     Write-Status "Backend is ready" "OK"
 }
 
-function Start-InstalledConsolidationBot {
+function Start-InstalledSentinelEcho {
     param(
         [string]$InstalledExe,
         [string]$BackendUrl,
@@ -472,7 +472,7 @@ function Start-InstalledConsolidationBot {
     Ensure-InstalledRuntimeDependencies
     if (Test-PortOpen -Port $BackendPort) {
         if (Test-HttpOk -Url "$BackendUrl/api/health") {
-            Write-Status "Consolidation bot is already running on port $BackendPort" "OK"
+            Write-Status "Sentinel Echo is already running on port $BackendPort" "OK"
             return
         }
         throw "Backend port $BackendPort is already in use by another service."
@@ -482,11 +482,11 @@ function Start-InstalledConsolidationBot {
     Set-DefaultEnvValue -Name "HOST" -Value "127.0.0.1"
     $env:PORT = "$BackendPort"
     Set-DefaultEnvValue -Name "USE_SQLITE" -Value "true"
-    $env:DATABASE_PATH = Join-Path $DataDir "consolidation.sqlite3"
+    $env:DATABASE_PATH = Join-Path $DataDir "sentinel-echo.sqlite3"
     $env:ALLOWED_ORIGINS = "http://localhost:$BackendPort,http://127.0.0.1:$BackendPort"
     $env:BROWSER = "none"
 
-    Write-Status "Starting packaged ConsolidationBot.exe on port $BackendPort"
+    Write-Status "Starting packaged SentinelEcho.exe on port $BackendPort"
     Start-OwnedProcess -FilePath $InstalledExe -ArgumentList @() -WorkingDirectory $ProjectRoot | Out-Null
     if (-not (Wait-HttpOk -Url "$BackendUrl/api/health" -Seconds 90)) {
         throw "Packaged backend did not become healthy at $BackendUrl/api/health."
@@ -519,7 +519,7 @@ function Stop-OwnedProcesses {
 function Start-LauncherShutdownWatchdog {
     if ($script:LauncherWatchdogProcess -and -not $script:LauncherWatchdogProcess.HasExited) { return }
 
-    $watchdogName = "Consolidation-Watchdog-$PID"
+    $watchdogName = "Sentinel-Echo-Watchdog-$PID"
     $script:LauncherWatchdogStopFile = Join-Path ([System.IO.Path]::GetTempPath()) "$watchdogName.stop"
     $script:LauncherWatchdogScriptFile = Join-Path ([System.IO.Path]::GetTempPath()) "$watchdogName.ps1"
     if (Test-Path -LiteralPath $script:LauncherWatchdogStopFile) {
@@ -696,7 +696,7 @@ function Register-LauncherShutdownHandlers {
         $script:CancelKeyPressHandler = [ConsoleCancelEventHandler]{
             param($sender, $eventArgs)
             $eventArgs.Cancel = $true
-            Write-Status "Shutdown requested; stopping Consolidation bot" "WARN"
+            Write-Status "Shutdown requested; stopping Sentinel Echo" "WARN"
             Invoke-LauncherCleanup
             exit 0
         }
@@ -715,8 +715,8 @@ if ($SmokeTest) {
     if (-not $frontendArgs.Contains("--port") -or -not $frontendArgs.Contains("3003")) {
         throw "Frontend argument smoke test failed."
     }
-    $browserArgs = Join-ProcessArguments -Arguments @("--user-data-dir=C:\Users\Lite OS\AppData\Local\Temp\Consolidation-Browser-1234")
-    if (-not $browserArgs.Contains('"--user-data-dir=C:\Users\Lite OS\AppData\Local\Temp\Consolidation-Browser-1234"')) {
+    $browserArgs = Join-ProcessArguments -Arguments @("--user-data-dir=C:\Users\Lite OS\AppData\Local\Temp\Sentinel-Echo-Browser-1234")
+    if (-not $browserArgs.Contains('"--user-data-dir=C:\Users\Lite OS\AppData\Local\Temp\Sentinel-Echo-Browser-1234"')) {
         throw "Browser argument smoke test failed."
     }
     Write-Status "Launcher smoke test passed" "OK"
@@ -728,20 +728,20 @@ Register-LauncherShutdownHandlers
 try {
     Write-Host ""
     Write-Host "========================================" -ForegroundColor Cyan
-    Write-Host "  Consolidation Discord Options Bot" -ForegroundColor Cyan
+    Write-Host "  Sentinel Echo" -ForegroundColor Cyan
     Write-Host "========================================" -ForegroundColor Cyan
     Write-Host ""
     Write-Status "Project root: $ProjectRoot"
     Write-Status "Launcher log: $LogFile"
     Import-LauncherEnvFile -Path (Join-Path $ProjectRoot ".env.local")
 
-    $installedExe = Join-Path $ProjectRoot "ConsolidationBot.exe"
+    $installedExe = Join-Path $ProjectRoot "SentinelEcho.exe"
     if (Test-Path -LiteralPath $installedExe) {
-        Write-Host "  Consolidation Discord Options Bot - Installed App" -ForegroundColor Cyan
+        Write-Host "  Sentinel Echo - Installed App" -ForegroundColor Cyan
         $backendUrl = "http://127.0.0.1:$BackendPort"
         $frontendUrl = "$backendUrl/app/"
         $dataDir = Join-Path $ProjectRoot "data"
-        Start-InstalledConsolidationBot `
+        Start-InstalledSentinelEcho `
             -InstalledExe $installedExe `
             -BackendUrl $backendUrl `
             -BackendPort $BackendPort `
@@ -766,7 +766,7 @@ try {
                 }
             }
             if (Test-BrowserWindowClosed) {
-                Write-Status "Browser window closed; shutting down Consolidation bot" "OK"
+                Write-Status "Browser window closed; shutting down Sentinel Echo" "OK"
                 break
             }
             Start-Sleep -Seconds 1
@@ -774,10 +774,10 @@ try {
         exit 0
     }
 
-    function Start-SourceConsolidationBot {
-        Write-Status "Starting Consolidation Discord Options Bot - Local Source"
+    function Start-SourceSentinelEcho {
+        Write-Status "Starting Sentinel Echo - Local Source"
     }
-    Start-SourceConsolidationBot
+    Start-SourceSentinelEcho
 
     if (-not (Test-Path $Backend)) { throw "Backend folder not found: $Backend" }
     if (-not (Test-Path $Frontend)) { throw "Frontend folder not found: $Frontend" }
@@ -816,7 +816,7 @@ try {
     $env:PORT = "$BackendPort"
     Set-DefaultEnvValue -Name "USE_SQLITE" -Value "true"
     if (-not $env:DATABASE_PATH) {
-        $env:DATABASE_PATH = Join-Path $dataDir "consolidation.sqlite3"
+        $env:DATABASE_PATH = Join-Path $dataDir "sentinel-echo.sqlite3"
     }
     $env:EXPO_PUBLIC_BACKEND_URL = $backendUrl
     $env:ALLOWED_ORIGINS = "http://localhost:$FrontendPort,http://127.0.0.1:$FrontendPort"
@@ -887,7 +887,7 @@ try {
             }
         }
         if (Test-BrowserWindowClosed) {
-            Write-Status "Browser window closed; shutting down Consolidation bot" "OK"
+            Write-Status "Browser window closed; shutting down Sentinel Echo" "OK"
             break
         }
         Start-Sleep -Seconds 1

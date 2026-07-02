@@ -10,7 +10,7 @@ from source_config import apply_source_quantity_limits
 from utils import parse_alert
 
 
-DEFAULT_REPLAY_URL = "http://127.0.0.1:9200/api/consolidation/replay/events"
+DEFAULT_REPLAY_URL = "http://127.0.0.1:9200/api/sentinel-echo/replay/events"
 
 
 class SimulationReplayError(RuntimeError):
@@ -22,15 +22,15 @@ def _dict_or_empty(value: Any) -> dict[str, Any]:
 
 
 def normalize_replay_url(value: str | None = None) -> str:
-    configured = (value or os.environ.get("SIMULATION_ENGINE_REPLAY_URL") or DEFAULT_REPLAY_URL).strip()
+    configured = (value or os.environ.get("SENTINEL_ARCHIVE_REPLAY_URL") or DEFAULT_REPLAY_URL).strip()
     configured = configured.rstrip("/")
     if not configured:
         return DEFAULT_REPLAY_URL
-    if configured.endswith("/api/consolidation/replay/events"):
+    if configured.endswith("/api/sentinel-echo/replay/events"):
         return configured
     if "/api/" in configured:
         return configured
-    return f"{configured}/api/consolidation/replay/events"
+    return f"{configured}/api/sentinel-echo/replay/events"
 
 
 async def fetch_engine_replay(
@@ -55,11 +55,11 @@ async def fetch_engine_replay(
         async with session.get(url, params=params) as response:
             if response.status < 200 or response.status >= 300:
                 text = await response.text()
-                raise SimulationReplayError(f"Simulation Engine replay returned HTTP {response.status}: {text[:240]}")
+                raise SimulationReplayError(f"Sentinel Archive replay returned HTTP {response.status}: {text[:240]}")
             payload = await response.json()
 
-    if payload.get("contract_version") != "simulation.consolidation.replay.v1":
-        raise SimulationReplayError("Simulation Engine replay contract version is unsupported")
+    if payload.get("contract_version") != "simulation.sentinel-echo.replay.v1":
+        raise SimulationReplayError("Sentinel Archive replay contract version is unsupported")
     return payload
 
 
@@ -160,7 +160,7 @@ def build_replay_preview(replay: dict[str, Any], settings: dict[str, Any] | None
         acceptance_status = "failed" if acceptance_failed_count else "passed"
 
     return {
-        "contract_version": "consolidation.simulation_replay_preview.v1",
+        "contract_version": "sentinel-echo.simulation_replay_preview.v1",
         "engine_contract_version": replay.get("contract_version"),
         "execution_mode": "preview_only_no_trades",
         "event_count": len(events),

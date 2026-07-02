@@ -117,7 +117,7 @@ class OpenClawDiscordConfigTests(unittest.TestCase):
         self.assertEqual(summary["channel_count"], 1)
         self.assertNotIn("discord-super-secret-token", str(summary))
 
-    def test_explicit_consolidation_env_wins_over_openclaw_fallback(self):
+    def test_explicit_sentinel_echo_env_wins_over_openclaw_fallback(self):
         from openclaw_discord_config import resolve_discord_runtime_config
 
         with tempfile.TemporaryDirectory() as temp_dir:

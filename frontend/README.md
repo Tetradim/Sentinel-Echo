@@ -1,6 +1,6 @@
-# Consolidation Discord Bot Frontend
+# Sentinel Echo Frontend
 
-Expo web dashboard for the Consolidation Discord options bot. The dashboard connects to the FastAPI backend for bot status, Discord alert review, broker configuration, positions, trades, risk controls, and source-specific settings.
+Expo web dashboard for the Sentinel Echo. The dashboard connects to the FastAPI backend for bot status, Discord alert review, broker configuration, positions, trades, risk controls, and source-specific settings.
 
 ## Local Launcher
 
@@ -8,7 +8,7 @@ The recommended Windows entrypoint is the repository-root launcher:
 
 ```powershell
 cd ..
-.\Launch-Consolidation-Bot.bat
+.\Launch-Sentinel-Echo.bat
 ```
 
 Default local ports:

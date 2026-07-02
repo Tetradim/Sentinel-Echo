@@ -46,7 +46,7 @@ test("service worker supervises Discord tabs and retries restart with exponentia
 test("content script exposes restartable bridge ping for supervisor", () => {
   const source = fs.readFileSync(path.join(BRIDGE_DIR, "content.js"), "utf8");
 
-  assert.match(source, /consolidation:bridge-ping/);
+  assert.match(source, /sentinel-echo:bridge-ping/);
   assert.match(source, /restartObserver/);
   assert.match(source, /observer\.disconnect\(\)/);
   assert.match(source, /clearInterval\(heartbeatTimer\)/);

@@ -20,9 +20,9 @@ from utils.credentials import credential_key_status
 
 
 LOCAL_BIND_HOSTS = {"127.0.0.1", "localhost", "::1"}
-DEFAULT_CONSOLIDATION_ROLE = "paper_shadow"
+DEFAULT_SENTINEL_ECHO_ROLE = "paper_shadow"
 LIVE_EXECUTION_ROLE = "live_executioner"
-SUPPORTED_CONSOLIDATION_ROLES = {
+SUPPORTED_SENTINEL_ECHO_ROLES = {
     "portfolio_ops",
     "paper_shadow",
     "replay_audit",
@@ -93,18 +93,18 @@ def _dict_or_empty(value: Any) -> Dict[str, Any]:
     return value if isinstance(value, dict) else {}
 
 
-def _normalize_role(value: Any, *, default: str = DEFAULT_CONSOLIDATION_ROLE) -> str:
+def _normalize_role(value: Any, *, default: str = DEFAULT_SENTINEL_ECHO_ROLE) -> str:
     role = str(value or "").strip().lower().replace("-", "_").replace(" ", "_")
     return role or default
 
 
-def _consolidation_role(env: Dict[str, str] | None) -> str:
-    return _normalize_role(_env_value(env, "CONSOLIDATION_BOT_ROLE", DEFAULT_CONSOLIDATION_ROLE))
+def _sentinel_echo_role(env: Dict[str, str] | None) -> str:
+    return _normalize_role(_env_value(env, "SENTINEL_ECHO_BOT_ROLE", DEFAULT_SENTINEL_ECHO_ROLE))
 
 
 def live_execution_role_enabled(env: Dict[str, str] | None = None) -> bool:
-    """Return True only when Consolidation has explicitly been deployed as a live executioner."""
-    return _consolidation_role(env) == LIVE_EXECUTION_ROLE
+    """Return True only when Sentinel Echo has explicitly been deployed as a live executioner."""
+    return _sentinel_echo_role(env) == LIVE_EXECUTION_ROLE
 
 
 def _configured_discord_channel_count(
@@ -418,8 +418,8 @@ def evaluate_live_readiness(
         or ""
     ).strip()
     credential_status = credential_key_status(env)
-    active_role = _consolidation_role(env)
-    role_valid = active_role in SUPPORTED_CONSOLIDATION_ROLES
+    active_role = _sentinel_echo_role(env)
+    role_valid = active_role in SUPPORTED_SENTINEL_ECHO_ROLES
     live_execution_allowed = live_execution_role_enabled(env)
     readiness_gates = _readiness_gate_checks(_status_or_runtime(status, runtime_state, "readiness_gates", {}))
 
@@ -428,15 +428,15 @@ def evaluate_live_readiness(
     if not role_valid:
         blocking.append(
             _issue(
-                "consolidation_role_invalid",
-                "CONSOLIDATION_BOT_ROLE must be portfolio_ops, paper_shadow, replay_audit, or live_executioner.",
+                "sentinel_echo_role_invalid",
+                "SENTINEL_ECHO_BOT_ROLE must be portfolio_ops, paper_shadow, replay_audit, or live_executioner.",
             )
         )
     elif not live_execution_allowed:
         blocking.append(
             _issue(
-                "consolidation_role_not_live_executioner",
-                "Consolidation is outside the default live path; set CONSOLIDATION_BOT_ROLE=live_executioner only when explicitly reintroduced as an execution bot.",
+                "sentinel_echo_role_not_live_executioner",
+                "Sentinel Echo is outside the default live path; set SENTINEL_ECHO_BOT_ROLE=live_executioner only when explicitly reintroduced as an execution bot.",
             )
         )
     if not credential_status["configured"]:
@@ -545,7 +545,7 @@ def evaluate_live_readiness(
         blocking.append(
             _issue(
                 "simulation_replay_acceptance_missing",
-                "A passing deterministic Simulation Engine replay acceptance proof is required.",
+                "A passing deterministic Sentinel Archive replay acceptance proof is required.",
             )
         )
     for gate_key in readiness_gates["missing_gate_keys"]:
@@ -557,8 +557,8 @@ def evaluate_live_readiness(
             "active_role": active_role,
             "valid": role_valid,
             "live_execution_allowed": live_execution_allowed,
-            "source": "CONSOLIDATION_BOT_ROLE",
-            "supported_roles": sorted(SUPPORTED_CONSOLIDATION_ROLES),
+            "source": "SENTINEL_ECHO_BOT_ROLE",
+            "supported_roles": sorted(SUPPORTED_SENTINEL_ECHO_ROLES),
         },
         "api_auth": {"configured": bool(_env_value(env, "API_KEY")), "authless_desktop_mode": _authless_desktop_mode(env)},
         "credential_key": credential_status,

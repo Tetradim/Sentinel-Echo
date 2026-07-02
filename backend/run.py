@@ -7,7 +7,7 @@ Environment variables:
     DISCORD_BOT_TOKEN     - Your Discord bot token (required for Discord)
     DISCORD_CHANNEL_IDS   - Comma-separated channel IDs to listen on
     MONGO_URL            - MongoDB connection string
-    DATABASE_PATH       - SQLite database path (default: data/consolidation.sqlite3)
+    DATABASE_PATH       - SQLite database path (default: data/sentinel-echo.sqlite3)
     IBKR_GATEWAY_URL     - IBKR Gateway URL (default: https://localhost:5000)
     IBKR_ACCOUNT_ID     - IBKR account ID
     API_SECRET_KEY      - Secret key for API authentication

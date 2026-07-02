@@ -49,7 +49,7 @@ class BotEventBusTests(unittest.TestCase):
             os.environ["BOT_EVENT_BUS_DIR"] = old_event_dir
 
         self.assertEqual(status["status"], "unhealthy")
-        self.assertEqual(events[0]["source_bot"], "consolidation")
+        self.assertEqual(events[0]["source_bot"], "sentinel-echo")
 
 
 if __name__ == "__main__":

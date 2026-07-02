@@ -105,7 +105,7 @@ def apply_alpaca_paper_settings(env_path: str | None = None) -> dict:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Configure Consolidation for safe Alpaca paper testing.")
+    parser = argparse.ArgumentParser(description="Configure Sentinel Echo for safe Alpaca paper testing.")
     parser.add_argument("--env-file", default=".env.local")
     args = parser.parse_args()
     print(json.dumps(apply_alpaca_paper_settings(args.env_file), indent=2))

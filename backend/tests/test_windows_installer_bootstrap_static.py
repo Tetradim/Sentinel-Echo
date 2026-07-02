@@ -3,8 +3,8 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[2]
-LAUNCHER_BAT = ROOT / "Launch-Consolidation-Bot.bat"
-LAUNCHER_PS1 = ROOT / "Launch-Consolidation-Bot.ps1"
+LAUNCHER_BAT = ROOT / "Launch-Sentinel-Echo.bat"
+LAUNCHER_PS1 = ROOT / "Launch-Sentinel-Echo.ps1"
 BUILD_WORKFLOW = ROOT / ".github" / "workflows" / "build.yml"
 README = ROOT / "README.md"
 SERVER = ROOT / "backend" / "server.py"
@@ -16,13 +16,13 @@ def test_launcher_supports_installed_and_source_modes():
     batch = LAUNCHER_BAT.read_text(encoding="utf-8")
     script = LAUNCHER_PS1.read_text(encoding="utf-8")
 
-    assert "Launch-Consolidation-Bot.ps1" in batch
-    assert "ConsolidationBot-Setup" in batch
+    assert "Launch-Sentinel-Echo.ps1" in batch
+    assert "SentinelEcho-Setup" in batch
     assert "if not exist" in batch.lower()
-    assert "Consolidation Discord Options Bot - Installed App" in script
-    assert "ConsolidationBot.exe" in script
-    assert "Start-InstalledConsolidationBot" in script
-    assert "Start-SourceConsolidationBot" in script
+    assert "Sentinel Echo - Installed App" in script
+    assert "SentinelEcho.exe" in script
+    assert "Start-InstalledSentinelEcho" in script
+    assert "Start-SourceSentinelEcho" in script
     assert "Ensure-InstalledRuntimeDependencies" in script
     assert "Test-VcRuntimeInstalled" in script
     assert "vc_redist.x64.exe" in script
@@ -52,11 +52,11 @@ def test_build_workflow_creates_installer_not_frontend_only_zip():
     assert "npx expo export --platform web" in workflow
     assert "python -m PyInstaller" in workflow
     assert "windows_entrypoint.py" in workflow
-    assert "ConsolidationBot.exe" in workflow
-    assert "Launch-Consolidation-Bot.bat" in workflow
-    assert "Launch-Consolidation-Bot.ps1" in workflow
-    assert "ConsolidationBot-Setup-{#MyAppVersion}" in workflow
-    assert 'Filename: "{app}\\Launch-Consolidation-Bot.bat"' in workflow
+    assert "SentinelEcho.exe" in workflow
+    assert "Launch-Sentinel-Echo.bat" in workflow
+    assert "Launch-Sentinel-Echo.ps1" in workflow
+    assert "SentinelEcho-Setup-{#MyAppVersion}" in workflow
+    assert 'Filename: "{app}\\Launch-Sentinel-Echo.bat"' in workflow
     assert "Minionguyjpro/Inno-Setup-Action" in workflow
     assert "python -m http.server 8080" not in workflow
 
@@ -64,8 +64,8 @@ def test_build_workflow_creates_installer_not_frontend_only_zip():
 def test_readme_documents_beta_installer_first_run_behavior():
     readme = README.read_text(encoding="utf-8")
 
-    assert "ConsolidationBot-Setup-<version>.exe" in readme
+    assert "SentinelEcho-Setup-<version>.exe" in readme
     assert "downloads missing runtime dependencies on first launch" in readme
     assert "Visual C++ Runtime" in readme
-    assert "Consolidation-Discord-Bot.log" in readme
+    assert "Sentinel-Echo.log" in readme
     assert "Python, Node.js, npm, MongoDB, or Redis" in readme

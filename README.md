@@ -1,15 +1,15 @@
-# Consolidation Discord Options Bot
+# Sentinel Echo
 
-Consolidation is a Discord-driven options trading and testing bot. It listens to analyst alerts, parses options contracts, applies source policy and risk controls, records alerts, and can either simulate trades or submit broker orders when live trading is explicitly configured.
+Sentinel Echo is a Discord-driven options trading and testing bot. It listens to analyst alerts, parses options contracts, applies source policy and risk controls, records alerts, and can either simulate trades or submit broker orders when live trading is explicitly configured.
 
-It also includes a preview-only bridge to the Sentinel Simulation Engine so recorded Discord alerts and market context can be replayed through Consolidation without inserting alerts or sending broker orders.
+It also includes a preview-only bridge to the Sentinel Archive so recorded Discord alerts and market context can be replayed through Sentinel Echo without inserting alerts or sending broker orders.
 
 ## Safety Boundary
 
 This project can place broker orders when all of the following are true:
 
 - `SIMULATION_MODE=false`
-- `CONSOLIDATION_BOT_ROLE=live_executioner`
+- `SENTINEL_ECHO_BOT_ROLE=live_executioner`
 - auto trading is enabled
 - a source override allows automatic live execution
 - the active broker is configured
@@ -19,18 +19,18 @@ This project can place broker orders when all of the following are true:
 Defaults keep the bot operational while preserving live-money gates:
 
 - `SIMULATION_MODE=true`
-- `CONSOLIDATION_BOT_ROLE` defaults to `paper_shadow`, which blocks live arming and broker submission
+- `SENTINEL_ECHO_BOT_ROLE` defaults to `paper_shadow`, which blocks live arming and broker submission
 - `auto_trading_enabled=true`
 - Discord intake only starts when a token and channel IDs are configured
 - setup diagnostics report missing live-trading prerequisites
-- parser preview and Simulation Engine replay preview do not mutate trading state
+- parser preview and Sentinel Archive replay preview do not mutate trading state
 
 Do not enable live trading until Discord parsing, source policy, broker credentials, order-status polling, and risk settings have been verified with real sample alerts.
 
 ## Repository
 
 ```text
-C:\Users\Lite OS\Documents\Codex\2026-06-17\files-mentioned-by-the-user-readme\work\Consolidation
+C:\Users\automation\GitBots\Sentinel-Echo
 ```
 
 ## Current Capability Map
@@ -57,8 +57,8 @@ C:\Users\Lite OS\Documents\Codex\2026-06-17\files-mentioned-by-the-user-readme\w
 | Notifications | Optional SMS/Twilio notification settings, test notification endpoint, notification log, and trade/shutdown notification hooks. |
 | Analytics | Heatmap, time series, advanced metrics, daily/weekly reports, tax report, and performance endpoints. |
 | Frontend | Expo/React Native Web dashboard with Dashboard, Alerts, Trades, Positions, Lab, Strikes, Trading, Risk, Discord, Broker, Profiles, and Settings tabs. |
-| Simulation Engine bridge | Fetches `simulation.consolidation.replay.v1` events and previews them through Consolidation parser/source policy in `preview_only_no_trades` mode. |
-| Chrome Discord bridge | Optional local-only unpacked Chrome extension can forward visible Discord Web messages into Consolidation when a bot cannot be invited. |
+| Sentinel Archive bridge | Fetches `simulation.sentinel-echo.replay.v1` events and previews them through Sentinel Echo parser/source policy in `preview_only_no_trades` mode. |
+| Chrome Discord bridge | Optional local-only unpacked Chrome extension can forward visible Discord Web messages into Sentinel Echo when a bot cannot be invited. |
 | Local launcher | Windows launcher starts FastAPI backend and Expo web frontend on local ports with optional dependency installation and smoke test. |
 
 ## Architecture
@@ -85,16 +85,16 @@ discord_ingestion.handle_discord_message
         trade, alert, position reconciliation
 
 FastAPI routes expose settings, alerts, trades, positions, brokers,
-profiles, operator lab, analytics, diagnostics, and Simulation Engine replay preview.
+profiles, operator lab, analytics, diagnostics, and Sentinel Archive replay preview.
 ```
 
 ## Quick Start: Windows Beta Installer
 
-For non-technical beta testers, download and run `ConsolidationBot-Setup-<version>.exe` from the Windows release artifact.
+For non-technical beta testers, download and run `SentinelEcho-Setup-<version>.exe` from the Windows release artifact.
 
-After installation, double-click **Consolidation Discord Options Bot** from the Desktop or Start Menu. The installed launcher downloads missing runtime dependencies on first launch, including the Microsoft Visual C++ Runtime when Windows does not already have it. The installed beta build runs the packaged backend with local SQLite mode and serves the bundled dashboard from the same local app.
+After installation, double-click **Sentinel Echo** from the Desktop or Start Menu. The installed launcher downloads missing runtime dependencies on first launch, including the Microsoft Visual C++ Runtime when Windows does not already have it. The installed beta build runs the packaged backend with local SQLite mode and serves the bundled dashboard from the same local app.
 
-Installed beta testers do not need to install Python, Node.js, npm, MongoDB, or Redis. If startup fails, send a screenshot of the launcher window and the Desktop log file named `Consolidation-Discord-Bot.log`.
+Installed beta testers do not need to install Python, Node.js, npm, MongoDB, or Redis. If startup fails, send a screenshot of the launcher window and the Desktop log file named `Sentinel-Echo.log`.
 
 Default installed URLs:
 
@@ -109,13 +109,13 @@ Default installed URLs:
 From the repository root:
 
 ```powershell
-.\Launch-Consolidation-Bot.bat
+.\Launch-Sentinel-Echo.bat
 ```
 
 Or run the PowerShell launcher directly:
 
 ```powershell
-.\Launch-Consolidation-Bot.ps1
+.\Launch-Sentinel-Echo.ps1
 ```
 
 Default local ports:
@@ -129,10 +129,10 @@ Default local ports:
 Useful flags:
 
 ```powershell
-.\Launch-Consolidation-Bot.ps1 -InstallDeps
-.\Launch-Consolidation-Bot.ps1 -NoBrowser
-.\Launch-Consolidation-Bot.ps1 -BackendPort 8003 -FrontendPort 3003
-.\Launch-Consolidation-Bot.ps1 -SmokeTest
+.\Launch-Sentinel-Echo.ps1 -InstallDeps
+.\Launch-Sentinel-Echo.ps1 -NoBrowser
+.\Launch-Sentinel-Echo.ps1 -BackendPort 8003 -FrontendPort 3003
+.\Launch-Sentinel-Echo.ps1 -SmokeTest
 ```
 
 The launcher:
@@ -162,7 +162,7 @@ chmod +x install-macos.sh
 ./install-macos.sh
 ```
 
-After installation, double-click `Consolidation Discord Bot.command` on the Desktop. The launcher starts the backend on `8003`, starts the Expo web frontend on `3003`, and opens the dashboard. Logs are written to `~/Desktop/Consolidation-Discord-Bot.log`.
+After installation, double-click `Sentinel Echo.command` on the Desktop. The launcher starts the backend on `8003`, starts the Expo web frontend on `3003`, and opens the dashboard. Logs are written to `~/Desktop/Sentinel-Echo.log`.
 
 Manual launch options:
 
@@ -182,7 +182,7 @@ python -m venv backend\.venv
 $env:HOST = "127.0.0.1"
 $env:PORT = "8003"
 $env:USE_SQLITE = "true"
-$env:DATABASE_PATH = "data\consolidation.sqlite3"
+$env:DATABASE_PATH = "data\sentinel-echo.sqlite3"
 .\backend\.venv\Scripts\python.exe -m backend.run
 ```
 
@@ -214,10 +214,10 @@ Use Docker when you want MongoDB, Prometheus, and nginx managed as a stack.
 | `DISCORD_BOT_TOKEN` | Bot token from Discord Developer Portal. |
 | `DISCORD_CHANNEL_IDS` | Comma-separated channel IDs to monitor. |
 | `DISCORD_GUILD_ID` | Optional guild ID. |
-| `CONSOLIDATION_USE_OPENCLAW_DISCORD` | Optional fallback toggle. Defaults to `true`; set to `false` to prevent reading local OpenClaw Discord config. |
+| `SENTINEL_ECHO_USE_OPENCLAW_DISCORD` | Optional fallback toggle. Defaults to `true`; set to `false` to prevent reading local OpenClaw Discord config. |
 | `OPENCLAW_HOME` | Optional OpenClaw config directory. Defaults to the current user's `.openclaw` folder. |
 
-Discord intake starts when token and channel IDs are available from explicit Consolidation env vars. If either is missing and `CONSOLIDATION_USE_OPENCLAW_DISCORD` is not disabled, Consolidation falls back to the local OpenClaw `.env` token and enabled Discord channel IDs in `openclaw.json`. Explicit Consolidation env vars always win over OpenClaw values.
+Discord intake starts when token and channel IDs are available from explicit Sentinel Echo env vars. If either is missing and `SENTINEL_ECHO_USE_OPENCLAW_DISCORD` is not disabled, Sentinel Echo falls back to the local OpenClaw `.env` token and enabled Discord channel IDs in `openclaw.json`. Explicit Sentinel Echo env vars always win over OpenClaw values.
 
 ### Server And Security
 
@@ -236,7 +236,7 @@ Discord intake starts when token and channel IDs are available from explicit Con
 | Variable | Purpose |
 | --- | --- |
 | `USE_SQLITE` | Enables local SQLite mode when true. |
-| `DATABASE_PATH` | SQLite database path, usually `data\consolidation.sqlite3`. |
+| `DATABASE_PATH` | SQLite database path, usually `data\sentinel-echo.sqlite3`. |
 | `MONGO_URL` | MongoDB URL for server deployments. |
 | `DB_NAME` | Mongo database name. |
 | `REDIS_URL` | Redis URL for stack deployments. |
@@ -254,7 +254,7 @@ Discord intake starts when token and channel IDs are available from explicit Con
 | Variable | Purpose |
 | --- | --- |
 | `SIMULATION_MODE` | Keep true until live execution is proven safe. |
-| `CONSOLIDATION_BOT_ROLE` | Deployment role gate. Defaults to `paper_shadow`; live arming and live broker submission require `live_executioner`. Supported non-live roles are `portfolio_ops`, `paper_shadow`, and `replay_audit`. |
+| `SENTINEL_ECHO_BOT_ROLE` | Deployment role gate. Defaults to `paper_shadow`; live arming and live broker submission require `live_executioner`. Supported non-live roles are `portfolio_ops`, `paper_shadow`, and `replay_audit`. |
 | `DEFAULT_QUANTITY` | Default contracts for buys. |
 | `MAX_POSITION_SIZE` | Max premium allocation per position. |
 | `PRICE_BUFFER` | Entry price buffer default. |
@@ -284,11 +284,11 @@ broker connection, and counts open orders without submitting, replacing, or
 cancelling orders. Any open broker order blocks the preflight until it is
 reconciled or cancelled by an operator-owned workflow.
 
-### Simulation Engine Bridge
+### Sentinel Archive Bridge
 
 | Variable | Purpose |
 | --- | --- |
-| `SIMULATION_ENGINE_REPLAY_URL` | Simulation Engine replay endpoint. Default: `http://127.0.0.1:9200/api/consolidation/replay/events`. |
+| `SENTINEL_ARCHIVE_REPLAY_URL` | Sentinel Archive replay endpoint. Default: `http://127.0.0.1:9200/api/sentinel-echo/replay/events`. |
 
 ## Discord Setup
 
@@ -300,17 +300,17 @@ reconciled or cancelled by an operator-owned workflow.
 6. Copy the bot token.
 7. Set `DISCORD_BOT_TOKEN`.
 8. Set `DISCORD_CHANNEL_IDS`.
-9. Start Consolidation.
+9. Start Sentinel Echo.
 10. Check `/api/diagnostics/setup`.
 
-If OpenClaw is already configured on the same machine, Consolidation can reuse:
+If OpenClaw is already configured on the same machine, Sentinel Echo can reuse:
 
 - `C:\Users\Lite OS\.openclaw\.env` for `DISCORD_BOT_TOKEN`
 - `C:\Users\Lite OS\.openclaw\openclaw.json` for enabled Discord channel IDs
 
-This is a runtime fallback only. The token is not copied into the repo, not printed in diagnostics, and not written to the README. Set `CONSOLIDATION_USE_OPENCLAW_DISCORD=false` to force Consolidation to ignore OpenClaw.
+This is a runtime fallback only. The token is not copied into the repo, not printed in diagnostics, and not written to the README. Set `SENTINEL_ECHO_USE_OPENCLAW_DISCORD=false` to force Sentinel Echo to ignore OpenClaw.
 
-The fallback is used by automatic backend startup and by the `/api/discord/start` route, so the UI start button can launch the listener even when the saved Consolidation settings are empty.
+The fallback is used by automatic backend startup and by the `/api/discord/start` route, so the UI start button can launch the listener even when the saved Sentinel Echo settings are empty.
 
 ## Chrome Discord Bridge
 
@@ -324,7 +324,7 @@ tools\chrome-discord-bridge
 
 Install it as an unpacked Chrome extension:
 
-1. Start Consolidation locally.
+1. Start Sentinel Echo locally.
 2. Open `chrome://extensions`.
 3. Enable Developer mode.
 4. Click Load unpacked.
@@ -332,7 +332,7 @@ Install it as an unpacked Chrome extension:
 6. Open Discord Web in Chrome.
 7. Click the extension icon and enable forwarding.
 
-Default Consolidation target:
+Default Sentinel Echo target:
 
 ```text
 POST http://127.0.0.1:8003/api/discord/chrome-bridge/message
@@ -353,8 +353,8 @@ The extension can forward the same observed alert to multiple local bots. Use th
 ```json
 [
   {
-    "id": "consolidation",
-    "name": "Consolidation",
+    "id": "sentinel-echo",
+    "name": "Sentinel Echo",
     "enabled": true,
     "messageUrl": "http://127.0.0.1:8003/api/discord/chrome-bridge/message",
     "heartbeatUrl": "http://127.0.0.1:8003/api/discord/chrome-bridge/heartbeat",
@@ -636,30 +636,30 @@ Use `/api/diagnostics/setup` before live trading. If active broker order status 
 | Profiles | `/profiles` | Profile creation, activation, broker toggles, and per-broker settings. |
 | Settings | `/settings` | General settings, notification controls, and operational settings. |
 
-## Simulation Engine Replay Bridge
+## Sentinel Archive Replay Bridge
 
-The bridge consumes the Simulation Engine contract:
+The bridge consumes the Sentinel Archive contract:
 
 ```text
-simulation.consolidation.replay.v1
+simulation.sentinel-echo.replay.v1
 ```
 
 Configure:
 
 ```powershell
-$env:SIMULATION_ENGINE_REPLAY_URL = "http://127.0.0.1:9200/api/consolidation/replay/events"
+$env:SENTINEL_ARCHIVE_REPLAY_URL = "http://127.0.0.1:9200/api/sentinel-echo/replay/events"
 ```
 
 Fetch raw replay events:
 
 ```text
-GET /api/simulation-engine/replay-events
+GET /api/sentinel-archive/replay-events
 ```
 
-Preview replay events through Consolidation:
+Preview replay events through Sentinel Echo:
 
 ```text
-POST /api/simulation-engine/replay-preview
+POST /api/sentinel-archive/replay-preview
 ```
 
 Preview mode:
@@ -670,10 +670,10 @@ preview_only_no_trades
 
 The preview:
 
-- fetches recorded events from the Simulation Engine
-- parses the alert text with Consolidation parser logic
+- fetches recorded events from the Sentinel Archive
+- parses the alert text with Sentinel Echo parser logic
 - applies current source policy
-- includes Simulation Engine market snapshot and price drift context
+- includes Sentinel Archive market snapshot and price drift context
 - reports whether the alert would insert
 - reports whether it would request a trade under current settings
 - does not insert alerts
@@ -815,28 +815,28 @@ All routes below are under `/api`.
 | GET | `/reports/tax` | Tax report data. |
 | GET | `/performance` | Performance summary. |
 
-### Simulation Engine
+### Sentinel Archive
 
 | Method | Path | Purpose |
 | --- | --- | --- |
-| GET | `/simulation-engine/replay-events` | Fetch recorded replay events from Simulation Engine. |
-| POST | `/simulation-engine/replay-preview` | Preview replay events through Consolidation without side effects. |
+| GET | `/sentinel-archive/replay-events` | Fetch recorded replay events from Sentinel Archive. |
+| POST | `/sentinel-archive/replay-preview` | Preview replay events through Sentinel Echo without side effects. |
 
 ## Data Storage
 
 | Mode | Storage |
 | --- | --- |
-| Local launcher | SQLite at `data\consolidation.sqlite3`. |
+| Local launcher | SQLite at `data\sentinel-echo.sqlite3`. |
 | Docker/server mode | MongoDB configured by `MONGO_URL` and `DB_NAME`. |
 | Runtime status | In-memory plus persisted settings/runtime fields where implemented. |
-| Launcher logs | Desktop `Consolidation-Discord-Bot.log`. |
+| Launcher logs | Desktop `Sentinel-Echo.log`. |
 
 Broker credentials are encrypted before persistence only when `CREDENTIAL_KEY` is a valid 32-byte hex key. Missing or malformed keys block live readiness and live broker order submission; legacy plaintext setup flows may still run for compatibility, so configure this key before storing production broker secrets.
 
 ## Project Structure
 
 ```text
-Consolidation/
+Sentinel-Echo/
   backend/
     server.py                 FastAPI app, Discord bot lifecycle, trade processing
     discord_ingestion.py      Discord alert ingestion pipeline
@@ -847,7 +847,7 @@ Consolidation/
     fill_reconciliation.py    Trade/alert/position reconciliation
     trade_lifecycle.py        Exit planning
     paper_shadow.py           Paper-shadow records
-    simulation_replay.py      Simulation Engine replay client and preview builder
+    simulation_replay.py      Sentinel Archive replay client and preview builder
     routes/                   FastAPI route modules
     broker_clients/           Legacy broker client implementations
     brokers/                  Broker metadata and adapter registry
@@ -862,7 +862,7 @@ Consolidation/
   scripts/
     ui_full_audit.py          Playwright UI audit harness
     tradebot_cli.py           CLI helpers and dashboard route helpers
-  Launch-Consolidation-Bot.ps1
+  Launch-Sentinel-Echo.ps1
   docker-compose.yml
   nginx/
   prometheus/
@@ -876,7 +876,7 @@ Backend tests:
 python -m unittest discover backend/tests -v
 ```
 
-Targeted Simulation Engine bridge tests:
+Targeted Sentinel Archive bridge tests:
 
 ```powershell
 python -m unittest backend.tests.test_simulation_replay -v
@@ -899,7 +899,7 @@ npm run lint
 Launcher smoke test:
 
 ```powershell
-.\Launch-Consolidation-Bot.ps1 -SmokeTest
+.\Launch-Sentinel-Echo.ps1 -SmokeTest
 ```
 
 UI audit script:
@@ -927,18 +927,18 @@ UI audit script:
 5. Use parse preview with real historical alerts.
 6. Only then consider automatic execution.
 
-### Replay Simulation Engine Data
+### Replay Sentinel Archive Data
 
-1. Run Sentinel Simulation Engine on port `9200`.
+1. Run Sentinel Archive on port `9200`.
 2. Record or import Discord alerts and option market data there.
-3. Use its Consolidation Replay panel to verify events.
-4. Set `SIMULATION_ENGINE_REPLAY_URL` in Consolidation.
-5. Call `/api/simulation-engine/replay-preview`.
-6. Review what Consolidation would parse and whether it would request trades.
+3. Use its Sentinel Echo Replay panel to verify events.
+4. Set `SENTINEL_ARCHIVE_REPLAY_URL` in Sentinel Echo.
+5. Call `/api/sentinel-archive/replay-preview`.
+6. Review what Sentinel Echo would parse and whether it would request trades.
 
 ### Live Trading Readiness Check
 
-Consolidation keeps live-readiness evidence as explicit gates. Auto trading can
+Sentinel Echo keeps live-readiness evidence as explicit gates. Auto trading can
 stay enabled for paper/live-readiness testing, but `/api/operator/live-readiness`
 does not report ready until every gate has current evidence.
 
@@ -987,7 +987,7 @@ snapshots always perform a fresh active-broker health check and store
 
 ## Refactor Plan
 
-Near-term refactors should preserve Consolidation as a standalone Discord
+Near-term refactors should preserve Sentinel Echo as a standalone Discord
 options execution bot and avoid absorbing Sentinel Edge or Sentinel Pulse roles.
 
 1. Done: operator readiness gate recording, event-state extraction, and
@@ -1013,7 +1013,7 @@ options execution bot and avoid absorbing Sentinel Edge or Sentinel Pulse roles.
 - Several broker adapters are configuration/check placeholders and are not live-order-ready.
 - Discord `/discord/test-connection` reports bot runtime state; it is not a full REST permission diagnostic.
 - Runtime bot status and notification log reset when the process restarts.
-- Simulation Engine replay preview is read-only and does not insert alerts or trades.
+- Sentinel Archive replay preview is read-only and does not insert alerts or trades.
 - Some frontend strike-selection data is a workbench/mock chain rather than live option chain data.
 - Market-transition and multi-session paper-monitoring gates require real
   market-time evidence and cannot be completed instantly.
@@ -1028,7 +1028,7 @@ These are planned or candidate improvements, not guaranteed current behavior:
 - Historical per-analyst performance scoring.
 - More robust multi-leg strategy execution.
 - Persistent notification log.
-- End-to-end Simulation Engine replay UI inside Consolidation.
+- End-to-end Sentinel Archive replay UI inside Sentinel Echo.
 - Broader frontend coverage for all tabs and settings.
 
 ## Support
@@ -1036,7 +1036,7 @@ These are planned or candidate improvements, not guaranteed current behavior:
 Repository:
 
 ```text
-https://github.com/Tetradim/Consolidation
+https://github.com/Tetradim/Sentinel-Echo
 ```
 
 For local development, prefer the launcher and local SQLite mode first. Move to Docker/MongoDB only after the local workflow is verified.

@@ -1,6 +1,7 @@
 import pathlib
 import sys
 import unittest
+from datetime import date
 
 
 BACKEND_DIR = pathlib.Path(__file__).resolve().parents[1]
@@ -245,6 +246,50 @@ class CorrelationRiskTests(unittest.IsolatedAsyncioTestCase):
                 ]
             ),
             {"max_positions_per_ticker": 1, "simulation_mode": True},
+        )
+
+        self.assertFalse(allowed)
+        self.assertIn("Correlation limit", reason)
+
+    async def test_correlation_ignores_expired_option_positions(self):
+        from risk import check_correlation
+
+        allowed, reason = await check_correlation(
+            "SPY",
+            FakePositionDb(
+                [
+                    {
+                        "ticker": "SPY",
+                        "status": "open",
+                        "simulated": False,
+                        "expiration": "6/26/2026",
+                    }
+                ]
+            ),
+            {"max_positions_per_ticker": 1, "simulation_mode": False},
+            today=date(2026, 7, 1),
+        )
+
+        self.assertTrue(allowed)
+        self.assertEqual(reason, "")
+
+    async def test_correlation_counts_same_day_expiration_positions(self):
+        from risk import check_correlation
+
+        allowed, reason = await check_correlation(
+            "SPY",
+            FakePositionDb(
+                [
+                    {
+                        "ticker": "SPY",
+                        "status": "open",
+                        "simulated": False,
+                        "expiration": "7/1/2026",
+                    }
+                ]
+            ),
+            {"max_positions_per_ticker": 1, "simulation_mode": False},
+            today=date(2026, 7, 1),
         )
 
         self.assertFalse(allowed)

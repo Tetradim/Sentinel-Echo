@@ -112,12 +112,12 @@ class LiveOrderSubmissionStatusTests(unittest.TestCase):
             "monitor_fill": server.monitor_fill,
             "notify_correlation_block": server.notify_correlation_block,
             "get_configured_broker_client": order_execution.get_configured_broker_client,
-            "CONSOLIDATION_BOT_ROLE": os.environ.get("CONSOLIDATION_BOT_ROLE"),
+            "SENTINEL_ECHO_BOT_ROLE": os.environ.get("SENTINEL_ECHO_BOT_ROLE"),
         }
         if live_role:
-            os.environ["CONSOLIDATION_BOT_ROLE"] = "live_executioner"
+            os.environ["SENTINEL_ECHO_BOT_ROLE"] = "live_executioner"
         else:
-            os.environ.pop("CONSOLIDATION_BOT_ROLE", None)
+            os.environ.pop("SENTINEL_ECHO_BOT_ROLE", None)
         server.USE_SQLITE = False
         if fake_sync_mongo is not None:
             server.sync_mongo_db = fake_sync_mongo
@@ -140,10 +140,10 @@ class LiveOrderSubmissionStatusTests(unittest.TestCase):
         server.monitor_fill = originals["monitor_fill"]
         server.notify_correlation_block = originals["notify_correlation_block"]
         order_execution.get_configured_broker_client = originals["get_configured_broker_client"]
-        if originals["CONSOLIDATION_BOT_ROLE"] is None:
-            os.environ.pop("CONSOLIDATION_BOT_ROLE", None)
+        if originals["SENTINEL_ECHO_BOT_ROLE"] is None:
+            os.environ.pop("SENTINEL_ECHO_BOT_ROLE", None)
         else:
-            os.environ["CONSOLIDATION_BOT_ROLE"] = originals["CONSOLIDATION_BOT_ROLE"]
+            os.environ["SENTINEL_ECHO_BOT_ROLE"] = originals["SENTINEL_ECHO_BOT_ROLE"]
 
     def test_live_buy_order_submission_does_not_mark_alert_executed_before_fill(self):
         from models import Alert
@@ -241,7 +241,7 @@ class LiveOrderSubmissionStatusTests(unittest.TestCase):
             ],
         )
 
-    def test_live_buy_is_blocked_when_consolidation_role_is_not_executioner(self):
+    def test_live_buy_is_blocked_when_sentinel_echo_role_is_not_executioner(self):
         from models import Alert
         import server
 
@@ -358,7 +358,7 @@ class LiveOrderSubmissionStatusTests(unittest.TestCase):
         self.assertEqual(fake_db.inserted_trades[0]["status"], "pending")
         self.assertEqual(fake_db.inserted_trades[0]["order_id"], "live-order-1")
 
-    def test_live_exit_is_blocked_when_consolidation_role_is_not_executioner(self):
+    def test_live_exit_is_blocked_when_sentinel_echo_role_is_not_executioner(self):
         from models import Alert, Settings
         import server
 

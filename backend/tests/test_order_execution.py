@@ -82,7 +82,7 @@ class OrderExecutionTests(unittest.TestCase):
             position_id="position:456",
         )
 
-        self.assertEqual(client_order_id, "consolidation-buy-alert-ABC-123-position-456")
+        self.assertEqual(client_order_id, "sentinel-echo-buy-alert-ABC-123-position-456")
         self.assertLessEqual(len(client_order_id), 128)
         self.assertEqual(
             client_order_id,
@@ -406,14 +406,14 @@ class OrderExecutionTests(unittest.TestCase):
                 side="BUY",
                 quantity=1,
                 price=1.25,
-                client_order_id="consolidation-buy-alert-123",
+                client_order_id="sentinel-echo-buy-alert-123",
             )
         )
 
         self.assertEqual(result["order_id"], "order-123")
         self.assertEqual(
             fake_session.posts[0]["json"]["client_order_id"],
-            "consolidation-buy-alert-123",
+            "sentinel-echo-buy-alert-123",
         )
         self.assertEqual(fake_session.posts[0]["json"]["symbol"], "SPY260621C00500000")
 

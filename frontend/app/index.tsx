@@ -1377,18 +1377,18 @@ export default function Dashboard() {
     const body = (globalThis as any).document?.body;
     if (!body) return;
     const notifyCustomizerChange = () => {
-      globalThis.dispatchEvent?.(new Event('consolidation-customizer-change'));
+      globalThis.dispatchEvent?.(new Event('sentinel-echo-customizer-change'));
     };
 
     if (showCustomizer) {
-      body.setAttribute('data-consolidation-customizer', 'open');
+      body.setAttribute('data-sentinel-echo-customizer', 'open');
     } else {
-      body.removeAttribute('data-consolidation-customizer');
+      body.removeAttribute('data-sentinel-echo-customizer');
     }
     notifyCustomizerChange();
 
     return () => {
-      body.removeAttribute('data-consolidation-customizer');
+      body.removeAttribute('data-sentinel-echo-customizer');
       notifyCustomizerChange();
     };
   }, [showCustomizer]);
@@ -1496,19 +1496,19 @@ export default function Dashboard() {
           parsed_count: 31,
           would_request_trade_count: 18,
           drift_alert_count: 5,
-          replay_url: 'http://127.0.0.1:9200/api/consolidation/replay/events',
+          replay_url: 'http://127.0.0.1:9200/api/sentinel-echo/replay/events',
           results: [],
         });
         return;
       }
 
-      const response = await api.post(`${BACKEND_URL}/api/simulation-engine/replay-preview`, {
+      const response = await api.post(`${BACKEND_URL}/api/sentinel-archive/replay-preview`, {
         channel_id: firstConfiguredChannel(settings),
         limit: 500,
       });
       setEnginePreview(response.data);
     } catch (e: any) {
-      setEngineError(e?.response?.data?.detail || 'Simulation Engine replay preview failed.');
+      setEngineError(e?.response?.data?.detail || 'Sentinel Archive replay preview failed.');
     } finally {
       setRunningEnginePreview(false);
     }
@@ -1535,7 +1535,7 @@ export default function Dashboard() {
         <BackgroundPattern theme={theme} prefs={prefs} />
         <View style={styles.centered}>
           <ActivityIndicator size="large" color={accent} />
-          <Text style={[styles.loadingText, { color: theme.muted }]}>Loading Consolidation...</Text>
+          <Text style={[styles.loadingText, { color: theme.muted }]}>Loading Sentinel Echo...</Text>
         </View>
       </SafeAreaView>
     );
@@ -1699,7 +1699,7 @@ export default function Dashboard() {
 
                 <View style={[styles.glassCard, cardStyle]}>
                   <View style={styles.cardHeaderRow}>
-                    <SectionTitle eyebrow="SIMULATION ENGINE" title="Replay Bridge" detail="Preview historical engine events. This does not execute trades." theme={theme} />
+                    <SectionTitle eyebrow="SENTINEL ARCHIVE" title="Replay Bridge" detail="Preview historical engine events. This does not execute trades." theme={theme} />
                     <IconAction icon="git-branch-outline" label={runningEnginePreview ? 'Checking' : 'Replay'} onPress={runEnginePreview} accent={accent} disabled={runningEnginePreview} solid />
                   </View>
                   {engineError ? <Text style={[styles.errorInline, { color: '#fb7185' }]}>{engineError}</Text> : null}
@@ -1710,7 +1710,7 @@ export default function Dashboard() {
                     <MetricTile label="Price Drift" value={String(enginePreview?.drift_alert_count ?? 0)} color={enginePreview?.drift_alert_count ? '#f59e0b' : theme.text} theme={theme} />
                   </View>
                   <Text style={[styles.smallMono, { color: theme.faint }]} numberOfLines={2}>
-                    {enginePreview?.replay_url || 'Default: http://127.0.0.1:9200/api/consolidation/replay/events'}
+                    {enginePreview?.replay_url || 'Default: http://127.0.0.1:9200/api/sentinel-echo/replay/events'}
                   </Text>
                 </View>
               </View>

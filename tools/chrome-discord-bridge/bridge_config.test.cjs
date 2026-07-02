@@ -3,7 +3,7 @@ const assert = require("node:assert/strict");
 const {
   canonicalDiscordChannelUrl,
   channelIdFromDiscordUrl,
-  localConsolidationFallbackUrls,
+  localSentinelEchoFallbackUrls,
   normalizeBridgeTargets,
   targetsForDiscordChannel,
 } = require("./bridge_config.js");
@@ -34,7 +34,7 @@ test("channelIdFromDiscordUrl extracts the channel id", () => {
   assert.equal(channelIdFromDiscordUrl("https://discord.com/app"), "");
 });
 
-test("normalizeBridgeTargets migrates legacy Consolidation settings", () => {
+test("normalizeBridgeTargets migrates legacy Sentinel Echo settings", () => {
   const targets = normalizeBridgeTargets({
     targetUrl: "http://127.0.0.1:8003/api/discord/chrome-bridge/message",
     heartbeatUrl: "http://127.0.0.1:8003/api/discord/chrome-bridge/heartbeat",
@@ -42,8 +42,8 @@ test("normalizeBridgeTargets migrates legacy Consolidation settings", () => {
   });
 
   assert.equal(targets.length, 1);
-  assert.equal(targets[0].id, "consolidation");
-  assert.equal(targets[0].name, "Consolidation");
+  assert.equal(targets[0].id, "sentinel-echo");
+  assert.equal(targets[0].name, "Sentinel Echo");
   assert.equal(targets[0].enabled, true);
   assert.equal(targets[0].apiKey, "local-key");
 });
@@ -52,7 +52,7 @@ test("targetsForDiscordChannel filters by channel URL and channel id", () => {
   const settings = {
     targets: [
       {
-        id: "consolidation",
+        id: "sentinel-echo",
         enabled: true,
         messageUrl: "http://127.0.0.1:8003/api/discord/chrome-bridge/message",
         allowedChannelUrls: ["https://discord.com/channels/111/222"],
@@ -73,7 +73,7 @@ test("targetsForDiscordChannel filters by channel URL and channel id", () => {
 
   assert.deepEqual(
     targetsForDiscordChannel(settings, "https://discord.com/channels/111/222/999").map((target) => target.id),
-    ["consolidation"],
+    ["sentinel-echo"],
   );
   assert.deepEqual(
     targetsForDiscordChannel(settings, "https://discord.com/channels/111/333").map((target) => target.id),
@@ -98,21 +98,21 @@ test("targetsForDiscordChannel allows enabled targets without filters", () => {
   );
 });
 
-test("localConsolidationFallbackUrls retries legacy local Consolidation port on active local run port", () => {
+test("localSentinelEchoFallbackUrls retries legacy local Sentinel Echo port on active local run port", () => {
   const target = {
-    id: "consolidation",
-    name: "Consolidation",
+    id: "sentinel-echo",
+    name: "Sentinel Echo",
     enabled: true,
     messageUrl: "http://127.0.0.1:8003/api/discord/chrome-bridge/message",
     heartbeatUrl: "http://127.0.0.1:8003/api/discord/chrome-bridge/heartbeat",
   };
 
   assert.deepEqual(
-    localConsolidationFallbackUrls(target, "heartbeat", target.heartbeatUrl),
+    localSentinelEchoFallbackUrls(target, "heartbeat", target.heartbeatUrl),
     ["http://127.0.0.1:8010/api/discord/chrome-bridge/heartbeat"],
   );
   assert.deepEqual(
-    localConsolidationFallbackUrls(
+    localSentinelEchoFallbackUrls(
       { ...target, id: "sentinel-edge", name: "Sentinel Edge" },
       "heartbeat",
       target.heartbeatUrl,
@@ -120,7 +120,7 @@ test("localConsolidationFallbackUrls retries legacy local Consolidation port on 
     [],
   );
   assert.deepEqual(
-    localConsolidationFallbackUrls(
+    localSentinelEchoFallbackUrls(
       { ...target, messageUrl: "http://127.0.0.1:8010/api/discord/chrome-bridge/message" },
       "message",
       "http://127.0.0.1:8010/api/discord/chrome-bridge/message",

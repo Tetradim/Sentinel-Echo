@@ -2,14 +2,14 @@
 
 This unpacked Chrome extension observes messages rendered in selected Discord Web channels and forwards them to one or more local bot backends.
 
-The default target remains Consolidation:
+The default target remains Sentinel Echo:
 
 ```text
 http://127.0.0.1:8003/api/discord/chrome-bridge/message
 http://127.0.0.1:8003/api/discord/chrome-bridge/heartbeat
 ```
 
-When the local paper/live test launcher runs Consolidation on `8010`, the bridge automatically falls back between local Consolidation ports `8003` and `8010` for both message and heartbeat posts. Each HTTP attempt is bounded by a short timeout so a dead legacy port cannot stall the extension heartbeat indefinitely.
+When the local paper/live test launcher runs Sentinel Echo on `8010`, the bridge automatically falls back between local Sentinel Echo ports `8003` and `8010` for both message and heartbeat posts. Each HTTP attempt is bounded by a short timeout so a dead legacy port cannot stall the extension heartbeat indefinitely.
 
 Use this only for Discord channels you can personally view in Chrome when the normal Discord bot cannot be invited to the private server.
 
@@ -40,19 +40,19 @@ Known local target roots:
 
 | Bot | Target root |
 | --- | --- |
-| Consolidation | `http://127.0.0.1:8003/api/discord/chrome-bridge` or `http://127.0.0.1:8010/api/discord/chrome-bridge` |
-| Simulation Engine | `http://127.0.0.1:9200/api/discord/chrome-bridge` |
-| Tandem Suite | `http://127.0.0.1:8005/api/discord/chrome-bridge` |
+| Sentinel Echo | `http://127.0.0.1:8003/api/discord/chrome-bridge` or `http://127.0.0.1:8010/api/discord/chrome-bridge` |
+| Sentinel Archive | `http://127.0.0.1:9200/api/discord/chrome-bridge` |
+| Sentinel Core | `http://127.0.0.1:8005/api/discord/chrome-bridge` |
 | Sentinel Edge | `http://127.0.0.1:<edge-port>/api/discord/chrome-bridge` |
 | Sentinel Pulse | `http://127.0.0.1:<pulse-port>/api/discord/chrome-bridge` |
-| Auto-Crypto | `http://127.0.0.1:<auto-crypto-port>/api/discord/chrome-bridge` |
-| Darkpool Monitor | `http://127.0.0.1:<darkpool-port>/api/discord/chrome-bridge` |
+| Sentinel-Chain | `http://127.0.0.1:<sentinel-chain-port>/api/discord/chrome-bridge` |
+| Sentinel Flare | `http://127.0.0.1:<darkpool-port>/api/discord/chrome-bridge` |
 
 ```json
 [
   {
-    "id": "consolidation",
-    "name": "Consolidation",
+    "id": "sentinel-echo",
+    "name": "Sentinel Echo",
     "enabled": true,
     "messageUrl": "http://127.0.0.1:8003/api/discord/chrome-bridge/message",
     "heartbeatUrl": "http://127.0.0.1:8003/api/discord/chrome-bridge/heartbeat",
@@ -95,18 +95,18 @@ Notes:
 - Use the popup checkbox only when you intentionally want to forward messages already visible at enable time.
 - Switching Discord channels primes the newly visible messages by default, so old channel history is not replayed unless existing-message forwarding is enabled.
 - Messages are deduped by Discord DOM message id before forwarding.
-- Consolidation's backend endpoint only accepts local requests by default.
-- Consolidation parses the text through its existing Discord ingestion path.
+- Sentinel Echo's backend endpoint only accepts local requests by default.
+- Sentinel Echo parses the text through its existing Discord ingestion path.
 - Every accepted visible Discord message is also appended to the Cross Bot Event Bus as `signal.observed`.
 - Alert captures are permanently appended to market-day `.txt` files under `backend/data/alert-capture` by default.
-- The extension sends page heartbeats every 30 seconds and service-worker heartbeats every minute. Consolidation records `bridge.health` events and emits `openclaw.attention.requested` when the bridge goes stale or reports forwarding errors.
+- The extension sends page heartbeats every 30 seconds and service-worker heartbeats every minute. Sentinel Echo records `bridge.health` events and emits `openclaw.attention.requested` when the bridge goes stale or reports forwarding errors.
 - The service worker supervises matching open Discord tabs every minute. Auto-restart is enabled by default in the popup. When forwarding, heartbeat, or content-script health checks fail, it re-injects the bridge content script and retries with exponential backoff from 5 seconds up to 5 minutes.
 - Chrome cannot let an extension restart itself after the user disables/uninstalls it or closes all matching Discord tabs. In those cases the supervisor records a disabled/no-tab/no-matching-tab heartbeat once the extension is running again.
-- Source policy still applies in each bot. In Consolidation, use `chrome_bridge_channel_ids` or source overrides keyed by the observed Discord channel id/name when needed.
+- Source policy still applies in each bot. In Sentinel Echo, use `chrome_bridge_channel_ids` or source overrides keyed by the observed Discord channel id/name when needed.
 
 ## Cross Bot Event Bus
 
-Consolidation exposes local-only event bus endpoints that other bots can adopt:
+Sentinel Echo exposes local-only event bus endpoints that other bots can adopt:
 
 ```text
 POST /api/bus/events
@@ -117,4 +117,4 @@ The event stream is append-only JSONL under `backend/data/event-bus` by default.
 
 ## Safety
 
-Keep Consolidation in simulation mode or manual-confirm mode until you have validated real alerts in parser preview. This bridge does not use a Discord user token and does not send messages back into the private server.
+Keep Sentinel Echo in simulation mode or manual-confirm mode until you have validated real alerts in parser preview. This bridge does not use a Discord user token and does not send messages back into the private server.

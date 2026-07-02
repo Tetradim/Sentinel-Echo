@@ -1,6 +1,6 @@
 # Simulation Replay Acceptance
 
-`POST /api/simulation-engine/replay-preview` returns a preview-only replay report. No orders are placed.
+`POST /api/sentinel-archive/replay-preview` returns a preview-only replay report. No orders are placed.
 
 Replay fixtures can include expected outcomes either on each event payload:
 

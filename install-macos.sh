@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-APP_NAME="Consolidation Discord Options Bot"
-DESKTOP_COMMAND_NAME="Consolidation Discord Bot.command"
+APP_NAME="Sentinel Echo"
+DESKTOP_COMMAND_NAME="Sentinel Echo.command"
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BACKEND_DIR="${ROOT_DIR}/backend"
 FRONTEND_DIR="${ROOT_DIR}/frontend"
-LOG_FILE="${HOME}/Desktop/Consolidation-Discord-Bot.log"
+LOG_FILE="${HOME}/Desktop/Sentinel-Echo.log"
 BACKEND_PORT=8003
 FRONTEND_PORT=3003
 INSTALL_DEPS=0
@@ -159,7 +159,7 @@ launch_app() {
 
   local backend_url="http://127.0.0.1:${BACKEND_PORT}"
   local frontend_url="http://127.0.0.1:${FRONTEND_PORT}"
-  local db_path="${ROOT_DIR}/data/consolidation.sqlite3"
+  local db_path="${ROOT_DIR}/data/sentinel-echo.sqlite3"
   local venv_python="${BACKEND_DIR}/.venv/bin/python"
   local pids=()
 

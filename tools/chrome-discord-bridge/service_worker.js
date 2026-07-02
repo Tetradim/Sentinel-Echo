@@ -11,9 +11,9 @@ const DEFAULTS = {
   bridgeRestartAttempt: 0,
 };
 
-const HEARTBEAT_ALARM_NAME = "consolidation-bridge-heartbeat";
-const SUPERVISOR_ALARM_NAME = "consolidation-bridge-supervisor";
-const RESTART_RETRY_ALARM_NAME = "consolidation-bridge-restart-retry";
+const HEARTBEAT_ALARM_NAME = "sentinel-echo-bridge-heartbeat";
+const SUPERVISOR_ALARM_NAME = "sentinel-echo-bridge-supervisor";
+const RESTART_RETRY_ALARM_NAME = "sentinel-echo-bridge-restart-retry";
 const MIN_RESTART_BACKOFF_SECONDS = 5;
 const MAX_RESTART_BACKOFF_SECONDS = 300;
 const BRIDGE_FETCH_TIMEOUT_MS = 5000;
@@ -58,14 +58,14 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return false;
   }
 
-  if (message.type === "discord-bridge:discord-message" || message.type === "consolidation:discord-message") {
+  if (message.type === "discord-bridge:discord-message" || message.type === "sentinel-echo:discord-message") {
     forwardObservedMessage(message.payload)
       .then((result) => sendResponse({ ok: true, result }))
       .catch((error) => sendResponse({ ok: false, error: String(error && error.message ? error.message : error) }));
     return true;
   }
 
-  if (message.type === "discord-bridge:bridge-heartbeat" || message.type === "consolidation:bridge-heartbeat") {
+  if (message.type === "discord-bridge:bridge-heartbeat" || message.type === "sentinel-echo:bridge-heartbeat") {
     forwardHeartbeat(message.payload)
       .then((result) => sendResponse({ ok: true, result }))
       .catch((error) => sendResponse({ ok: false, error: String(error && error.message ? error.message : error) }));
@@ -364,7 +364,7 @@ async function forwardPayloadToTarget(target, payload, kind) {
     bridge_target_id: target.id,
     bridge_target_name: target.name,
   });
-  const urls = [primaryUrl, ...localConsolidationFallbackUrls(target, kind, primaryUrl)];
+  const urls = [primaryUrl, ...localSentinelEchoFallbackUrls(target, kind, primaryUrl)];
   const failures = [];
 
   for (const url of urls) {

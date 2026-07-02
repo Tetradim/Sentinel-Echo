@@ -1,6 +1,6 @@
 """
 Sentinel Edge Integration Client
-Allows Consolidation to query Sentinel Edge for market confidence analysis
+Allows Sentinel Echo to query Sentinel Edge for market confidence analysis
 """
 import os
 import logging

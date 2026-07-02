@@ -343,7 +343,7 @@ async def _ingest_chrome_bridge_message_locked(payload: ChromeBridgeMessage):
                 "bridge_target_name": payload.bridge_target_name,
             },
             dedupe_key=f"chrome-discord:{payload.event_id}",
-            target_bots=["consolidation", "sentinel-edge"],
+            target_bots=["sentinel-echo", "sentinel-edge"],
         )
         return _chrome_bridge_duplicate_response(payload)
 
@@ -622,7 +622,7 @@ def _publish_chrome_bridge_signal(
         },
         correlation_id=payload.event_id,
         dedupe_key=f"chrome-discord:{payload.event_id}",
-        target_bots=["consolidation", "sentinel-edge", "simulation-engine"],
+        target_bots=["sentinel-echo", "sentinel-edge", "sentinel-archive"],
     )
 
 

@@ -26,7 +26,7 @@ import hashlib
 import logging
 import sqlite3
 import threading
-from datetime import datetime, timezone, timedelta
+from datetime import date, datetime, timezone, timedelta
 from typing import Optional, Protocol
 
 from settings_flags import coerce_bool
@@ -237,6 +237,7 @@ async def check_correlation(
     ticker: str,
     db,
     settings: dict,
+    today: date | None = None,
 ) -> tuple[bool, str]:
     """
     Check whether adding a new position in `ticker` would exceed the
@@ -270,6 +271,12 @@ async def check_correlation(
             if not coerce_bool(p.get("simulated"), default=False)
         ]
 
+    today = today or datetime.now(timezone.utc).astimezone().date()
+    open_positions = [
+        p for p in open_positions
+        if not _position_is_expired(p, today=today)
+    ]
+
     same_ticker = [
         p for p in open_positions
         if str(p.get("ticker", "")).upper() == ticker.upper()
@@ -288,3 +295,37 @@ async def check_correlation(
         f"[risk] correlation OK: {count}/{max_per_ticker} open positions in {ticker}"
     )
     return True, ""
+
+
+def _position_is_expired(position: dict, *, today: date) -> bool:
+    expiration = _position_expiration(position)
+    if not expiration:
+        return False
+    parsed = _parse_expiration_date(expiration, today=today)
+    if parsed is None:
+        return False
+    return parsed < today
+
+
+def _position_expiration(position: dict) -> str:
+    expiration = str(position.get("expiration") or "").strip()
+    if expiration:
+        return expiration
+    data = position.get("data")
+    if isinstance(data, dict):
+        return str(data.get("expiration") or "").strip()
+    return ""
+
+
+def _parse_expiration_date(value: str, *, today: date) -> date | None:
+    text = str(value or "").strip()
+    for fmt in ("%Y-%m-%d", "%m/%d/%Y", "%m/%d/%y"):
+        try:
+            return datetime.strptime(text, fmt).date()
+        except ValueError:
+            pass
+    try:
+        parsed = datetime.strptime(text, "%m/%d").date()
+    except ValueError:
+        return None
+    return parsed.replace(year=today.year)

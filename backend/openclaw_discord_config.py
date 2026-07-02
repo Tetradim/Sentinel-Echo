@@ -100,7 +100,7 @@ def resolve_discord_runtime_config(
         )
 
     use_openclaw = str(
-        runtime_env.get("CONSOLIDATION_USE_OPENCLAW_DISCORD", "true")
+        runtime_env.get("SENTINEL_ECHO_USE_OPENCLAW_DISCORD", "true")
     ).strip().lower()
     if use_openclaw in _DISABLED_VALUES:
         return DiscordRuntimeConfig(

@@ -86,7 +86,7 @@ class SQLiteSerializationTests(unittest.TestCase):
                             "discord_alert:missing"
                         ],
                         "simulation_replay_acceptance_updated_at": "2026-06-23T01:11:00Z",
-                        "simulation_replay_acceptance_replay_url": "http://127.0.0.1:9200/api/consolidation/replay/events",
+                        "simulation_replay_acceptance_replay_url": "http://127.0.0.1:9200/api/sentinel-echo/replay/events",
                     }
                 )
                 return await database.get_runtime_state()
@@ -109,7 +109,7 @@ class SQLiteSerializationTests(unittest.TestCase):
         )
         self.assertEqual(
             runtime["simulation_replay_acceptance_replay_url"],
-            "http://127.0.0.1:9200/api/consolidation/replay/events",
+            "http://127.0.0.1:9200/api/sentinel-echo/replay/events",
         )
 
 

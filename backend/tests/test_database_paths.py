@@ -16,7 +16,7 @@ class DatabasePathTests(unittest.TestCase):
 
         self.assertEqual(
             pathlib.Path(default_database_path()),
-            PROJECT_ROOT / "data" / "consolidation.sqlite3",
+            PROJECT_ROOT / "data" / "sentinel-echo.sqlite3",
         )
 
     def test_database_path_environment_override_wins(self):

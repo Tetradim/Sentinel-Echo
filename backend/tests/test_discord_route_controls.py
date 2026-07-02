@@ -36,7 +36,7 @@ class DiscordRouteControlTests(unittest.TestCase):
             {
                 "DISCORD_BOT_TOKEN": "",
                 "DISCORD_CHANNEL_IDS": "",
-                "CONSOLIDATION_USE_OPENCLAW_DISCORD": "false",
+                "SENTINEL_ECHO_USE_OPENCLAW_DISCORD": "false",
             },
             clear=True,
         ):

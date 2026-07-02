@@ -833,10 +833,10 @@ class OperatorRouteContractTests(unittest.TestCase):
                     "oco_exit_plan": {
                         "status": "armed",
                         "take_profit": {
-                            "client_order_id": "consolidation-take-profit-alert-pos",
+                            "client_order_id": "sentinel-echo-take-profit-alert-pos",
                         },
                         "stop_loss": {
-                            "client_order_id": "consolidation-stop-loss-alert-pos",
+                            "client_order_id": "sentinel-echo-stop-loss-alert-pos",
                         },
                     },
                 }
@@ -863,11 +863,11 @@ class OperatorRouteContractTests(unittest.TestCase):
                         "status": "submitted",
                         "take_profit": {
                             "order_id": "broker-take-profit-order",
-                            "client_order_id": "consolidation-take-profit-alert-pos",
+                            "client_order_id": "sentinel-echo-take-profit-alert-pos",
                         },
                         "stop_loss": {
                             "order_id": "broker-stop-loss-order",
-                            "client_order_id": "consolidation-stop-loss-alert-pos",
+                            "client_order_id": "sentinel-echo-stop-loss-alert-pos",
                         },
                     },
                 }

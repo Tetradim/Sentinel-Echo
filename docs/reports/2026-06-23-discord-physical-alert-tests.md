@@ -1,6 +1,6 @@
 # Discord Physical Alert Test Report - 2026-06-23
 
-Scope: Consolidation Discord test channel `1518453268169101402`, Chrome bridge target `consolidation`, simulation mode enabled.
+Scope: Sentinel Echo Discord test channel `1518453268169101402`, Chrome bridge target `sentinel-echo`, simulation mode enabled.
 
 ## Results
 
@@ -30,4 +30,4 @@ Scope: Consolidation Discord test channel `1518453268169101402`, Chrome bridge t
 - Active broker is not configured or connected.
 - Active broker does not currently prove order-status polling or cancel support.
 - Take-profit and stop-loss OCO guards are not both enabled.
-- Deterministic Simulation Engine replay acceptance proof is still missing.
+- Deterministic Sentinel Archive replay acceptance proof is still missing.

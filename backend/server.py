@@ -58,7 +58,7 @@ from database_paths import configured_database_path
 from routes import (
     health_router, brokers_router, settings_router, 
     discord_router, profiles_router, trading_router,
-    operator_router, analytics_router, simulation_engine_router,
+    operator_router, analytics_router, sentinel_archive_router,
     bot_bus_router, pairing_router, init_routes, update_bot_status, set_discord_bot
 )
 
@@ -333,7 +333,7 @@ async def process_trade(alert: Alert, parsed: dict):
                     )
                     return
                 if not live_execution_role_enabled():
-                    logger.warning("[process_trade] live BUY blocked because Consolidation is not in live_executioner role")
+                    logger.warning("[process_trade] live BUY blocked because Sentinel Echo is not in live_executioner role")
                     await update_alert_status(
                         alert.id,
                         {
@@ -652,7 +652,7 @@ async def process_average_down_alert(
                 logger.warning("[process_average_down_alert] live BUY blocked because live trading is not armed")
                 return False
             if not live_execution_role_enabled():
-                logger.warning("[process_average_down_alert] live BUY blocked because Consolidation is not in live_executioner role")
+                logger.warning("[process_average_down_alert] live BUY blocked because Sentinel Echo is not in live_executioner role")
                 return False
         except Exception as exc:
             logger.error("[process_average_down_alert] live BUY blocked while checking arming state: %s", exc)
@@ -951,7 +951,7 @@ async def process_exit_alert(
                     logger.warning("[process_exit_alert] live SELL blocked because live trading is not armed")
                     continue
                 if not live_execution_role_enabled():
-                    logger.warning("[process_exit_alert] live SELL blocked because Consolidation is not in live_executioner role")
+                    logger.warning("[process_exit_alert] live SELL blocked because Sentinel Echo is not in live_executioner role")
                     continue
             except Exception as exc:
                 logger.error("[process_exit_alert] live SELL blocked while checking arming state: %s", exc)
@@ -1156,7 +1156,7 @@ async def init_discord_bot(token: str, channel_ids: List[str] | str):
         target=run_discord_bot,
         args=(token, channels),
         daemon=True,
-        name="ConsolidationDiscordBot",
+        name="SentinelEcho",
     )
     discord_bot_thread.start()
     if not await _wait_for_discord_bot_ready(discord_bot_thread):
@@ -1341,7 +1341,7 @@ api_router.include_router(discord_router)
 api_router.include_router(profiles_router)
 api_router.include_router(trading_router)
 api_router.include_router(operator_router)
-api_router.include_router(simulation_engine_router)
+api_router.include_router(sentinel_archive_router)
 api_router.include_router(analytics_router)
 api_router.include_router(bot_bus_router)
 api_router.include_router(pairing_router)

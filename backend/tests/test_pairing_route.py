@@ -59,7 +59,7 @@ class PairingRouteTests(unittest.TestCase):
             )
 
         self.assertEqual(payload["version"], 1)
-        self.assertEqual(payload["app"], "mobile-consolidation")
+        self.assertEqual(payload["app"], "mobile-sentinel-echo")
         self.assertEqual(payload["created_at"], "2026-06-27T18:01:00Z")
         self.assertEqual(payload["remote_api_url"], "http://100.90.10.11:8003/api")
         self.assertEqual(payload["api_key"], "mobile-secret-value")

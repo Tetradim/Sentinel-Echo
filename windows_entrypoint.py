@@ -1,4 +1,4 @@
-"""Windows packaged entrypoint for the Consolidation Discord options bot."""
+"""Windows packaged entrypoint for the Sentinel Echo."""
 
 import os
 import sys

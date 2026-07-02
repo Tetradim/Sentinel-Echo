@@ -5,7 +5,7 @@ from pathlib import Path
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_DATABASE_PATH = PROJECT_ROOT / "data" / "consolidation.sqlite3"
+DEFAULT_DATABASE_PATH = PROJECT_ROOT / "data" / "sentinel-echo.sqlite3"
 
 
 def default_database_path() -> str:

@@ -6,7 +6,7 @@ Make live trading harder to misconfigure by adding an explicit arming flow, read
 
 ## Scope
 
-This design covers the current Consolidation bot in one repo:
+This design covers the current Sentinel Echo bot in one repo:
 
 - Backend FastAPI routes and trading services.
 - SQLite/Mongo database abstraction.

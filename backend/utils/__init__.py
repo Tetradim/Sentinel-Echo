@@ -44,12 +44,16 @@ EXPIRATION_RE = re.compile(r"\b(?P<expiration>\d{1,2}/\d{1,2}(?:/\d{2,4})?)\b")
 PRICE_PATTERNS = (
     re.compile(r"@\s*\$?\.(?P<cents>\d{1,2})\b", re.IGNORECASE),
     re.compile(r"@\s*\$?(?P<price>\d+(?:\.\d+)?)", re.IGNORECASE),
-    re.compile(r"\b(?:ENTRY|PRICE|AT|FILL)\s*:?\s*\$?\.(?P<cents>\d{1,2})\b", re.IGNORECASE),
-    re.compile(r"\b(?:ENTRY|PRICE|AT|FILL)\s*:?\s*\$?(?P<price>\d+(?:\.\d+)?)", re.IGNORECASE),
+    re.compile(
+        r"\$\.(?P<cents>\d{1,2})\s*(?:ENTRY|ENTRIES|FILL|FILLS|AVG|AVERAGE)\b",
+        re.IGNORECASE,
+    ),
     re.compile(
         r"\$(?P<price>\d+(?:\.\d+)?)\s*(?:ENTRY|ENTRIES|FILL|FILLS|AVG|AVERAGE)\b",
         re.IGNORECASE,
     ),
+    re.compile(r"\b(?:ENTRY|PRICE|AT|FILL)\s*:?\s*\$?\.(?P<cents>\d{1,2})\b", re.IGNORECASE),
+    re.compile(r"\b(?:ENTRY|PRICE|AT|FILL)\s*:?\s*\$?(?P<price>\d+(?:\.\d+)?)", re.IGNORECASE),
     re.compile(r"\$\.(?P<cents>\d{1,2})\b", re.IGNORECASE),
 )
 ACTION_TICKER_RE = re.compile(
@@ -96,7 +100,7 @@ TICKER_STOPWORDS = {
 def parse_alert(message: str) -> Optional[dict]:
     """Parse a Discord options alert into a normalized trade signal."""
     try:
-        text = " ".join(message.strip().split())
+        text = " ".join(_strip_forwarded_alert_header(message).split())
 
         if _contains_keyword(text, AVG_DOWN_KEYWORDS):
             return _parse_contract_alert(text, "average_down", require_price=False)
@@ -111,6 +115,23 @@ def parse_alert(message: str) -> Optional[dict]:
     except Exception as exc:
         logger.error("Error parsing alert: %s", exc)
         return None
+
+
+def _strip_forwarded_alert_header(message: str) -> str:
+    raw = str(message or "").strip()
+    lines = raw.splitlines()
+    if not lines:
+        return raw
+
+    first_lines = [line.strip().lower() for line in lines[:4]]
+    if "[copied-alert]" not in first_lines and not any(line.startswith("source:") for line in first_lines):
+        return raw
+
+    for index, line in enumerate(lines):
+        if not line.strip():
+            body = "\n".join(lines[index + 1 :]).strip()
+            return body or raw
+    return raw
 
 
 def _parse_sell_alert(message: str) -> Optional[dict]:

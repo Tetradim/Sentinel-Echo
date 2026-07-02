@@ -8,7 +8,7 @@ from fastapi import APIRouter, Body, HTTPException
 from simulation_replay import SimulationReplayError, build_replay_preview, fetch_engine_replay, normalize_replay_url
 
 
-router = APIRouter(prefix="/simulation-engine", tags=["Simulation Engine"])
+router = APIRouter(prefix="/sentinel-archive", tags=["Sentinel Archive"])
 db = None
 
 
@@ -32,7 +32,7 @@ def _replay_with_request_expectations(replay: dict[str, Any], body: dict[str, An
 
 
 @router.get("/replay-events")
-async def get_simulation_engine_replay_events(
+async def get_sentinel_archive_replay_events(
     channel_id: str | None = None,
     since: str | None = None,
     limit: int = 1000,
@@ -50,7 +50,7 @@ async def get_simulation_engine_replay_events(
 
 
 @router.post("/replay-preview")
-async def preview_simulation_engine_replay(body: dict[str, Any] = Body(default_factory=dict)):
+async def preview_sentinel_archive_replay(body: dict[str, Any] = Body(default_factory=dict)):
     settings = await db.get_settings() if db else {}
     try:
         replay = await fetch_engine_replay(

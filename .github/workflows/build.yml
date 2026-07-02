@@ -18,7 +18,7 @@ on:
         default: ''
 
 env:
-  APP_NAME: ConsolidationBot
+  APP_NAME: SentinelEcho
   VERSION: ${{ github.event.inputs.version || '1.0.0-beta' }}
   PYTHON_VERSION: '3.11'
   NODE_VERSION: '20'
@@ -67,10 +67,10 @@ jobs:
       - name: Build Windows Executable
         run: |
           Remove-Item build -Recurse -Force -ErrorAction SilentlyContinue
-          Remove-Item "dist\ConsolidationBot" -Recurse -Force -ErrorAction SilentlyContinue
+          Remove-Item "dist\SentinelEcho" -Recurse -Force -ErrorAction SilentlyContinue
           python -m PyInstaller `
             --clean `
-            --name ConsolidationBot `
+            --name SentinelEcho `
             --onedir `
             --console `
             --paths backend `
@@ -95,38 +95,38 @@ jobs:
 
       - name: Copy launchers into package
         run: |
-          $package = "dist\ConsolidationBot"
-          Copy-Item "Launch-Consolidation-Bot.bat" -Destination $package -Force
-          Copy-Item "Launch-Consolidation-Bot.ps1" -Destination $package -Force
+          $package = "dist\SentinelEcho"
+          Copy-Item "Launch-Sentinel-Echo.bat" -Destination $package -Force
+          Copy-Item "Launch-Sentinel-Echo.ps1" -Destination $package -Force
           Copy-Item ".env.example" -Destination $package -Force -ErrorAction SilentlyContinue
 
       - name: Verify package
         run: |
-          if (!(Test-Path "dist\ConsolidationBot\ConsolidationBot.exe")) {
-            Write-Host "ERROR: ConsolidationBot.exe not found"
+          if (!(Test-Path "dist\SentinelEcho\SentinelEcho.exe")) {
+            Write-Host "ERROR: SentinelEcho.exe not found"
             exit 1
           }
-          if (!(Test-Path "dist\ConsolidationBot\_internal\static\index.html") -and !(Test-Path "dist\ConsolidationBot\static\index.html")) {
+          if (!(Test-Path "dist\SentinelEcho\_internal\static\index.html") -and !(Test-Path "dist\SentinelEcho\static\index.html")) {
             Write-Host "ERROR: packaged static index.html not found"
             exit 1
           }
-          if (!(Test-Path "dist\ConsolidationBot\Launch-Consolidation-Bot.bat")) {
-            Write-Host "ERROR: Launch-Consolidation-Bot.bat not found"
+          if (!(Test-Path "dist\SentinelEcho\Launch-Sentinel-Echo.bat")) {
+            Write-Host "ERROR: Launch-Sentinel-Echo.bat not found"
             exit 1
           }
-          if (!(Test-Path "dist\ConsolidationBot\Launch-Consolidation-Bot.ps1")) {
-            Write-Host "ERROR: Launch-Consolidation-Bot.ps1 not found"
+          if (!(Test-Path "dist\SentinelEcho\Launch-Sentinel-Echo.ps1")) {
+            Write-Host "ERROR: Launch-Sentinel-Echo.ps1 not found"
             exit 1
           }
 
       - name: Create Inno Setup script
         run: |
           $iss = @"
-          #define MyAppName "Consolidation Discord Options Bot"
+          #define MyAppName "Sentinel Echo"
           #define MyAppVersion "${{ env.VERSION }}"
           #define MyAppPublisher "Tetradim / SignalForge Lab"
-          #define MyAppURL "https://github.com/Tetradim/Consolidation"
-          #define MyAppExeName "ConsolidationBot.exe"
+          #define MyAppURL "https://github.com/Tetradim/Sentinel-Echo"
+          #define MyAppExeName "SentinelEcho.exe"
 
           [Setup]
           AppId={{EB01EBE2-AD63-4972-9C14-043C52B66430}
@@ -140,7 +140,7 @@ jobs:
           DefaultDirName={autopf}\{#MyAppName}
           DefaultGroupName={#MyAppName}
           OutputDir=installer-dist
-          OutputBaseFilename=ConsolidationBot-Setup-{#MyAppVersion}
+          OutputBaseFilename=SentinelEcho-Setup-{#MyAppVersion}
           UninstallDisplayName={#MyAppName}
           UninstallDisplayIcon={app}\{#MyAppExeName}
           Compression=lzma2
@@ -156,23 +156,23 @@ jobs:
 
           [Tasks]
           Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: checkedonce
-          Name: "launchapp"; Description: "Launch Consolidation Discord Options Bot after install"; GroupDescription: "Startup"; Flags: checkedonce
+          Name: "launchapp"; Description: "Launch Sentinel Echo after install"; GroupDescription: "Startup"; Flags: checkedonce
 
           [Files]
-          Source: "dist\ConsolidationBot\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+          Source: "dist\SentinelEcho\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
           [Icons]
-          Name: "{group}\{#MyAppName}"; Filename: "{app}\Launch-Consolidation-Bot.bat"; WorkingDir: "{app}"
+          Name: "{group}\{#MyAppName}"; Filename: "{app}\Launch-Sentinel-Echo.bat"; WorkingDir: "{app}"
           Name: "{group}\Uninstall {#MyAppName}"; Filename: "{uninstallexe}"
-          Name: "{commondesktop}\{#MyAppName}"; Filename: "{app}\Launch-Consolidation-Bot.bat"; WorkingDir: "{app}"; Tasks: desktopicon
+          Name: "{commondesktop}\{#MyAppName}"; Filename: "{app}\Launch-Sentinel-Echo.bat"; WorkingDir: "{app}"; Tasks: desktopicon
 
           [Run]
-          Filename: "{app}\Launch-Consolidation-Bot.bat"; Description: "Launch {#MyAppName}"; Flags: nowait postinstall skipifsilent shellexec; Tasks: launchapp; WorkingDir: "{app}"
+          Filename: "{app}\Launch-Sentinel-Echo.bat"; Description: "Launch {#MyAppName}"; Flags: nowait postinstall skipifsilent shellexec; Tasks: launchapp; WorkingDir: "{app}"
 
           [UninstallDelete]
           Type: filesandordirs; Name: "{app}"
-          Type: files; Name: "{userdesktop}\Consolidation-Discord-Bot.log"
-          Type: files; Name: "{userdesktop}\Consolidation-Discord-Bot-Transcript.log"
+          Type: files; Name: "{userdesktop}\Sentinel-Echo.log"
+          Type: files; Name: "{userdesktop}\Sentinel-Echo-Transcript.log"
 
           [Code]
           procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
@@ -181,7 +181,7 @@ jobs:
           begin
             if CurUninstallStep = usUninstall then
             begin
-              Exec('taskkill', '/F /IM ConsolidationBot.exe', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+              Exec('taskkill', '/F /IM SentinelEcho.exe', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
             end;
           end;
           "@
@@ -195,8 +195,8 @@ jobs:
       - name: Upload installer
         uses: actions/upload-artifact@v4
         with:
-          name: ConsolidationBot-Setup-${{ env.VERSION }}
-          path: installer-dist/ConsolidationBot-Setup*.exe
+          name: SentinelEcho-Setup-${{ env.VERSION }}
+          path: installer-dist/SentinelEcho-Setup*.exe
           if-no-files-found: error
           retention-days: 90
 
@@ -209,14 +209,14 @@ jobs:
       - name: Download installer
         uses: actions/download-artifact@v4
         with:
-          pattern: ConsolidationBot-Setup-*
+          pattern: SentinelEcho-Setup-*
           path: artifacts
           merge-multiple: true
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v1
         with:
-          files: artifacts/ConsolidationBot-Setup*.exe
+          files: artifacts/SentinelEcho-Setup*.exe
           draft: false
           prerelease: ${{ contains(github.ref, 'beta') }}
           generate_release_notes: true

@@ -92,7 +92,7 @@ def _request_openclaw_attention(status: dict[str, Any]) -> None:
         _last_attention_key = attention_key
     publish_event(
         "openclaw.attention.requested",
-        source_bot="consolidation",
+        source_bot="sentinel-echo",
         payload={
             "severity": "warning",
             "reason": "bridge health failure",
