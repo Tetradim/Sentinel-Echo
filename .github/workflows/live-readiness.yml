@@ -43,6 +43,8 @@ jobs:
             backend/tests/test_live_submission_journal_lifecycle.py \
             backend/tests/test_option_execution_and_supervisor.py \
             backend/tests/test_option_order_expiry.py \
+            backend/tests/test_broker_inventory_reconciliation.py \
+            backend/tests/test_explicit_exit_continuation.py \
             -q --tb=short 2>&1 | tee echo-live-readiness-tests.txt
           status=${PIPESTATUS[0]}
           echo "status=$status" >> "$GITHUB_OUTPUT"
