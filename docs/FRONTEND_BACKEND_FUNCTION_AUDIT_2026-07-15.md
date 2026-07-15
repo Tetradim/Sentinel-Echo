@@ -42,6 +42,11 @@ Purpose: verify that visible Echo controls use the repaired live option-order li
    - Fix: production routes now back those exact paths.
    - Live switching refuses incomplete adapters; Alpaca and Tradier are the complete live option lifecycles.
 
+7. **The consolidated Settings screen called three nonexistent route groups.**
+   - `GET/PUT /api/notification-settings`, `POST /api/notification-settings/test`, and `GET/PUT /api/correlation-settings` were not registered.
+   - These requests were grouped in `Promise.all`, so either missing route could prevent the whole Settings screen from loading.
+   - Fix: production routes now persist notification and position-correlation settings and run the existing notification sender for the test action.
+
 ## Detailed function matrix
 
 | Backend capability / route | Backend implementation | Frontend implementation | Status | Finding / action |
@@ -75,6 +80,9 @@ Purpose: verify that visible Echo controls use the repaired live option-order li
 | Legacy active broker route | `POST /api/active-broker/{broker_id}` | Other/older callers | Connected | Existing backend route remains. |
 | Broker catalog | `GET /api/brokers` | Broker Config tabs | Partial | Catalog includes incomplete adapters. Descriptions should eventually carry explicit `live_execution_supported` metadata. |
 | Settings retrieval/update | `GET/PUT /api/settings` | Settings, broker config and several dedicated screens | Connected | Main settings round-trip through backend. |
+| Notification settings | `GET/PUT /api/notification-settings` | Consolidated Settings notification fields | Fixed in this branch | Missing routes previously broke Settings loading/saving. Stored token is returned masked. |
+| Notification test | `POST /api/notification-settings/test` | Settings Test SMS control | Fixed in this branch | Calls the existing notification sender and reports a definitive failure when SMS is disabled/incomplete. |
+| Correlation position limit | `GET/PUT /api/correlation-settings` | Settings `max_positions_per_ticker` | Fixed in this branch | Missing route previously broke Settings loading/saving. |
 | Trading toggle | settings route | Trading settings screen/dashboard | Connected | Controls backend status/settings. |
 | Premium buffer | settings routes | Trading settings | Connected | Used before broker quote-aware final pricing. |
 | Averaging down | settings routes | Trading/risk settings | Connected | Settings visible; strategy execution behavior remains alert-driven. |
@@ -85,7 +93,7 @@ Purpose: verify that visible Echo controls use the repaired live option-order li
 | Discord status/start/stop | Discord routes | Dashboard/settings controls | Connected | Visible lifecycle. |
 | Profiles | profile routes | `app/profiles.tsx` | Connected | Profile configuration is available. Verify per-profile broker settings do not imply unsupported live adapters. |
 | Strike selection configuration | strike settings endpoints | `app/strike-selection.tsx` | Connected | Configuration surface exists; contract construction uses the canonical backend OCC builder. |
-| Notifications | notification functions | Trade/fill notifications | Backend-only by design | No dedicated UI status endpoint in the reviewed production router. |
+| Trade/fill notifications | `notifications.py` | Settings configuration and execution events | Connected | Sending remains automatic; Settings can configure and test it. |
 | Startup journal recovery | `runtime_app.py`, recovery function | Live Operations after startup | Backend-only with status | Must complete before Discord ingestion; no manual start button. |
 | Startup fill-monitor recovery | `resume_pending_fill_monitors` | Live Operations monitor count | Backend-only with status | Automatically resumes nonterminal broker orders. |
 | Startup inventory recovery | inventory reconciler | Live Operations inventory panel | Backend-only with status | Runs before journal reconstruction and Discord ingestion. |
@@ -125,6 +133,7 @@ A button that manually marks these complete would recreate synthetic-fill and wr
 - `backend/routes/trading.py`
 - `backend/routes/live_operations.py`
 - `backend/routes/live_broker_operations.py`
+- `backend/routes/notification_correlation_settings.py`
 - `backend/routes/__init__.py`
 - `backend/runtime_app.py`
 - `frontend/app/positions.tsx`
@@ -135,4 +144,4 @@ A button that manually marks these complete would recreate synthetic-fill and wr
 
 ## Verification boundary
 
-The contract tests prove that the visible source paths and production route mounting remain present. They do not replace a real browser run against configured Alpaca/Tradier accounts. Live verification must confirm that the submitted order ID appears in the UI, partial fills update quantity once, restart resumes the monitor, and broker inventory restores the same position owner.
+The contract tests prove that the visible source paths and production route mounting remain present. They do not replace a real browser run against configured Alpaca/Tradier accounts. Live verification must confirm that the submitted order ID appears in the UI, partial fills update quantity once, restart resumes the monitor, broker inventory restores the same position owner, and notification/correlation settings survive a restart.
