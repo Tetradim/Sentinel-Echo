@@ -1,4 +1,4 @@
-"""Executable option quotes and spread-aware live limit pricing."""
+"""Executable option quotes, spread-aware pricing and broker cancellation."""
 from __future__ import annotations
 
 from datetime import datetime, timezone
@@ -33,7 +33,7 @@ def _positive_env(name: str, default: float) -> float:
 def _timestamp_epoch(value: Any) -> float:
     if isinstance(value, (int, float)):
         number = float(value)
-        if number > 10_000_000_000:
+        while number > 10_000_000_000:
             number /= 1000.0
         return number
     raw = str(value or "").strip()
@@ -41,7 +41,7 @@ def _timestamp_epoch(value: Any) -> float:
         return 0.0
     try:
         number = float(raw)
-        if number > 10_000_000_000:
+        while number > 10_000_000_000:
             number /= 1000.0
         return number
     except ValueError:
@@ -101,7 +101,8 @@ def _limit_price(side: str, requested: float, quote: dict) -> float:
         return round(candidate, 2)
     if side == "SELL":
         # A midpoint limit improves price while remaining bounded by the current
-        # executable bid. The position supervisor can cancel/replace toward bid.
+        # executable bid. Aged exits are cancelled and re-priced by the position
+        # supervisor using a new deterministic attempt id.
         return round(max(quote["bid"], midpoint), 2)
     raise RuntimeError(f"Unsupported option side: {side}")
 
@@ -136,7 +137,7 @@ async def _tradier_option_quote(self, ticker, strike, option_type, expiration) -
     symbol = build_occ_symbol(ticker, expiration, option_type, strike)
     session = await self._get_session()
     async with session.get(
-        f"https://api.tradier.com/v1/markets/quotes",
+        "https://api.tradier.com/v1/markets/quotes",
         headers=self._get_headers(),
         params={"symbols": symbol, "greeks": "false"},
     ) as response:
@@ -161,13 +162,24 @@ async def _tradier_option_quote(self, ticker, strike, option_type, expiration) -
 
 
 async def _quote_aware_place(current, self, **kwargs):
-    quote = await self.get_option_quote(
-        kwargs["ticker"],
-        kwargs["strike"],
-        kwargs["option_type"],
-        kwargs["expiration"],
-    )
-    submitted_price = _limit_price(kwargs["side"], kwargs["price"], quote)
+    # Quote lookup and price validation occur before the broker order POST. Their
+    # failure is definitive: no order was submitted, so return a rejected result
+    # and let the routing journal mark it failed rather than ambiguous.
+    try:
+        quote = await self.get_option_quote(
+            kwargs["ticker"],
+            kwargs["strike"],
+            kwargs["option_type"],
+            kwargs["expiration"],
+        )
+        submitted_price = _limit_price(kwargs["side"], kwargs["price"], quote)
+    except Exception as exc:
+        return {
+            "status": "rejected_pre_submit",
+            "error": str(exc),
+            "pre_submission_rejected": True,
+        }
+
     client_id = str(kwargs.get("client_order_id") or "")
     if client_id and journal.get(client_id):
         journal.update(
@@ -192,6 +204,24 @@ async def _tradier_quote_aware_place(self, **kwargs):
     return await _quote_aware_place(_current_tradier_place, self, **kwargs)
 
 
+async def _alpaca_cancel_order(self, order_id: str) -> bool:
+    session = await self._get_session()
+    async with session.delete(
+        f"{self.config.base_url}/v2/orders/{order_id}",
+        headers=self._get_headers(),
+    ) as response:
+        return response.status in {200, 202, 204}
+
+
+async def _tradier_cancel_order(self, order_id: str) -> bool:
+    session = await self._get_session()
+    async with session.delete(
+        f"https://api.tradier.com/v1/accounts/{self.config.account_id}/orders/{order_id}",
+        headers=self._get_headers(),
+    ) as response:
+        return response.status in {200, 202, 204}
+
+
 async def _routing_get_option_quote(self, ticker, strike, option_type, expiration) -> dict:
     client = self._client or self._client_for(self.routed_broker_id)
     getter = getattr(client, "get_option_quote", None)
@@ -200,8 +230,19 @@ async def _routing_get_option_quote(self, ticker, strike, option_type, expiratio
     return await getter(ticker, strike, option_type, expiration)
 
 
+async def _routing_cancel_order(self, order_id: str) -> bool:
+    client = self._client or self._client_for(self.routed_broker_id)
+    cancel = getattr(client, "cancel_order", None)
+    if not callable(cancel):
+        raise RuntimeError(f"{self.routed_broker_id} lacks order cancellation support")
+    return bool(await cancel(order_id))
+
+
 AlpacaClient.get_option_quote = _alpaca_option_quote
 TradierClient.get_option_quote = _tradier_option_quote
 AlpacaClient.place_order = _alpaca_quote_aware_place
 TradierClient.place_order = _tradier_quote_aware_place
+AlpacaClient.cancel_order = _alpaca_cancel_order
+TradierClient.cancel_order = _tradier_cancel_order
 routing.JournalledRoutingBrokerClient.get_option_quote = _routing_get_option_quote
+routing.JournalledRoutingBrokerClient.cancel_order = _routing_cancel_order
