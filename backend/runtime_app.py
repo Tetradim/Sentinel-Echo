@@ -23,6 +23,7 @@ try:
         start_position_supervisor,
         stop_position_supervisor,
     )
+    from . import explicit_exit_continuation_patch as _explicit_exit_continuation_patch  # noqa: F401
 except ImportError:  # direct backend path execution
     import server as _server
     from database import get_db
@@ -41,6 +42,7 @@ except ImportError:  # direct backend path execution
         start_position_supervisor,
         stop_position_supervisor,
     )
+    import explicit_exit_continuation_patch as _explicit_exit_continuation_patch  # noqa: F401
 
 
 app = _server.app
