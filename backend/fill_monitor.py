@@ -6,6 +6,7 @@ import asyncio
 import logging
 from typing import Optional
 
+import database_trade_lookup_patch as _database_trade_lookup_patch  # noqa: F401
 from fill_reconciliation import BrokerOrderUpdate, OrderContext, ReconciliationResult
 from fill_reconciliation_v2 import reconcile_order_update
 
@@ -13,8 +14,9 @@ from fill_reconciliation_v2 import reconcile_order_update
 logger = logging.getLogger(__name__)
 
 POLL_INTERVAL_SECS = 5
-MAX_POLLS = 720  # one hour at the default interval; restart recovery resumes later
+MAX_POLLS: Optional[int] = None  # production monitors remain active until broker terminal
 TRANSIENT_ERROR_REPORT_THRESHOLD = 3
+MAX_TRANSIENT_BACKOFF_SECS = 60
 _ACTIVE_MONITORS: dict[str, asyncio.Task] = {}
 
 
@@ -53,8 +55,8 @@ async def monitor_fill(
     """Poll a broker order until terminal while applying cumulative fill deltas.
 
     Partial fills do not end monitoring. Temporary status failures do not mark
-    the order failed. If the polling window ends, the order remains
-    ``working_unconfirmed`` and is resumed by startup recovery.
+    the order failed. Production monitoring has no artificial timeout; tests
+    may pass ``max_polls`` to exercise recovery behavior deterministically.
     """
     from notifications import notify_trade_filled, notify_trade_failed
 
@@ -69,8 +71,6 @@ async def monitor_fill(
     if current_task is not None:
         _ACTIVE_MONITORS[monitor_key] = current_task
 
-    # Persist recovery metadata without downgrading a recovered partial or
-    # working-unconfirmed trade back to pending.
     await db.update_trade(
         trade_id,
         {
@@ -139,20 +139,33 @@ async def monitor_fill(
                     return
 
             elif status in {"rejected", "cancelled", "expired"}:
+                transient_errors = 0
                 result = await reconcile_order_update(
                     db,
                     order_context,
-                    BrokerOrderUpdate(status=status, reason=reason or status),
+                    BrokerOrderUpdate(
+                        status=status,
+                        filled_qty=filled_qty,
+                        avg_fill_price=fill_price,
+                        reason=reason or status,
+                    ),
+                )
+                await _notify_new_fill(
+                    result,
+                    order_context,
+                    settings,
+                    notify_trade_filled,
                 )
                 await db.update_trade(trade_id, {"monitor_state": "terminal"})
-                await notify_trade_failed(
-                    trade_id,
-                    order_context.ticker,
-                    order_context.strike,
-                    order_context.option_type,
-                    result.message or status,
-                    settings,
-                )
+                if result.trade_status != "executed":
+                    await notify_trade_failed(
+                        trade_id,
+                        order_context.ticker,
+                        order_context.strike,
+                        order_context.option_type,
+                        result.message or status,
+                        settings,
+                    )
                 return
 
             elif status in {"unknown", "error", "unconfirmed"}:
@@ -173,7 +186,6 @@ async def monitor_fill(
                             "status_lookup_failures": transient_errors,
                         },
                     )
-                # Continue polling: a temporary API outage is not terminal.
 
             else:
                 transient_errors = 0
@@ -184,11 +196,17 @@ async def monitor_fill(
                 )
 
             if max_polls is None or poll_num < max_polls:
-                await asyncio.sleep(poll_interval_secs)
+                delay = poll_interval_secs
+                if transient_errors:
+                    delay = min(
+                        MAX_TRANSIENT_BACKOFF_SECS,
+                        poll_interval_secs * (2 ** min(transient_errors - 1, 6)),
+                    )
+                await asyncio.sleep(delay)
 
         reason = (
             f"Order remains working/unconfirmed after "
-            f"{poll_num * poll_interval_secs}s of monitoring"
+            f"{poll_num * poll_interval_secs}s of test-limited monitoring"
         )
         await reconcile_order_update(
             db,
