@@ -13,7 +13,9 @@ try:
     from .live_order_execution_runtime import recover_journalled_orders
     from . import live_order_execution_runtime as _live_order_execution_runtime  # noqa: F401
     from . import option_execution_quote_patch as _option_execution_quote_patch  # noqa: F401
+    from . import option_broker_inventory_patch as _option_broker_inventory_patch  # noqa: F401
     from . import option_order_expiry_patch as _option_order_expiry_patch  # noqa: F401
+    from .broker_inventory_reconciliation import reconcile_broker_inventory
     from . import journal_fill_lifecycle_patch as _journal_fill_lifecycle_patch  # noqa: F401
     from . import pre_task_order_persistence as _pre_task_order_persistence  # noqa: F401
     from . import live_trade_state_patch as _live_trade_state_patch  # noqa: F401
@@ -29,7 +31,9 @@ except ImportError:  # direct backend path execution
     from live_order_execution_runtime import recover_journalled_orders
     import live_order_execution_runtime as _live_order_execution_runtime  # noqa: F401
     import option_execution_quote_patch as _option_execution_quote_patch  # noqa: F401
+    import option_broker_inventory_patch as _option_broker_inventory_patch  # noqa: F401
     import option_order_expiry_patch as _option_order_expiry_patch  # noqa: F401
+    from broker_inventory_reconciliation import reconcile_broker_inventory
     import journal_fill_lifecycle_patch as _journal_fill_lifecycle_patch  # noqa: F401
     import pre_task_order_persistence as _pre_task_order_persistence  # noqa: F401
     import live_trade_state_patch as _live_trade_state_patch  # noqa: F401
@@ -66,6 +70,13 @@ async def _live_recovery_lifespan(application):
         async with _original_lifespan(application):
             db = get_db()
             settings = await db.get_settings()
+
+            inventory = await reconcile_broker_inventory(db, settings)
+            if inventory.get("positions_imported") or inventory.get("positions_updated") or inventory.get("positions_closed") or inventory.get("orders_recovered"):
+                logger.critical("Broker inventory reconciliation applied: %s", inventory)
+            if inventory.get("errors"):
+                logger.error("Broker inventory reconciliation incidents: %s", inventory["errors"])
+
             recovered = await recover_journalled_orders(db, settings)
             if recovered:
                 logger.critical(
