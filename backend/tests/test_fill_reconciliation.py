@@ -7,6 +7,9 @@ import unittest
 BACKEND_DIR = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(BACKEND_DIR))
 
+from fill_reconciliation import BrokerOrderUpdate, OrderContext
+from fill_reconciliation_v2 import reconcile_order_update
+
 
 class FakeLifecycleDb:
     def __init__(self):
@@ -14,9 +17,14 @@ class FakeLifecycleDb:
         self.alert_updates = []
         self.positions = {}
         self.inserted_positions = []
+        self.trades = {}
+
+    async def get_trades(self, limit=1000):
+        return list(self.trades.values())[:limit]
 
     async def update_trade(self, trade_id, updates):
         self.trade_updates.append((trade_id, updates))
+        self.trades.setdefault(trade_id, {"id": trade_id}).update(updates)
 
     async def update_alert(self, alert_id, updates):
         self.alert_updates.append((alert_id, updates))
@@ -43,8 +51,6 @@ class FakeLifecycleDb:
 
 class FillReconciliationTests(unittest.TestCase):
     def test_rejected_entry_order_does_not_leave_open_position(self):
-        from fill_reconciliation import BrokerOrderUpdate, OrderContext, reconcile_order_update
-
         db = FakeLifecycleDb()
         context = OrderContext(
             trade_id="trade-entry",
@@ -86,8 +92,6 @@ class FillReconciliationTests(unittest.TestCase):
         self.assertEqual(db.inserted_positions, [])
 
     def test_filled_entry_order_creates_open_position_from_fill_price(self):
-        from fill_reconciliation import BrokerOrderUpdate, OrderContext, reconcile_order_update
-
         db = FakeLifecycleDb()
         context = OrderContext(
             trade_id="trade-entry",
@@ -97,7 +101,7 @@ class FillReconciliationTests(unittest.TestCase):
             strike=500.0,
             option_type="CALL",
             expiration="6/21",
-            requested_quantity=3,
+            requested_quantity=2,
             broker="alpaca",
             alert_id="alert-entry",
         )
@@ -135,8 +139,6 @@ class FillReconciliationTests(unittest.TestCase):
         self.assertEqual(position["total_cost"], 270.0)
 
     def test_filled_exit_order_reduces_remaining_quantity_and_closes_when_zero(self):
-        from fill_reconciliation import BrokerOrderUpdate, OrderContext, reconcile_order_update
-
         db = FakeLifecycleDb()
         db.positions["position-1"] = {
             "id": "position-1",
