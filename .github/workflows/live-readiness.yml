@@ -39,6 +39,7 @@ jobs:
             backend/tests/test_fill_monitor.py \
             backend/tests/test_live_fill_truth.py \
             backend/tests/test_pre_task_order_persistence.py \
+            backend/tests/test_live_submission_runtime.py \
             -q --tb=short 2>&1 | tee echo-live-readiness-tests.txt
           status=${PIPESTATUS[0]}
           echo "status=$status" >> "$GITHUB_OUTPUT"
