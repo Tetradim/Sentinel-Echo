@@ -16,7 +16,7 @@ env:
 jobs:
   build:
     runs-on: windows-latest
-    
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -31,187 +31,195 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-          cache: 'pip'
 
       - name: Setup Node.js 20
         uses: actions/setup-node@v4
         with:
           node-version: '20'
           cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
 
       - name: Install Node dependencies
         working-directory: ./frontend
-        run: npm install
+        run: npm ci
 
-      - name: Build frontend (Web/Expo)
+      - name: Build frontend for local backend
         working-directory: ./frontend
+        env:
+          EXPO_PUBLIC_BACKEND_URL: http://127.0.0.1:8003
+          EXPO_PUBLIC_DEMO_MODE: 'false'
         run: npx expo export --platform web
 
-      - name: Create directories
+      - name: Create release directories
         run: |
           New-Item -ItemType Directory -Path "release" -Force | Out-Null
           New-Item -ItemType Directory -Path "release\frontend" -Force | Out-Null
           New-Item -ItemType Directory -Path "release\backend" -Force | Out-Null
-          New-Item -ItemType Directory -Path "release\config" -Force | Out-Null
-          New-Item -ItemType Directory -Path "release\scripts" -Force | Out-Null
+          New-Item -ItemType Directory -Path "release\data" -Force | Out-Null
 
-      - name: Copy frontend build
-        run: Copy-Item -Path "frontend\dist\*" -Destination "release\frontend" -Recurse -Force
-
-      - name: Create startup script
+      - name: Copy application files
         run: |
-          $start = @"
-          @echo off
-          title Consolidation Trading Bot
-          echo.
-          echo ========================================
-          echo  Consolidation Trading Bot
-          echo  Starting...
-          echo ========================================
-          echo.
-          
-          :server
-          echo Starting web server on port 8080...
-          python -m http.server 8080 --directory "%~dp0frontend"
-          pause
-          @
-          $start | Out-File -FilePath "release\start.bat" -Encoding ASCII
-
-      - name: Create Python server script
-        run: |
-          $server = @"
-          import http.server
-          import socketserver
-          import threading
-          import os
-          import webbrowser
-          
-          PORT = 8080
-          DIRECTORY = os.path.dirname(os.path.abspath(__file__))
-          DIRECTORY = os.path.join(DIRECTORY, "frontend")
-          
-          class CustomHandler(http.server.SimpleHTTPRequestHandler):
-              def __init__(self, *args, **kwargs):
-                  super().__init__(*args, directory=DIRECTORY, **kwargs)
-          
-          def run_server():
-              with socketserver.TCPServer(("", PORT), CustomHandler) as httpd:
-                  print(f"Server running at http://localhost:{PORT}")
-                  httpd.serve_forever()
-          
-          if __name__ == "__main__":
-              print("Starting Consolidation Trading Bot...")
-              print(f"Web UI: http://localhost:{PORT}")
-              threading.Thread(target=run_server, daemon=True).start()
-              input("Press Enter to stop...")
-          @
-          $server | Out-File -FilePath "release\server.py" -Encoding UTF8
-
-      - name: Copy backend files
-        run: |
-          if (Test-Path "backend") {
-            Copy-Item -Path "backend\*" -Destination "release\backend" -Recurse -Force
+          Copy-Item -Path "frontend\dist\*" -Destination "release\frontend" -Recurse -Force
+          Copy-Item -Path "backend\*" -Destination "release\backend" -Recurse -Force
+          if (Test-Path ".env.example") {
+            Copy-Item -Path ".env.example" -Destination "release\.env.example" -Force
           }
 
-      - name: Create configuration
+      - name: Create functional runtime launcher
         run: |
-          $config = @"
-          # Consolidation Trading Bot Configuration
-          # Edit these values for your setup
-          
-          # Discord Bot
-          DISCORD_BOT_TOKEN=your_token_here
-          DISCORD_CHANNEL_IDS=123456789
-          
-          # MongoDB (optional - uses SQLite by default)
-          # MONGO_URL=mongodb://localhost:27017
-          DB_NAME=tradebot
-          
-          # Redis (optional - uses in-memory by default)
-          # REDIS_URL=redis://localhost:6379
-          
-          # Broker Settings
-          IBKR_ACCOUNT_ID=
-          ALPACA_API_KEY=
-          ALPACA_API_SECRET=
-          ALPACA_PAPER=true
-          
-          # API Keys
-          OPENAI_API_KEY=
-          TWELVE_DATA_API_KEY=
-          
-          # Server
-          API_PORT=8000
-          API_HOST=0.0.0.0
-          
-          # Logging
-          LOG_LEVEL=INFO
-          @
-          $config | Out-File -FilePath "release\.env.example" -Encoding UTF8
-
-      - name: Create portable package
-        run: |
-          # Create setup script
-          $setup = @"
-          @echo off
-          setlocal enabledelayedexpansion
-          
-          set "APP_NAME=Consolidation"
-          set "VERSION=${{ env.VERSION }}"
-          set "INSTALL_DIR=%ProgramFiles%\%APP_NAME%"
-          
-          echo ========================================
-          echo  Consolidation Trading Bot
-          echo  Version: %VERSION%
-          echo ========================================
-          echo.
-          
-          if not "%1"=="quiet" (
-            echo Installing to: %INSTALL_DIR%
-            echo.
-            set /p CONFIRM="Continue? (Y/N): "
-            if /i not "!CONFIRM!"=="Y" exit /b 1
+          $launcher = @'
+          param(
+              [int]$BackendPort = 8003,
+              [int]$FrontendPort = 3003,
+              [switch]$NoBrowser,
+              [switch]$InstallDeps
           )
-          
-          echo Creating directories...
-          if not exist "%INSTALL_DIR%" mkdir "%INSTALL_DIR%"
-          
-          echo Copying files...
-          xcopy /E /Y /Q "%~dp0release\*" "%INSTALL_DIR%\" 
-          xcopy /E /Y /Q "%~dp0*.example" "%INSTALL_DIR%\"
-          
-          echo.
-          echo ========================================
-          echo  Installation Complete!
-          echo ========================================
-          echo.
-          echo To run the bot:
-          echo   1. Copy .env.example to .env
-          echo   2. Edit .env with your settings
-          echo   3. Run start.bat
-          echo.
-          pause
-          @
-          $setup | Out-File -FilePath "release\setup.bat" -Encoding ASCII
 
-      - name: Build NSIS installer (optional)
-        run: |
-          # Check if NSIS is available
-          $makensis = Get-Command makensis -ErrorAction SilentlyContinue
-          if ($makensis) {
-            Write-Host "Building NSIS installer..."
-            # Basic installer - assumes NSIS is installed
-          } else {
-            Write-Host "NSIS not found, skipping installer"
-          }
-        continue-on-error: true
+          $ErrorActionPreference = "Stop"
+          $Root = if ($PSScriptRoot) { $PSScriptRoot } else { (Get-Location).Path }
+          $Backend = Join-Path $Root "backend"
+          $Frontend = Join-Path $Root "frontend"
+          $Data = Join-Path $Root "data"
+          New-Item -ItemType Directory -Path $Data -Force | Out-Null
 
-      - name: Create ZIP archive
-        run: |
-          if (Test-Path "release") {
-            Compress-Archive -Path "release\*" -DestinationPath "$env:APP_NAME-v$env:VERSION-win64.zip" -Force
-            Compress-Archive -Path "release" -DestinationPath "$env:APP_NAME-$env:VERSION-portable.zip" -Force
+          function Find-Python {
+              foreach ($name in @("py.exe", "python3.13.exe", "python3.12.exe", "python3.11.exe", "python.exe")) {
+                  $command = Get-Command $name -ErrorAction SilentlyContinue
+                  if ($command) { return $command.Source }
+              }
+              return $null
           }
+
+          function Wait-Healthy {
+              param([string]$Url, [System.Diagnostics.Process]$Process, [int]$Seconds = 120)
+              $deadline = (Get-Date).AddSeconds($Seconds)
+              while ((Get-Date) -lt $deadline) {
+                  if ($Process.HasExited) { return $false }
+                  try {
+                      $response = Invoke-WebRequest -Uri $Url -UseBasicParsing -TimeoutSec 3
+                      if ($response.StatusCode -ge 200 -and $response.StatusCode -lt 300) { return $true }
+                  } catch {}
+                  Start-Sleep -Milliseconds 750
+              }
+              return $false
+          }
+
+          $VenvPython = Join-Path $Backend ".venv\Scripts\python.exe"
+          if (-not (Test-Path $VenvPython)) {
+              $SystemPython = Find-Python
+              if (-not $SystemPython) {
+                  throw "Python 3.11 or newer is required for the first launch."
+              }
+              & $SystemPython -m venv (Join-Path $Backend ".venv")
+              $InstallDeps = $true
+          }
+
+          $RequirementsHash = (Get-FileHash (Join-Path $Backend "requirements.txt") -Algorithm SHA256).Hash
+          $InstalledHashFile = Join-Path $Backend ".venv\requirements.sha256"
+          $InstalledHash = if (Test-Path $InstalledHashFile) { (Get-Content $InstalledHashFile -Raw).Trim() } else { "" }
+          if ($InstallDeps -or $InstalledHash -ne $RequirementsHash) {
+              Write-Host "Installing/updating Echo backend dependencies..." -ForegroundColor Cyan
+              & $VenvPython -m pip install --upgrade pip wheel
+              if ($LASTEXITCODE -ne 0) { throw "Failed to update pip." }
+              & $VenvPython -m pip install -r (Join-Path $Backend "requirements.txt")
+              if ($LASTEXITCODE -ne 0) { throw "Failed to install Echo backend dependencies." }
+              Set-Content -Path $InstalledHashFile -Value $RequirementsHash -Encoding ASCII
+          }
+
+          $env:HOST = "127.0.0.1"
+          $env:PORT = [string]$BackendPort
+          $env:USE_SQLITE = "true"
+          $env:DATABASE_PATH = Join-Path $Data "consolidation.sqlite3"
+          $env:RELOAD = "false"
+
+          $BackendOut = Join-Path $Data "backend.out.log"
+          $BackendErr = Join-Path $Data "backend.err.log"
+          $FrontendOut = Join-Path $Data "frontend.out.log"
+          $FrontendErr = Join-Path $Data "frontend.err.log"
+
+          $BackendProcess = Start-Process -FilePath $VenvPython `
+              -ArgumentList @("-m", "backend.run") `
+              -WorkingDirectory $Root `
+              -RedirectStandardOutput $BackendOut `
+              -RedirectStandardError $BackendErr `
+              -PassThru -WindowStyle Hidden
+
+          $FrontendProcess = $null
+          try {
+              if (-not (Wait-Healthy -Url "http://127.0.0.1:$BackendPort/api/health" -Process $BackendProcess)) {
+                  $tail = if (Test-Path $BackendErr) { Get-Content $BackendErr -Tail 80 } else { @() }
+                  throw "Echo backend failed to become healthy.`n$($tail -join [Environment]::NewLine)"
+              }
+
+              $FrontendProcess = Start-Process -FilePath $VenvPython `
+                  -ArgumentList @("-m", "http.server", [string]$FrontendPort, "--bind", "127.0.0.1", "--directory", $Frontend) `
+                  -WorkingDirectory $Root `
+                  -RedirectStandardOutput $FrontendOut `
+                  -RedirectStandardError $FrontendErr `
+                  -PassThru -WindowStyle Hidden
+
+              Start-Sleep -Seconds 1
+              if ($FrontendProcess.HasExited) {
+                  throw "Echo dashboard server exited during startup."
+              }
+
+              $Url = "http://127.0.0.1:$FrontendPort"
+              Write-Host "Echo backend: http://127.0.0.1:$BackendPort" -ForegroundColor Green
+              Write-Host "Echo dashboard: $Url" -ForegroundColor Green
+              Write-Host "Close this window or press Ctrl+C to stop both services."
+              if (-not $NoBrowser) { Start-Process $Url }
+              Wait-Process -Id $BackendProcess.Id
+          }
+          finally {
+              if ($FrontendProcess -and -not $FrontendProcess.HasExited) {
+                  Stop-Process -Id $FrontendProcess.Id -Force -ErrorAction SilentlyContinue
+              }
+              if ($BackendProcess -and -not $BackendProcess.HasExited) {
+                  Stop-Process -Id $BackendProcess.Id -Force -ErrorAction SilentlyContinue
+              }
+          }
+          '@
+          $launcher | Out-File -FilePath "release\Start-Consolidation.ps1" -Encoding UTF8
+
+          $batch = @'
+          @echo off
+          setlocal
+          title Consolidation Discord Options Bot
+          cd /d "%~dp0"
+          powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0Start-Consolidation.ps1" %*
+          set EXITCODE=%ERRORLEVEL%
+          if not "%EXITCODE%"=="0" pause
+          exit /b %EXITCODE%
+          '@
+          $batch | Out-File -FilePath "release\Start-Consolidation.bat" -Encoding ASCII
+
+      - name: Create configuration template
+        run: |
+          if (-not (Test-Path "release\.env.example")) {
+            @(
+              "DISCORD_BOT_TOKEN=",
+              "DISCORD_CHANNEL_IDS=",
+              "USE_SQLITE=true",
+              "DATABASE_PATH=data/consolidation.sqlite3",
+              "HOST=127.0.0.1",
+              "PORT=8003"
+            ) | Set-Content -Path "release\.env.example" -Encoding UTF8
+          }
+
+      - name: Validate packaged launcher contracts
+        shell: pwsh
+        run: |
+          $launcher = Get-Content "release\Start-Consolidation.ps1" -Raw
+          if ($launcher -notmatch 'backend\.run') { throw "Packaged launcher does not start the Echo backend." }
+          if ($launcher -notmatch '/api/health') { throw "Packaged launcher does not verify backend health." }
+          if ($launcher -notmatch 'http\.server') { throw "Packaged launcher does not serve the dashboard." }
+          if (-not (Test-Path "release\backend\runtime_app.py")) { throw "Recovery-enabled runtime app missing from package." }
+          if (-not (Test-Path "release\backend\fill_reconciliation_v2.py")) { throw "Broker-truth reconciler missing from package." }
+
+      - name: Create ZIP archives
+        run: |
+          Compress-Archive -Path "release\*" -DestinationPath "$env:APP_NAME-v$env:VERSION-win64.zip" -Force
+          Compress-Archive -Path "release" -DestinationPath "$env:APP_NAME-$env:VERSION-portable.zip" -Force
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -224,7 +232,9 @@ jobs:
     needs: build
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: windows-latest
-    
+    permissions:
+      contents: write
+
     steps:
       - name: Download artifact
         uses: actions/download-artifact@v4
@@ -233,7 +243,7 @@ jobs:
           path: artifacts
 
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v2
         with:
           files: artifacts/*
           draft: false

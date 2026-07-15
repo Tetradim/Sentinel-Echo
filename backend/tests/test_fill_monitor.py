@@ -45,7 +45,7 @@ class BrokerWithFilledStatus:
 
 
 class FillMonitorTests(unittest.TestCase):
-    def test_missing_order_status_marks_trade_unconfirmed_not_executed(self):
+    def test_missing_order_status_remains_unconfirmed_without_invented_fill(self):
         from fill_reconciliation import OrderContext
         from fill_monitor import monitor_fill
 
@@ -73,11 +73,12 @@ class FillMonitorTests(unittest.TestCase):
             )
         )
 
-        self.assertEqual(len(db.trade_updates), 1)
-        _, update = db.trade_updates[0]
-        self.assertEqual(update["status"], "unconfirmed")
-        self.assertEqual(update["quantity"], 2)
-        self.assertNotIn("executed_at", update)
+        status_updates = [update for _, update in db.trade_updates if "status" in update]
+        self.assertEqual(status_updates[-1]["status"], "working_unconfirmed")
+        self.assertNotIn("quantity", status_updates[-1])
+        self.assertNotIn("executed_at", status_updates[-1])
+        self.assertEqual(db.inserted_positions, [])
+        self.assertEqual(db.trade_updates[-1][1]["monitor_state"], "paused_for_recovery")
 
     def test_filled_order_status_reconciles_position_from_broker_fill(self):
         from fill_reconciliation import OrderContext
@@ -107,10 +108,13 @@ class FillMonitorTests(unittest.TestCase):
             )
         )
 
-        self.assertEqual(db.trade_updates[0][1]["status"], "executed")
-        self.assertEqual(db.trade_updates[0][1]["entry_price"], 1.25)
+        executed = [update for _, update in db.trade_updates if update.get("status") == "executed"]
+        self.assertEqual(len(executed), 1)
+        self.assertEqual(executed[0]["entry_price"], 1.25)
+        self.assertEqual(executed[0]["quantity"], 2)
         self.assertEqual(len(db.inserted_positions), 1)
         self.assertEqual(db.inserted_positions[0]["remaining_quantity"], 2)
+        self.assertEqual(db.trade_updates[-1][1]["monitor_state"], "terminal")
 
 
 if __name__ == "__main__":
