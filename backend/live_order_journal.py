@@ -82,6 +82,26 @@ class LiveOrderJournal:
                 return deepcopy(value)
         return None
 
+    def _assert_no_conflicting_exit(self, data: dict, key: str, fields: dict) -> None:
+        if str(fields.get("side") or "").upper() != "SELL":
+            return
+        position_id = str(fields.get("position_id") or "").strip()
+        if not position_id:
+            raise ValueError("Live SELL journal record requires position_id")
+        for other_key, record in data["orders"].items():
+            if other_key == key or not isinstance(record, dict):
+                continue
+            if str(record.get("position_id") or "") != position_id:
+                continue
+            if str(record.get("side") or "").upper() != "SELL":
+                continue
+            if str(record.get("status") or "").lower() not in _ACTIVE_STATES:
+                continue
+            raise RuntimeError(
+                f"Position {position_id} already has unresolved exit order "
+                f"{record.get('client_order_id') or other_key}; a second sell is blocked"
+            )
+
     def begin(self, client_order_id: str, **fields: Any) -> dict:
         key = str(client_order_id or "").strip()
         if not key:
@@ -89,8 +109,9 @@ class LiveOrderJournal:
         with self._lock:
             data = self._read()
             existing = data["orders"].get(key)
-            if isinstance(existing, dict) and str(existing.get("status")) in _ACTIVE_STATES:
+            if isinstance(existing, dict) and str(existing.get("status")) in (_ACTIVE_STATES | _TERMINAL_STATES):
                 return deepcopy(existing)
+            self._assert_no_conflicting_exit(data, key, fields)
             now = _now()
             record = {
                 "client_order_id": key,
@@ -112,6 +133,12 @@ class LiveOrderJournal:
         position_remaining_quantity: int,
         **fields: Any,
     ) -> dict:
+        """Reserve a bounded quantity for callers that support concurrent trims.
+
+        Echo's current live runtime uses the stricter exclusive reservation in
+        :meth:`begin`. This method remains available for a future parent-order
+        coordinator that can safely submit multiple child exits.
+        """
         key = str(client_order_id or "").strip()
         position_id = str(position_id or "").strip()
         quantity = int(quantity)
@@ -153,6 +180,7 @@ class LiveOrderJournal:
                 "created_at": now,
                 "updated_at": now,
                 "position_id": position_id,
+                "side": "SELL",
                 "quantity": quantity,
                 "exit_reserved_quantity": quantity,
                 **fields,
