@@ -9,6 +9,7 @@ try:
     from . import server as _server
     from .database import get_db
     from .fill_monitor import resume_pending_fill_monitors, stop_fill_monitors
+    from .routes import live_operations_router
     from . import live_broker_clients_patch as _live_broker_clients_patch  # noqa: F401
     from .live_order_execution_runtime import recover_journalled_orders
     from . import live_order_execution_runtime as _live_order_execution_runtime  # noqa: F401
@@ -19,15 +20,13 @@ try:
     from . import journal_fill_lifecycle_patch as _journal_fill_lifecycle_patch  # noqa: F401
     from . import pre_task_order_persistence as _pre_task_order_persistence  # noqa: F401
     from . import live_trade_state_patch as _live_trade_state_patch  # noqa: F401
-    from .option_position_supervisor import (
-        start_position_supervisor,
-        stop_position_supervisor,
-    )
+    from .option_position_supervisor import start_position_supervisor, stop_position_supervisor
     from . import explicit_exit_continuation_patch as _explicit_exit_continuation_patch  # noqa: F401
 except ImportError:  # direct backend path execution
     import server as _server
     from database import get_db
     from fill_monitor import resume_pending_fill_monitors, stop_fill_monitors
+    from routes import live_operations_router
     import live_broker_clients_patch as _live_broker_clients_patch  # noqa: F401
     from live_order_execution_runtime import recover_journalled_orders
     import live_order_execution_runtime as _live_order_execution_runtime  # noqa: F401
@@ -38,14 +37,17 @@ except ImportError:  # direct backend path execution
     import journal_fill_lifecycle_patch as _journal_fill_lifecycle_patch  # noqa: F401
     import pre_task_order_persistence as _pre_task_order_persistence  # noqa: F401
     import live_trade_state_patch as _live_trade_state_patch  # noqa: F401
-    from option_position_supervisor import (
-        start_position_supervisor,
-        stop_position_supervisor,
-    )
+    from option_position_supervisor import start_position_supervisor, stop_position_supervisor
     import explicit_exit_continuation_patch as _explicit_exit_continuation_patch  # noqa: F401
 
 
 app = _server.app
+# The legacy server creates its /api router before this production-only module is
+# imported. Mount the live-operations router explicitly so packaged and source
+# entry points expose the same repaired lifecycle state.
+if not any(getattr(route, "path", "") == "/api/live-operations" for route in app.routes):
+    app.include_router(live_operations_router, prefix="/api")
+
 logger = logging.getLogger(__name__)
 _original_lifespan = app.router.lifespan_context
 _original_init_discord_bot = _server.init_discord_bot
@@ -58,15 +60,9 @@ async def _live_recovery_lifespan(application):
     async def _defer_discord_start(token, channel_ids):
         deferred_discord["token"] = token
         deferred_discord["channel_ids"] = channel_ids
-        logger.warning(
-            "Discord ingestion deferred until live broker orders and positions are recovered"
-        )
+        logger.warning("Discord ingestion deferred until live broker orders and positions are recovered")
         return None
 
-    # The legacy lifespan initializes the DB and routes, then immediately starts
-    # Discord before yielding. Temporarily replace that startup hook so recovery
-    # and autonomous position supervision are active before any new alert can
-    # submit another live order.
     _server.init_discord_bot = _defer_discord_start
     try:
         async with _original_lifespan(application):
@@ -81,10 +77,7 @@ async def _live_recovery_lifespan(application):
 
             recovered = await recover_journalled_orders(db, settings)
             if recovered:
-                logger.critical(
-                    "Reconstructed %s live broker order(s) that were missing from the primary trade ledger",
-                    recovered,
-                )
+                logger.critical("Reconstructed %s live broker order(s) that were missing from the primary trade ledger", recovered)
             resumed = await resume_pending_fill_monitors(db, settings)
             if resumed:
                 logger.warning("Resumed %s non-terminal broker order monitor(s)", resumed)
@@ -92,10 +85,7 @@ async def _live_recovery_lifespan(application):
 
             _server.init_discord_bot = _original_init_discord_bot
             if deferred_discord:
-                await _original_init_discord_bot(
-                    deferred_discord["token"],
-                    deferred_discord["channel_ids"],
-                )
+                await _original_init_discord_bot(deferred_discord["token"], deferred_discord["channel_ids"])
             try:
                 yield
             finally:
