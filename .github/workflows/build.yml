@@ -16,7 +16,7 @@ env:
 jobs:
   build:
     runs-on: windows-latest
-    
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -38,6 +38,7 @@ jobs:
         with:
           node-version: '20'
           cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
 
       - name: Install Node dependencies
         working-directory: ./frontend
@@ -69,7 +70,7 @@ jobs:
           echo  Starting...
           echo ========================================
           echo.
-          
+
           :server
           echo Starting web server on port 8080...
           python -m http.server 8080 --directory "%~dp0frontend"
@@ -85,20 +86,20 @@ jobs:
           import threading
           import os
           import webbrowser
-          
+
           PORT = 8080
           DIRECTORY = os.path.dirname(os.path.abspath(__file__))
           DIRECTORY = os.path.join(DIRECTORY, "frontend")
-          
+
           class CustomHandler(http.server.SimpleHTTPRequestHandler):
               def __init__(self, *args, **kwargs):
                   super().__init__(*args, directory=DIRECTORY, **kwargs)
-          
+
           def run_server():
               with socketserver.TCPServer(("", PORT), CustomHandler) as httpd:
                   print(f"Server running at http://localhost:{PORT}")
                   httpd.serve_forever()
-          
+
           if __name__ == "__main__":
               print("Starting Consolidation Trading Bot...")
               print(f"Web UI: http://localhost:{PORT}")
@@ -118,32 +119,32 @@ jobs:
           $config = @"
           # Consolidation Trading Bot Configuration
           # Edit these values for your setup
-          
+
           # Discord Bot
           DISCORD_BOT_TOKEN=your_token_here
           DISCORD_CHANNEL_IDS=123456789
-          
+
           # MongoDB (optional - uses SQLite by default)
           # MONGO_URL=mongodb://localhost:27017
           DB_NAME=tradebot
-          
+
           # Redis (optional - uses in-memory by default)
           # REDIS_URL=redis://localhost:6379
-          
+
           # Broker Settings
           IBKR_ACCOUNT_ID=
           ALPACA_API_KEY=
           ALPACA_API_SECRET=
           ALPACA_PAPER=true
-          
+
           # API Keys
           OPENAI_API_KEY=
           TWELVE_DATA_API_KEY=
-          
+
           # Server
           API_PORT=8000
           API_HOST=0.0.0.0
-          
+
           # Logging
           LOG_LEVEL=INFO
           @
@@ -151,35 +152,34 @@ jobs:
 
       - name: Create portable package
         run: |
-          # Create setup script
           $setup = @"
           @echo off
           setlocal enabledelayedexpansion
-          
+
           set "APP_NAME=Consolidation"
           set "VERSION=${{ env.VERSION }}"
           set "INSTALL_DIR=%ProgramFiles%\%APP_NAME%"
-          
+
           echo ========================================
           echo  Consolidation Trading Bot
           echo  Version: %VERSION%
           echo ========================================
           echo.
-          
+
           if not "%1"=="quiet" (
             echo Installing to: %INSTALL_DIR%
             echo.
             set /p CONFIRM="Continue? (Y/N): "
             if /i not "!CONFIRM!"=="Y" exit /b 1
           )
-          
+
           echo Creating directories...
           if not exist "%INSTALL_DIR%" mkdir "%INSTALL_DIR%"
-          
+
           echo Copying files...
-          xcopy /E /Y /Q "%~dp0release\*" "%INSTALL_DIR%\" 
+          xcopy /E /Y /Q "%~dp0release\*" "%INSTALL_DIR%\"
           xcopy /E /Y /Q "%~dp0*.example" "%INSTALL_DIR%\"
-          
+
           echo.
           echo ========================================
           echo  Installation Complete!
@@ -196,11 +196,9 @@ jobs:
 
       - name: Build NSIS installer (optional)
         run: |
-          # Check if NSIS is available
           $makensis = Get-Command makensis -ErrorAction SilentlyContinue
           if ($makensis) {
             Write-Host "Building NSIS installer..."
-            # Basic installer - assumes NSIS is installed
           } else {
             Write-Host "NSIS not found, skipping installer"
           }
@@ -224,7 +222,7 @@ jobs:
     needs: build
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: windows-latest
-    
+
     steps:
       - name: Download artifact
         uses: actions/download-artifact@v4
