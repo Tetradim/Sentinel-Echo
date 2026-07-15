@@ -13,6 +13,7 @@ _EXPIRATION_FORMATS = (
     "%y%m%d",
     "%Y%m%d",
 )
+_OCC_PATTERN = re.compile(r"^([A-Z0-9]+?)(\d{6})([CP])(\d{8})$")
 
 
 def parse_expiration(value: str) -> datetime:
@@ -63,3 +64,19 @@ def build_occ_symbol(
 
     expiry = parse_expiration(expiration).strftime("%y%m%d")
     return f"{root}{expiry}{right}{strike_millis:08d}"
+
+
+def parse_occ_symbol(symbol: str) -> dict:
+    raw = re.sub(r"\s+", "", str(symbol or "").upper())
+    match = _OCC_PATTERN.fullmatch(raw)
+    if not match:
+        raise ValueError(f"Invalid OCC option symbol: {symbol!r}")
+    underlying, expiry_yymmdd, right, strike_raw = match.groups()
+    expiry = datetime.strptime(expiry_yymmdd, "%y%m%d")
+    return {
+        "occ_symbol": raw,
+        "ticker": underlying,
+        "expiration": expiry.strftime("%Y-%m-%d"),
+        "option_type": "CALL" if right == "C" else "PUT",
+        "strike": float(Decimal(strike_raw) / Decimal("1000")),
+    }
