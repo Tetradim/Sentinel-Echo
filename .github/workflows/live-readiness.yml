@@ -1,0 +1,38 @@
+name: Echo Live Readiness
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'backend/**'
+      - '.github/workflows/live-readiness.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  backend-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip wheel
+          pip install -r backend/requirements.txt
+      - name: Run fill lifecycle tests
+        env:
+          PYTHONPATH: backend
+          USE_SQLITE: 'true'
+        run: |
+          python -m pytest \
+            backend/tests/test_fill_reconciliation.py \
+            backend/tests/test_fill_monitor.py \
+            backend/tests/test_live_fill_truth.py \
+            -q --tb=short
