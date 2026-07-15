@@ -6,12 +6,8 @@ import asyncio
 import logging
 from typing import Optional
 
-from fill_reconciliation import (
-    BrokerOrderUpdate,
-    OrderContext,
-    ReconciliationResult,
-    reconcile_order_update,
-)
+from fill_reconciliation import BrokerOrderUpdate, OrderContext, ReconciliationResult
+from fill_reconciliation_v2 import reconcile_order_update
 
 
 logger = logging.getLogger(__name__)
@@ -73,10 +69,11 @@ async def monitor_fill(
     if current_task is not None:
         _ACTIVE_MONITORS[monitor_key] = current_task
 
+    # Persist recovery metadata without downgrading a recovered partial or
+    # working-unconfirmed trade back to pending.
     await db.update_trade(
         trade_id,
         {
-            "status": "pending",
             "order_id": order_id,
             "broker": order_context.broker,
             "requested_quantity": order_context.requested_quantity,
@@ -176,7 +173,7 @@ async def monitor_fill(
                             "status_lookup_failures": transient_errors,
                         },
                     )
-                # Continue polling: a temporary API outage is not a terminal order state.
+                # Continue polling: a temporary API outage is not terminal.
 
             else:
                 transient_errors = 0
