@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - 'backend/**'
+      - 'frontend/**'
       - '.github/workflows/live-readiness.yml'
   workflow_dispatch:
 
@@ -45,6 +46,7 @@ jobs:
             backend/tests/test_option_order_expiry.py \
             backend/tests/test_broker_inventory_reconciliation.py \
             backend/tests/test_explicit_exit_continuation.py \
+            backend/tests/test_frontend_live_operations_wiring.py \
             -q --tb=short 2>&1 | tee echo-live-readiness-tests.txt
           status=${PIPESTATUS[0]}
           echo "status=$status" >> "$GITHUB_OUTPUT"
