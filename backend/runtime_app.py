@@ -1,4 +1,4 @@
-"""Production app wrapper that adds durable live-order submission recovery."""
+"""Production app wrapper that adds durable live-order and position recovery."""
 
 from __future__ import annotations
 
@@ -12,9 +12,14 @@ try:
     from . import live_broker_clients_patch as _live_broker_clients_patch  # noqa: F401
     from .live_order_execution_runtime import recover_journalled_orders
     from . import live_order_execution_runtime as _live_order_execution_runtime  # noqa: F401
+    from . import option_execution_quote_patch as _option_execution_quote_patch  # noqa: F401
     from . import journal_fill_lifecycle_patch as _journal_fill_lifecycle_patch  # noqa: F401
     from . import pre_task_order_persistence as _pre_task_order_persistence  # noqa: F401
     from . import live_trade_state_patch as _live_trade_state_patch  # noqa: F401
+    from .option_position_supervisor import (
+        start_position_supervisor,
+        stop_position_supervisor,
+    )
 except ImportError:  # direct backend path execution
     import server as _server
     from database import get_db
@@ -22,9 +27,14 @@ except ImportError:  # direct backend path execution
     import live_broker_clients_patch as _live_broker_clients_patch  # noqa: F401
     from live_order_execution_runtime import recover_journalled_orders
     import live_order_execution_runtime as _live_order_execution_runtime  # noqa: F401
+    import option_execution_quote_patch as _option_execution_quote_patch  # noqa: F401
     import journal_fill_lifecycle_patch as _journal_fill_lifecycle_patch  # noqa: F401
     import pre_task_order_persistence as _pre_task_order_persistence  # noqa: F401
     import live_trade_state_patch as _live_trade_state_patch  # noqa: F401
+    from option_position_supervisor import (
+        start_position_supervisor,
+        stop_position_supervisor,
+    )
 
 
 app = _server.app
@@ -41,13 +51,14 @@ async def _live_recovery_lifespan(application):
         deferred_discord["token"] = token
         deferred_discord["channel_ids"] = channel_ids
         logger.warning(
-            "Discord ingestion deferred until live broker orders and monitors are recovered"
+            "Discord ingestion deferred until live broker orders and positions are recovered"
         )
         return None
 
     # The legacy lifespan initializes the DB and routes, then immediately starts
     # Discord before yielding. Temporarily replace that startup hook so recovery
-    # completes before any new alert can submit another live order.
+    # and autonomous position supervision are active before any new alert can
+    # submit another live order.
     _server.init_discord_bot = _defer_discord_start
     try:
         async with _original_lifespan(application):
@@ -62,6 +73,7 @@ async def _live_recovery_lifespan(application):
             resumed = await resume_pending_fill_monitors(db, settings)
             if resumed:
                 logger.warning("Resumed %s non-terminal broker order monitor(s)", resumed)
+            start_position_supervisor(db)
 
             _server.init_discord_bot = _original_init_discord_bot
             if deferred_discord:
@@ -72,6 +84,7 @@ async def _live_recovery_lifespan(application):
             try:
                 yield
             finally:
+                await stop_position_supervisor()
                 await stop_fill_monitors()
     finally:
         _server.init_discord_bot = _original_init_discord_bot
