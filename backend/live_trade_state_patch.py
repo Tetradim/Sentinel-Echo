@@ -15,11 +15,69 @@ except ImportError:  # direct backend path execution
 
 logger = logging.getLogger(__name__)
 _original_process_trade = server.process_trade
+_ACTIVE_ORDER_STATES = {
+    "submitting",
+    "ambiguous",
+    "acknowledged",
+    "submitted",
+    "pending",
+    "working",
+    "partial",
+    "working_unconfirmed",
+}
 
 
 def _alert_client_prefix(alert_id: str, side: str) -> str:
     token = server.build_client_order_id(alert_id, side)
     return token if side.upper() == "BUY" else f"{token}-"
+
+
+def _journal_records_for_alert(alert_id: str, side: str) -> list[dict]:
+    prefix = _alert_client_prefix(alert_id, side)
+    return [
+        record
+        for record in journal.records()
+        if (
+            str(record.get("client_order_id") or "") == prefix
+            if side == "BUY"
+            else str(record.get("client_order_id") or "").startswith(prefix)
+        )
+    ]
+
+
+async def _write_alert_journal_state(alert_id: str, records: list[dict]) -> None:
+    if not records:
+        return
+    db = get_db()
+    positive_fill = any(
+        int(float(record.get("filled_qty") or 0)) > 0
+        or str(record.get("status") or "").lower() == "filled"
+        for record in records
+    )
+    active = any(
+        str(record.get("status") or "").lower() in _ACTIVE_ORDER_STATES
+        for record in records
+    )
+    statuses = sorted(
+        {str(record.get("status") or "unknown").lower() for record in records}
+    )
+    await db.update_alert(
+        alert_id,
+        {
+            "trade_executed": positive_fill,
+            "order_submitted": True,
+            "trade_result": (
+                "filled"
+                if positive_fill and not active
+                else "partially_filled"
+                if positive_fill
+                else "submitted_waiting_for_fill"
+                if active
+                else "terminal_without_fill"
+            ),
+            "broker_order_states": statuses,
+        },
+    )
 
 
 async def _link_journal_records(alert, parsed: dict) -> None:
@@ -29,16 +87,7 @@ async def _link_journal_records(alert, parsed: dict) -> None:
         trade for trade in trades if str(trade.get("alert_id") or "") == str(alert.id)
     ]
     side = "BUY" if parsed.get("alert_type") == "buy" else "SELL"
-    prefix = _alert_client_prefix(str(alert.id), side)
-    records = [
-        record
-        for record in journal.records()
-        if (
-            str(record.get("client_order_id") or "") == prefix
-            if side == "BUY"
-            else str(record.get("client_order_id") or "").startswith(prefix)
-        )
-    ]
+    records = _journal_records_for_alert(str(alert.id), side)
     # Simulation and non-executable alerts have no live journal record. Leave
     # their legacy state untouched rather than rewriting them as not executed.
     if not records:
@@ -106,6 +155,19 @@ async def _link_journal_records(alert, parsed: dict) -> None:
 
 
 async def process_trade_with_broker_fill_state(alert, parsed: dict):
+    side = "BUY" if parsed.get("alert_type") == "buy" else "SELL"
+    existing_records = _journal_records_for_alert(str(alert.id), side)
+    if existing_records and not parsed.get("_force_simulation"):
+        # A Discord retry or duplicate message must not create another local trade
+        # or monitor for a broker order that already has a durable client ID.
+        await _write_alert_journal_state(str(alert.id), existing_records)
+        logger.warning(
+            "Suppressed duplicate alert %s because durable broker order(s) already exist: %s",
+            alert.id,
+            [record.get("client_order_id") for record in existing_records],
+        )
+        return None
+
     result = await _original_process_trade(alert, parsed)
     try:
         if not parsed.get("_force_simulation"):
