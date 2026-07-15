@@ -39,6 +39,10 @@ async def _link_journal_records(alert, parsed: dict) -> None:
             else str(record.get("client_order_id") or "").startswith(prefix)
         )
     ]
+    # Simulation and non-executable alerts have no live journal record. Leave
+    # their legacy state untouched rather than rewriting them as not executed.
+    if not records:
+        return
 
     for record in records:
         order_id = str(record.get("broker_order_id") or "")
