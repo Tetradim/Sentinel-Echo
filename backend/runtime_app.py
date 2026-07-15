@@ -9,10 +9,12 @@ try:
     from .server import app
     from .database import get_db
     from .fill_monitor import resume_pending_fill_monitors, stop_fill_monitors
+    from . import pre_task_order_persistence as _pre_task_order_persistence  # noqa: F401
 except ImportError:  # direct backend path execution
     from server import app
     from database import get_db
     from fill_monitor import resume_pending_fill_monitors, stop_fill_monitors
+    import pre_task_order_persistence as _pre_task_order_persistence  # noqa: F401
 
 
 logger = logging.getLogger(__name__)
