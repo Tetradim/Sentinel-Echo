@@ -196,15 +196,14 @@ jobs:
       - name: Create configuration template
         run: |
           if (-not (Test-Path "release\.env.example")) {
-            $config = @'
-            DISCORD_BOT_TOKEN=
-            DISCORD_CHANNEL_IDS=
-            USE_SQLITE=true
-            DATABASE_PATH=data/consolidation.sqlite3
-            HOST=127.0.0.1
-            PORT=8003
-            '@
-            $config | Out-File -FilePath "release\.env.example" -Encoding UTF8
+            @(
+              "DISCORD_BOT_TOKEN=",
+              "DISCORD_CHANNEL_IDS=",
+              "USE_SQLITE=true",
+              "DATABASE_PATH=data/consolidation.sqlite3",
+              "HOST=127.0.0.1",
+              "PORT=8003"
+            ) | Set-Content -Path "release\.env.example" -Encoding UTF8
           }
 
       - name: Validate packaged launcher contracts
