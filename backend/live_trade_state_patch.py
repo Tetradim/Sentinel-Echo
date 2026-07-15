@@ -1,0 +1,115 @@
+"""Keep alert/trade state aligned with broker fills rather than submission ACKs."""
+from __future__ import annotations
+
+import logging
+
+try:
+    from . import server
+    from .database import get_db
+    from .live_order_journal import journal
+except ImportError:  # direct backend path execution
+    import server
+    from database import get_db
+    from live_order_journal import journal
+
+
+logger = logging.getLogger(__name__)
+_original_process_trade = server.process_trade
+
+
+def _alert_client_prefix(alert_id: str, side: str) -> str:
+    token = server.build_client_order_id(alert_id, side)
+    return token if side.upper() == "BUY" else f"{token}-"
+
+
+async def _link_journal_records(alert, parsed: dict) -> None:
+    db = get_db()
+    trades = await db.get_trades(5000)
+    matching_trades = [
+        trade for trade in trades if str(trade.get("alert_id") or "") == str(alert.id)
+    ]
+    side = "BUY" if parsed.get("alert_type") == "buy" else "SELL"
+    prefix = _alert_client_prefix(str(alert.id), side)
+    records = [
+        record
+        for record in journal.records()
+        if (
+            str(record.get("client_order_id") or "") == prefix
+            if side == "BUY"
+            else str(record.get("client_order_id") or "").startswith(prefix)
+        )
+    ]
+
+    for record in records:
+        order_id = str(record.get("broker_order_id") or "")
+        client_id = str(record.get("client_order_id") or "")
+        candidates = [
+            trade
+            for trade in matching_trades
+            if (
+                (order_id and str(trade.get("order_id") or "") == order_id)
+                or (
+                    str(trade.get("ticker") or "").upper()
+                    == str(record.get("ticker") or "").upper()
+                    and str(trade.get("side") or "BUY").upper() == side
+                    and float(trade.get("strike") or 0) == float(record.get("strike") or 0)
+                    and str(trade.get("expiration") or "") == str(record.get("expiration") or "")
+                )
+            )
+        ]
+        if len(candidates) != 1:
+            continue
+        trade = candidates[0]
+        await db.update_trade(
+            str(trade.get("id")),
+            {
+                "client_order_id": client_id,
+                "broker": record.get("broker") or trade.get("broker"),
+                "broker_account_id": record.get("account_id") or "",
+                "submission_journal_state": record.get("status"),
+                "submission_journal_path": str(journal.path),
+            },
+        )
+
+    refreshed = await db.get_trades(5000)
+    matching_trades = [
+        trade for trade in refreshed if str(trade.get("alert_id") or "") == str(alert.id)
+    ]
+    positive_fill = any(
+        int(float(trade.get("applied_filled_qty") or 0)) > 0
+        or (
+            str(trade.get("status") or "").lower() in {"executed", "partial", "filled"}
+            and int(float(trade.get("quantity") or 0)) > 0
+            and str(trade.get("status") or "").lower() != "pending"
+        )
+        for trade in matching_trades
+    )
+    submitted = any(
+        str(trade.get("status") or "").lower()
+        in {"pending", "working", "working_unconfirmed", "partial", "executed", "filled"}
+        for trade in matching_trades
+    )
+    await db.update_alert(
+        str(alert.id),
+        {
+            "trade_executed": positive_fill,
+            "order_submitted": submitted,
+            "trade_result": (
+                "filled" if positive_fill else "submitted_waiting_for_fill" if submitted else "not_executed"
+            ),
+        },
+    )
+
+
+async def process_trade_with_broker_fill_state(alert, parsed: dict):
+    result = await _original_process_trade(alert, parsed)
+    try:
+        if not parsed.get("_force_simulation"):
+            await _link_journal_records(alert, parsed)
+    except Exception as exc:
+        logger.exception("Could not align alert %s with broker fill state: %s", alert.id, exc)
+    return result
+
+
+server.process_trade = process_trade_with_broker_fill_state
+server.set_edge_sr_executor(process_trade_with_broker_fill_state)
