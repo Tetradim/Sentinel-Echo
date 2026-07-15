@@ -8,7 +8,8 @@ import pytest
 BACKEND_DIR = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(BACKEND_DIR))
 
-from fill_reconciliation import BrokerOrderUpdate, OrderContext, reconcile_order_update
+from fill_reconciliation import BrokerOrderUpdate, OrderContext
+from fill_reconciliation_v2 import reconcile_order_update
 
 
 class MemoryDb:
@@ -79,6 +80,18 @@ def test_missing_fill_truth_is_rejected():
         )
 
 
+def test_filled_state_must_equal_requested_quantity():
+    db = MemoryDb()
+    with pytest.raises(ValueError, match="is inconsistent"):
+        asyncio.run(
+            reconcile_order_update(
+                db,
+                entry_context(4),
+                BrokerOrderUpdate(status="filled", filled_qty=2, avg_fill_price=1.2),
+            )
+        )
+
+
 def test_partial_then_filled_buy_applies_only_fill_delta():
     db = MemoryDb()
     context = entry_context(4)
@@ -115,13 +128,13 @@ def test_partial_then_filled_buy_applies_only_fill_delta():
     assert position["total_cost"] == pytest.approx(500.0)
 
 
-def test_partial_then_filled_sell_applies_only_delta_pnl():
+def test_partial_then_filled_sell_keeps_order_pnl_separate_from_position_history():
     db = MemoryDb()
     db.positions["position-1"] = {
         "id": "position-1",
         "entry_price": 1.00,
         "remaining_quantity": 4,
-        "realized_pnl": 0.0,
+        "realized_pnl": 25.0,
         "trade_ids": ["entry-trade"],
         "status": "open",
     }
@@ -156,7 +169,7 @@ def test_partial_then_filled_sell_applies_only_delta_pnl():
     assert first.applied_quantity == 1
     assert final.applied_quantity == 3
     assert db.positions["position-1"]["remaining_quantity"] == 0
-    assert db.positions["position-1"]["realized_pnl"] == pytest.approx(200.0)
+    assert db.positions["position-1"]["realized_pnl"] == pytest.approx(225.0)
     assert db.trades["exit-trade"]["realized_pnl"] == pytest.approx(200.0)
 
 
