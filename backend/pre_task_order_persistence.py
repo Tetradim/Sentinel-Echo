@@ -1,14 +1,12 @@
 """Close the broker-acknowledgement/task-scheduling durability gap.
 
-``server.py`` submits a broker order, persists its pending trade, and then calls
-``asyncio.create_task(monitor_fill(...))``. An abrupt process exit between the
-broker acknowledgement and the monitor coroutine's first instruction could
-leave an unrecoverable working order. This module patches the server's imported
-``monitor_fill`` symbol with a synchronous wrapper that commits recovery
-metadata before returning the coroutine to ``create_task``.
+The pre-submit journal now records intent before the network call. This wrapper
+persists the final routed broker and reconciliation context synchronously before
+``asyncio.create_task`` receives the monitor coroutine.
 """
 from __future__ import annotations
 
+from dataclasses import replace
 import logging
 from typing import Any
 
@@ -53,6 +51,13 @@ def _persist_recovery_context_sync(order_context) -> None:
         )
 
 
+def _route_context(order_context, broker_client):
+    routed_broker = str(getattr(broker_client, "routed_broker_id", "") or "")
+    if not routed_broker or routed_broker == order_context.broker:
+        return order_context
+    return replace(order_context, broker=routed_broker)
+
+
 def monitor_fill_with_pre_task_persistence(*args, **kwargs):
     order_context = kwargs.get("order_context")
     if order_context is None and args:
@@ -60,13 +65,21 @@ def monitor_fill_with_pre_task_persistence(*args, **kwargs):
     if order_context is None:
         return _original_monitor_fill(*args, **kwargs)
 
+    broker_client = kwargs.get("broker_client")
+    if broker_client is None and len(args) > 1:
+        broker_client = args[1]
+    order_context = _route_context(order_context, broker_client)
+
+    if "order_context" in kwargs:
+        kwargs = {**kwargs, "order_context": order_context}
+    elif args:
+        args = (order_context, *args[1:])
+
     try:
         _persist_recovery_context_sync(order_context)
     except Exception as exc:
-        # The broker order already exists, so monitoring it is more important
-        # than failing the task creation. The coroutine repeats the persistence
-        # asynchronously as its first instruction and logs any continuing DB
-        # failure through the normal monitor path.
+        # The pre-submit journal still preserves the broker-capable intent. The
+        # monitor repeats database persistence asynchronously as its first step.
         logger.critical(
             "Could not synchronously persist recovery context for broker order %s: %s",
             order_context.order_id,
