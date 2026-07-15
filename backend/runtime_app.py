@@ -11,6 +11,7 @@ try:
     from .fill_monitor import resume_pending_fill_monitors, stop_fill_monitors
     from .routes import live_operations_router
     from .routes.live_broker_operations import router as live_broker_operations_router, set_db as set_live_broker_operations_db
+    from .routes.notification_correlation_settings import router as notification_correlation_router, set_db as set_notification_correlation_db
     from . import live_broker_clients_patch as _live_broker_clients_patch  # noqa: F401
     from .live_order_execution_runtime import recover_journalled_orders
     from . import live_order_execution_runtime as _live_order_execution_runtime  # noqa: F401
@@ -29,6 +30,7 @@ except ImportError:  # direct backend path execution
     from fill_monitor import resume_pending_fill_monitors, stop_fill_monitors
     from routes import live_operations_router
     from routes.live_broker_operations import router as live_broker_operations_router, set_db as set_live_broker_operations_db
+    from routes.notification_correlation_settings import router as notification_correlation_router, set_db as set_notification_correlation_db
     import live_broker_clients_patch as _live_broker_clients_patch  # noqa: F401
     from live_order_execution_runtime import recover_journalled_orders
     import live_order_execution_runtime as _live_order_execution_runtime  # noqa: F401
@@ -48,6 +50,8 @@ if not any(getattr(route, "path", "") == "/api/live-operations" for route in app
     app.include_router(live_operations_router, prefix="/api")
 if not any(getattr(route, "path", "") == "/api/live-brokers" for route in app.routes):
     app.include_router(live_broker_operations_router, prefix="/api")
+if not any(getattr(route, "path", "") == "/api/notification-settings" for route in app.routes):
+    app.include_router(notification_correlation_router, prefix="/api")
 
 logger = logging.getLogger(__name__)
 _original_lifespan = app.router.lifespan_context
@@ -69,6 +73,7 @@ async def _live_recovery_lifespan(application):
         async with _original_lifespan(application):
             db = get_db()
             set_live_broker_operations_db(db)
+            set_notification_correlation_db(db)
             settings = await db.get_settings()
 
             inventory = await reconcile_broker_inventory(db, settings)
