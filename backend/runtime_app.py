@@ -12,6 +12,7 @@ try:
     from . import live_broker_clients_patch as _live_broker_clients_patch  # noqa: F401
     from .live_order_execution_runtime import recover_journalled_orders
     from . import live_order_execution_runtime as _live_order_execution_runtime  # noqa: F401
+    from . import journal_fill_lifecycle_patch as _journal_fill_lifecycle_patch  # noqa: F401
     from . import pre_task_order_persistence as _pre_task_order_persistence  # noqa: F401
     from . import live_trade_state_patch as _live_trade_state_patch  # noqa: F401
 except ImportError:  # direct backend path execution
@@ -21,6 +22,7 @@ except ImportError:  # direct backend path execution
     import live_broker_clients_patch as _live_broker_clients_patch  # noqa: F401
     from live_order_execution_runtime import recover_journalled_orders
     import live_order_execution_runtime as _live_order_execution_runtime  # noqa: F401
+    import journal_fill_lifecycle_patch as _journal_fill_lifecycle_patch  # noqa: F401
     import pre_task_order_persistence as _pre_task_order_persistence  # noqa: F401
     import live_trade_state_patch as _live_trade_state_patch  # noqa: F401
 
