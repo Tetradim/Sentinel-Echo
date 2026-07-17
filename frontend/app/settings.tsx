@@ -86,6 +86,12 @@ interface AlertPatterns {
   ignore_patterns: string[]; case_sensitive: boolean;
 }
 
+interface GeneralApiSettings {
+  enabled: boolean; base_url: string; run_id: string; participant_id: string;
+  subscribed_symbols: string[]; timeout_seconds: number; starting_cash: number;
+  commission_per_order: number; slippage_bps: number; token_configured: boolean;
+}
+
 // ── Reusable components ────────────────────────────────────────────────────────
 function SectionCard({ children, accent = '#0ea5e9' }: { children: React.ReactNode; accent?: string }) {
   return <View style={[s.card, { borderLeftColor: accent, borderLeftWidth: 3 }]}>{children}</View>;
@@ -264,6 +270,12 @@ export default function SettingsScreen() {
   // Broker state
   const [brokerChecking, setBrokerChecking] = useState(false);
 
+  // Sentinel Archive General API
+  const [generalApi, setGeneralApi] = useState<GeneralApiSettings | null>(null);
+  const [generalApiToken, setGeneralApiToken] = useState('');
+  const [generalApiBusy, setGeneralApiBusy] = useState(false);
+  const [generalApiResult, setGeneralApiResult] = useState('Not connected.');
+
   // Alert patterns state
   const [showPatterns, setShowPatterns]       = useState(false);
   const [patternType, setPatternType]         = useState('buy_patterns');
@@ -327,6 +339,52 @@ export default function SettingsScreen() {
   }, []);
 
   useEffect(() => { fetchAll(); }, [fetchAll]);
+
+  useEffect(() => {
+    if (DEMO_MODE) return;
+    api.get(`${BACKEND_URL}/api/general-api`)
+      .then(response => setGeneralApi(response.data.settings))
+      .catch(error => setGeneralApiResult(error.response?.data?.detail || error.message));
+  }, []);
+
+  const updateGeneralApi = (patch: Partial<GeneralApiSettings>) => {
+    setGeneralApi(current => current ? { ...current, ...patch } : current);
+  };
+
+  const saveGeneralApi = async () => {
+    if (!generalApi) return false;
+    const { token_configured: _redacted, ...visible } = generalApi;
+    try {
+      const response = await api.put(`${BACKEND_URL}/api/general-api`, {
+        ...visible,
+        ...(generalApiToken ? { api_token: generalApiToken } : {}),
+      });
+      setGeneralApi(response.data.settings);
+      setGeneralApiToken('');
+      setGeneralApiResult('General API settings saved.');
+      return true;
+    } catch (error: any) {
+      setGeneralApiResult(error.response?.data?.detail || error.message);
+      return false;
+    }
+  };
+
+  const runGeneralApiAction = async (action: 'test' | 'register') => {
+    setGeneralApiBusy(true);
+    try {
+      if (!await saveGeneralApi()) return;
+      const response = await api.post(`${BACKEND_URL}/api/general-api/${action}`);
+      setGeneralApiResult(action === 'register'
+        ? `Registered ${response.data.participant?.participant_id || generalApi?.participant_id}; token stored privately.`
+        : `Connected to ${response.data.contract || 'archive.general.v1'}. Participant authentication: ${response.data.participant_authenticated ? 'yes' : 'no'}.`);
+      const refreshed = await api.get(`${BACKEND_URL}/api/general-api`);
+      setGeneralApi(refreshed.data.settings);
+    } catch (error: any) {
+      setGeneralApiResult(error.response?.data?.detail || error.message);
+    } finally {
+      setGeneralApiBusy(false);
+    }
+  };
 
   const update = (key: keyof Settings, value: any) => {
     setSettings(prev => prev ? { ...prev, [key]: value } : prev);
@@ -548,6 +606,35 @@ export default function SettingsScreen() {
 
         <ScrollView style={s.scroll} showsVerticalScrollIndicator={false}>
           {settingsDigest && <SettingsBriefing digest={settingsDigest} />}
+
+          {/* ═══ SENTINEL ARCHIVE GENERAL API ═══ */}
+          <SectionCard accent="#06b6d4">
+            <SectionTitle icon="git-network" label="General API" color="#06b6d4" sub="Sentinel Archive replay broker" />
+            <InfoBox text="Archive releases recorded market data and records broker activity. Echo alone parses alerts and decides whether to trade." color="#06b6d4" />
+            {generalApi ? (
+              <>
+                <SwitchRow label="Enable General API" sub="Connect Echo to an Archive multi-bot replay run" value={generalApi.enabled} onChange={enabled => updateGeneralApi({ enabled })} accent="#06b6d4" />
+                <FieldLabel label="Archive Base URL" />
+                <Input value={generalApi.base_url} onChange={base_url => updateGeneralApi({ base_url })} placeholder="http://127.0.0.1:9200/api/general" />
+                <FieldLabel label="Replay Run ID" />
+                <Input value={generalApi.run_id} onChange={run_id => updateGeneralApi({ run_id })} placeholder="Run ID created in Sentinel Archive" />
+                <FieldLabel label="Participant ID" />
+                <Input value={generalApi.participant_id} onChange={participant_id => updateGeneralApi({ participant_id })} placeholder="sentinel-echo" />
+                <FieldLabel label="Subscribed Symbols" hint="Comma-separated option underlyings or equities" />
+                <Input value={generalApi.subscribed_symbols.join(', ')} onChange={value => updateGeneralApi({ subscribed_symbols: value.split(',').map(symbol => symbol.trim().toUpperCase()).filter(Boolean) })} placeholder="SPY, QQQ, TSLA" />
+                <FieldLabel label="Participant Token" hint={generalApi.token_configured ? 'A token is stored privately; enter a value only to replace it.' : 'Register with a run to receive a token.'} />
+                <Input value={generalApiToken} onChange={setGeneralApiToken} placeholder={generalApi.token_configured ? '•••••••• (saved)' : 'Paste token or register'} secure />
+                <View style={s.btnRow}>
+                  <TouchableOpacity style={[s.actionBtn, { backgroundColor: '#164e63', flex: 1 }]} disabled={generalApiBusy} onPress={async () => {
+                    setGeneralApiBusy(true); await saveGeneralApi(); setGeneralApiBusy(false);
+                  }}><Text style={s.actionBtnText}>Save</Text></TouchableOpacity>
+                  <TouchableOpacity style={[s.actionBtn, { backgroundColor: '#0e7490', flex: 1 }]} disabled={generalApiBusy} onPress={() => runGeneralApiAction('test')}><Text style={s.actionBtnText}>Test</Text></TouchableOpacity>
+                  <TouchableOpacity style={[s.actionBtn, { backgroundColor: '#0891b2', flex: 1, opacity: generalApi.run_id ? 1 : 0.45 }]} disabled={generalApiBusy || !generalApi.run_id} onPress={() => runGeneralApiAction('register')}><Text style={s.actionBtnText}>Register</Text></TouchableOpacity>
+                </View>
+              </>
+            ) : <Text style={s.resultMsg}>{DEMO_MODE ? 'General API is unavailable in demo mode.' : 'Loading General API settings…'}</Text>}
+            <Text style={[s.resultMsg, { marginTop: 10 }]}>{generalApiResult}</Text>
+          </SectionCard>
 
           {/* ═══ DISCORD ═══ */}
           <SectionCard accent="#5865F2">

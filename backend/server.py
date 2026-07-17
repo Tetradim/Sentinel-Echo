@@ -13,6 +13,7 @@ import logging
 import threading
 from datetime import datetime, timezone
 from typing import List
+from pathlib import Path
 import discord
 from discord.ext import commands
 import asyncio
@@ -52,6 +53,7 @@ from routes import (
     analytics_router,
     init_routes, update_bot_status, set_discord_bot, set_edge_sr_executor
 )
+from archive_general_api import GeneralApiConfigStore, GeneralApiDefaults, create_fastapi_router
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -705,6 +707,15 @@ api_router.include_router(profiles_router)
 api_router.include_router(trading_router)
 api_router.include_router(edge_sr_router)
 api_router.include_router(analytics_router)
+general_api_store = GeneralApiConfigStore(
+    Path(__file__).parent / "data" / "general_api.json",
+    GeneralApiDefaults(
+        bot_id="sentinel-echo",
+        display_name="Sentinel Echo",
+        roles=("trader", "observer"),
+    ),
+)
+api_router.include_router(create_fastapi_router(general_api_store))
 
 app.include_router(api_router)
 
