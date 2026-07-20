@@ -5,6 +5,10 @@ from datetime import datetime, timezone
 import inspect
 from typing import Any, Callable, Optional
 
+from contextual_contract_resolution import (
+    parse_contextual_entry,
+    resolve_contextual_expiration,
+)
 from discord_alert_text import build_discord_alert_text
 from models import Alert
 from source_config import resolve_source_config, source_skip_reason
@@ -28,6 +32,7 @@ class DiscordIngestionDeps:
     is_duplicate_alert: Callable[[dict], bool] = lambda parsed: False
     increment_alerts_processed: Optional[Callable[[], Any]] = None
     sr_pre_entry_gate: Optional[Callable[[Alert, dict, dict], Any]] = None
+    resolve_contract_context: Optional[Callable[..., Any]] = None
 
 
 async def handle_discord_message(
@@ -52,6 +57,8 @@ async def handle_discord_message(
         created_at=getattr(message, "created_at", None),
     )
     if not parsed:
+        parsed = parse_contextual_entry(alert_text)
+    if not parsed:
         return DiscordIngestionResult(skip_reason="unparsed")
 
     settings = deps.load_settings() or {}
@@ -60,6 +67,21 @@ async def handle_discord_message(
         channel_id=channel_id,
         channel_name=getattr(channel, "name", ""),
     )
+
+    if parsed.get("_requires_position_context"):
+        parsed, context_error = await resolve_contextual_expiration(
+            parsed,
+            resolver=getattr(deps, "resolve_contract_context", None),
+            include_simulated=bool(
+                settings.get("simulation_mode", True) or source_config.get("paper_only")
+            ),
+        )
+        if context_error:
+            return DiscordIngestionResult(
+                parsed=parsed,
+                skip_reason=f"position context unresolved: {context_error}",
+            )
+
     skip_reason = source_skip_reason(parsed, source_config)
     if skip_reason:
         return DiscordIngestionResult(parsed=parsed, skip_reason=skip_reason)
