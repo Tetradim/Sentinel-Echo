@@ -32,6 +32,7 @@ jobs:
         env:
           PYTHONPATH: backend
           USE_SQLITE: 'true'
+          ECHO_BEHAVIOR_LOG_PATH: echo-discord-trade-behavior.json
         shell: bash
         run: |
           set +e
@@ -47,6 +48,7 @@ jobs:
             backend/tests/test_broker_inventory_reconciliation.py \
             backend/tests/test_explicit_exit_continuation.py \
             backend/tests/test_frontend_live_operations_wiring.py \
+            backend/tests/test_echo_discord_trade_behavior.py \
             -q --tb=short 2>&1 | tee echo-live-readiness-tests.txt
           status=${PIPESTATUS[0]}
           echo "status=$status" >> "$GITHUB_OUTPUT"
@@ -55,7 +57,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: echo-live-readiness-test-report
-          path: echo-live-readiness-tests.txt
+          path: |
+            echo-live-readiness-tests.txt
+            echo-discord-trade-behavior.json
           if-no-files-found: error
           retention-days: 14
       - name: Fail when tests failed

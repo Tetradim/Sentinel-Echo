@@ -17,7 +17,15 @@ def build_exit_plans(
     *,
     include_simulated: bool = True,
 ) -> List[Dict[str, Any]]:
-    """Build sell plans for open positions matching an exit alert."""
+    """Build aggregate sell plans for open positions matching an exit alert.
+
+    The exit percentage is applied once to the total matching exposure, then
+    allocated across position lots in the input order. This prevents a small
+    partial-exit alert from selling the minimum one contract from every lot.
+
+    When an exit omits expiration and multiple expirations match, the alert is
+    blocked rather than guessed.
+    """
     if not is_exit_alert(parsed_alert):
         return []
 
@@ -31,12 +39,30 @@ def build_exit_plans(
     if not matched:
         return []
 
+    if not parsed_alert.get("expiration"):
+        expiration_keys = {_date_key(position.get("expiration")) for position in matched}
+        expiration_keys.discard("")
+        if len(expiration_keys) > 1:
+            raise ValueError(
+                f"Exit alert for {parsed_alert.get('ticker')} is ambiguous across "
+                f"multiple expirations: {sorted(expiration_keys)}"
+            )
+
+    remaining_by_position = [
+        max(0, int(position.get("remaining_quantity") or position.get("quantity") or 0))
+        for position in matched
+    ]
+    total_remaining = sum(remaining_by_position)
+    target_quantity = _exit_quantity(total_remaining, parsed_alert.get("sell_percentage"))
+    if target_quantity <= 0:
+        return []
+
     plans = []
-    for position in matched:
-        quantity = _exit_quantity(
-            int(position.get("remaining_quantity") or position.get("quantity") or 0),
-            parsed_alert.get("sell_percentage"),
-        )
+    quantity_left = target_quantity
+    for position, remaining in zip(matched, remaining_by_position):
+        if quantity_left <= 0:
+            break
+        quantity = min(remaining, quantity_left)
         if quantity <= 0:
             continue
 
@@ -55,6 +81,8 @@ def build_exit_plans(
                 "percentage": float(parsed_alert.get("sell_percentage") or 100.0),
             }
         )
+        quantity_left -= quantity
+
     return plans
 
 

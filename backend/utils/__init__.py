@@ -1,5 +1,6 @@
 import logging
 import re
+from datetime import datetime
 from typing import Optional
 
 logger = logging.getLogger(__name__)
@@ -13,8 +14,16 @@ BUY_KEYWORDS = (
     "BUY",
     "ENTRY",
     "ENTERING",
+    "ENTERED",
     "LONG",
     "OPENING",
+    "RE-ENTER",
+    "RE-ENTERING",
+    "RE-ENTERED",
+    "RE-ENTRY",
+    "RE-ADD",
+    "RE-ADDING",
+    "RE-ADDED",
 )
 SELL_KEYWORDS = (
     "STC",
@@ -25,7 +34,6 @@ SELL_KEYWORDS = (
     "TRIM",
     "CLOSE",
     "EXIT",
-    "OUT",
 )
 AVG_DOWN_KEYWORDS = (
     "AVERAGE DOWN",
@@ -41,50 +49,176 @@ OPTION_RE = re.compile(
     re.IGNORECASE,
 )
 EXPIRATION_RE = re.compile(r"\b(?P<expiration>\d{1,2}/\d{1,2}(?:/\d{2,4})?)\b")
+ZERO_DTE_RE = re.compile(r"\b0DTE\b", re.IGNORECASE)
 PRICE_PATTERNS = (
-    re.compile(r"@\s*\$?(?P<price>\d+(?:\.\d+)?)", re.IGNORECASE),
-    re.compile(r"\b(?:ENTRY|PRICE|AT|FILL)\s*:?\s*\$?(?P<price>\d+(?:\.\d+)?)", re.IGNORECASE),
+    re.compile(r"@\s*(?:A\s+)?\$?(?P<price>\d+(?:\.\d+)?)", re.IGNORECASE),
+    # Handle shorthand option premiums before any label-based scan so a phrase
+    # such as ``AT A $.20 FILL`` cannot accidentally capture a later target.
     re.compile(r"\$\.(?P<cents>\d{1,2})\b", re.IGNORECASE),
+    re.compile(
+        r"\b(?:ENTRY|PRICE|AT|FILL|IN)\s*:?\s*(?:A\s+)?@\s*\$?"
+        r"(?P<price>\d+(?:\.\d+)?)",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"\b(?:ENTRY|PRICE|AT|FILL|IN)\s*:?\s*(?:A\s+)?\$?"
+        r"(?P<price>\d+(?:\.\d+)?)",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"(?<![\d.])\$?(?P<price>\d+(?:\.\d+)?)\s*(?:ENTRY|FILL)\b",
+        re.IGNORECASE,
+    ),
 )
 ACTION_TICKER_RE = re.compile(
-    r"\b(?:BTO|STC|BUY|BOUGHT|SELL|SOLD|TRIM|CLOSE|EXIT|LONG|ENTRY)\s+\$?(?P<ticker>[A-Z]{1,6})\b",
+    r"\b(?:BTO|BUY\s+TO\s+OPEN|BUYING|BOUGHT|BUY|ENTERING|ENTERED|LONG|OPENING|"
+    r"RE[-\s]?ENTER(?:ING|ED)?|RE[-\s]?ENTRY|RE[-\s]?ADD(?:ING|ED)?)\s+"
+    r"\$?(?P<ticker>[A-Z]{1,6})\b",
     re.IGNORECASE,
 )
 CASH_TICKER_RE = re.compile(r"\$(?P<ticker>[A-Z]{1,6})\b")
 
+WATCH_BLOCK_RE = re.compile(
+    r"\b(?:ENTRY\s+NOT\s+VALID|NO\s+ENTRY(?:\s+YET)?|ON\s+WATCH|"
+    r"WATCHING\s+FOR|POSSIBLE\s+RELOAD)\b",
+    re.IGNORECASE,
+)
+LEADING_BUY_RE = re.compile(
+    r"^\s*(?:BTO|BUY\s+TO\s+OPEN|BUYING|BOUGHT|BUY|ENTERING|ENTERED|LONG|OPENING|"
+    r"RE[-\s]?ENTER(?:ING|ED)?|RE[-\s]?ENTRY|RE[-\s]?ADD(?:ING|ED)?)\b",
+    re.IGNORECASE,
+)
+LEADING_AVG_DOWN_RE = re.compile(
+    r"^\s*(?:AVERAGE\s+DOWN|AVG\s+DOWN|AVERAGING|ADD\s+TO|ADDING)\b",
+    re.IGNORECASE,
+)
+STRUCTURED_ENTRY_RE = re.compile(r"^\s*\$[A-Z]{1,6}\b", re.IGNORECASE)
+EXIT_CLAUSE_RE = re.compile(
+    r"\b(?P<action>STC|SELL\s+TO\s+CLOSE|SELLING|SOLD|SELL|TRIMMING|TRIM|"
+    r"CLOSING|CLOSED|CLOSE|EXITING|EXITED|EXIT)\b"
+    r"\s+(?:(?P<size>\d{1,3}\s*%|ALL|MOST|HALF|QUARTER|1/2|1/4)\s+)?"
+    r"(?P<ticker>\$?[A-Za-z]{1,6})\b",
+    re.IGNORECASE,
+)
+EXIT_TICKER_STOPWORDS = {
+    "OFF",
+    "NOW",
+    "AT",
+    "HERE",
+    "THERE",
+    "THOSE",
+    "THAT",
+    "THIS",
+    "OTHER",
+    "OTHERS",
+    "MOST",
+    "ALL",
+    "SLOWLY",
+    "OUT",
+    "IN",
+    "ABOVE",
+    "BELOW",
+    "AROUND",
+    "BASED",
+    "THE",
+    "TO",
+    "FOR",
+    "WHILE",
+    "AS",
+    "AND",
+    "BEFORE",
+    "NEAR",
+    "GAPS",
+    "FULLY",
+    "ZONE",
+    "IT",
+    "ON",
+    "UP",
+    "DOWN",
+    "CALLS",
+    "PUTS",
+    "POSITION",
+    "POSITIONS",
+}
 
-def parse_alert(message: str) -> Optional[dict]:
-    """Parse a Discord options alert into a normalized trade signal."""
+
+def parse_alert(message: str, created_at=None) -> Optional[dict]:
+    """Parse a Discord options alert into a normalized trade signal.
+
+    ``created_at`` is optional and is used only to resolve 0DTE contracts to the
+    message's calendar date. Discord supplies an aware datetime; tests and
+    preview callers may also pass an ISO-8601 string.
+    """
     try:
-        text = " ".join(message.strip().split())
+        raw_text = str(message or "").strip()
+        text = " ".join(raw_text.split())
+        if not text:
+            return None
 
-        if _contains_keyword(text, AVG_DOWN_KEYWORDS):
-            return _parse_contract_alert(text, "average_down", require_price=False)
+        is_structured_entry = bool(STRUCTURED_ENTRY_RE.search(raw_text)) and bool(
+            _keyword_regex("ENTRY").search(raw_text)
+        )
+        is_leading_buy = bool(LEADING_BUY_RE.search(raw_text))
 
-        if _contains_keyword(text, SELL_KEYWORDS):
-            return _parse_sell_alert(text)
+        # A concrete entry at the start of the alert takes precedence over
+        # narrative words such as "sell", "sold off", or "avg down" in the
+        # analyst's trade notes.
+        if (is_structured_entry or is_leading_buy) and not WATCH_BLOCK_RE.search(raw_text):
+            parsed = _parse_contract_alert(
+                text,
+                "buy",
+                require_price=True,
+                created_at=created_at,
+            )
+            if parsed:
+                return parsed
 
-        if _contains_keyword(text, BUY_KEYWORDS):
-            return _parse_contract_alert(text, "buy", require_price=True)
+        # Average-down actions must be explicit at the start of the message.
+        # Merely mentioning DCA/AVG DOWN in an entry's risk notes is not a new
+        # average-down order.
+        if LEADING_AVG_DOWN_RE.search(raw_text):
+            parsed = _parse_contract_alert(
+                text,
+                "average_down",
+                require_price=False,
+                created_at=created_at,
+            )
+            if parsed:
+                return parsed
 
-        return _parse_contract_alert(text, "buy", require_price=True)
+        exit_clause = _find_explicit_exit_clause(raw_text)
+        if exit_clause:
+            match, ticker, clause_text = exit_clause
+            parsed = _parse_contract_alert(
+                clause_text,
+                "sell",
+                require_price=False,
+                require_contract=False,
+                ticker_override=ticker,
+                created_at=created_at,
+            )
+            if parsed:
+                action = match.group("action").upper()
+                if "TRIM" in action:
+                    parsed["alert_type"] = "trim"
+                elif "CLOSE" in action or "EXIT" in action:
+                    parsed["alert_type"] = "close"
+                parsed["sell_percentage"] = _extract_sell_percentage(clause_text)
+                return parsed
+
+        # Conservative fallback for compact entry alerts that contain a full
+        # contract, expiration, and executable price but no standard action.
+        if not WATCH_BLOCK_RE.search(raw_text):
+            return _parse_contract_alert(
+                text,
+                "buy",
+                require_price=True,
+                created_at=created_at,
+            )
+        return None
     except Exception as exc:
         logger.error("Error parsing alert: %s", exc)
         return None
-
-
-def _parse_sell_alert(message: str) -> Optional[dict]:
-    result = _parse_contract_alert(message, "sell", require_price=False, require_contract=False)
-    if not result:
-        return None
-
-    if _contains_keyword(message, ("TRIM", "TRIMMING")):
-        result["alert_type"] = "trim"
-    elif _contains_keyword(message, ("CLOSE", "CLOSING", "EXIT", "EXITING")):
-        result["alert_type"] = "close"
-
-    result["sell_percentage"] = _extract_sell_percentage(message)
-    return result
 
 
 def _parse_contract_alert(
@@ -93,10 +227,12 @@ def _parse_contract_alert(
     *,
     require_price: bool,
     require_contract: bool = True,
+    ticker_override: Optional[str] = None,
+    created_at=None,
 ) -> Optional[dict]:
-    ticker = _extract_ticker(message)
+    ticker = ticker_override or _extract_ticker(message)
     strike, option_type = _extract_option_contract(message)
-    expiration = _extract_expiration(message)
+    expiration = _extract_expiration(message, created_at=created_at)
     price = _extract_price(message)
 
     if not ticker:
@@ -117,6 +253,27 @@ def _parse_contract_alert(
     }
 
 
+def _find_explicit_exit_clause(message: str):
+    for match in EXIT_CLAUSE_RE.finditer(message):
+        raw_ticker = match.group("ticker")
+        ticker = raw_ticker.lstrip("$")
+        if not raw_ticker.startswith("$") and ticker != ticker.upper():
+            continue
+
+        clause_text = message[match.start():]
+        contract_match = OPTION_RE.search(clause_text)
+        leading_action = not message[: match.start()].strip(" \t\n\r([{.-")
+
+        # Common prose words are never tickers unless the same concrete exit
+        # clause also names an option contract. This preserves valid symbols
+        # such as NOW while rejecting "sold off", "sell at", and "trim slowly".
+        if ticker.upper() in EXIT_TICKER_STOPWORDS and not contract_match:
+            continue
+        if contract_match or leading_action:
+            return match, ticker.upper(), clause_text
+    return None
+
+
 def _extract_ticker(message: str) -> Optional[str]:
     cash_match = CASH_TICKER_RE.search(message)
     if cash_match:
@@ -126,14 +283,13 @@ def _extract_ticker(message: str) -> Optional[str]:
     if action_match:
         return action_match.group("ticker").upper()
 
-    # Fallback: use the token before the first option contract.
     option_match = OPTION_RE.search(message)
     if option_match:
         prefix = message[: option_match.start()].strip()
         tokens = re.findall(r"\b[A-Z]{1,6}\b", prefix.upper())
         ignored = set(BUY_KEYWORDS + SELL_KEYWORDS + AVG_DOWN_KEYWORDS)
         for token in reversed(tokens):
-            if token not in ignored:
+            if token not in ignored and token not in EXIT_TICKER_STOPWORDS:
                 return token
     return None
 
@@ -149,9 +305,38 @@ def _extract_option_contract(message: str) -> tuple[Optional[float], Optional[st
     return float(strike), option_type
 
 
-def _extract_expiration(message: str) -> Optional[str]:
+def _extract_expiration(message: str, *, created_at=None) -> Optional[str]:
     match = EXPIRATION_RE.search(message)
-    return match.group("expiration") if match else None
+    if match:
+        return match.group("expiration")
+    if not ZERO_DTE_RE.search(message):
+        return None
+
+    timestamp = _coerce_datetime(created_at)
+    if timestamp is None:
+        return None
+    return f"{timestamp.month}/{timestamp.day}/{timestamp.year}"
+
+
+def _coerce_datetime(value) -> Optional[datetime]:
+    if isinstance(value, datetime):
+        return value
+    if isinstance(value, str) and value.strip():
+        raw = value.strip()
+        try:
+            return datetime.fromisoformat(raw.replace("Z", "+00:00"))
+        except ValueError:
+            pass
+        for fmt in (
+            "%m/%d/%Y %I:%M %p",
+            "%m/%d/%Y %H:%M",
+            "%m/%d/%Y",
+        ):
+            try:
+                return datetime.strptime(raw, fmt)
+            except ValueError:
+                continue
+    return None
 
 
 def _extract_price(message: str) -> Optional[float]:
@@ -170,7 +355,7 @@ def _extract_sell_percentage(message: str) -> float:
     if _contains_keyword(message, ("ALL", "CLOSE", "CLOSING", "EXIT", "EXITING")):
         return 100.0
 
-    match = re.search(r"\b(?:SELL|TRIM|STC)?\s*(\d{1,3})\s*%", upper)
+    match = re.search(r"\b(?:SELL|TRIM|STC|SOLD)?\s*(\d{1,3})\s*%", upper)
     if match:
         return min(100.0, max(1.0, float(match.group(1))))
 
