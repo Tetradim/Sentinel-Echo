@@ -47,7 +47,10 @@ async def handle_discord_message(
         return DiscordIngestionResult(skip_reason="channel not monitored")
 
     alert_text = build_discord_alert_text(message)
-    parsed = parse_alert(alert_text)
+    parsed = parse_alert(
+        alert_text,
+        created_at=getattr(message, "created_at", None),
+    )
     if not parsed:
         return DiscordIngestionResult(skip_reason="unparsed")
 
