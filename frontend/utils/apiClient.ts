@@ -5,8 +5,6 @@ export const API_ROUTES = {
   toggleTrading: '/api/toggle-trading',
   positions: '/api/positions',
   operatorEvents: '/api/operator/events',
-  operatorTestAlert: '/api/operator/test-alert',
-  operatorSimulateExit: '/api/operator/simulate-exit',
   liveReadiness: '/api/operator/live-readiness',
   liveArm: '/api/operator/live-arm',
   liveDisarm: '/api/operator/live-disarm',
@@ -55,14 +53,6 @@ export function checkBroker(brokerId: string) {
 
 export function getOperatorEvents(limit = 100) {
   return api.get(`${API_ROUTES.operatorEvents}?limit=${limit}`);
-}
-
-export function createOperatorTestAlert() {
-  return api.post(API_ROUTES.operatorTestAlert);
-}
-
-export function simulateOperatorExit(payload: { sell_percentage: number; exit_price: number; position_id?: string }) {
-  return api.post(API_ROUTES.operatorSimulateExit, payload);
 }
 
 export function getLiveReadiness() {

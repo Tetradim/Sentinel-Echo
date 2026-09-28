@@ -73,7 +73,7 @@ class BrokerConfig(BaseModel):
     # Alpaca specific
     alpaca_api_key: str = ""
     alpaca_secret_key: str = ""
-    alpaca_paper: bool = True
+    alpaca_paper: bool = False
     
     # Tradier specific
     tradier_account_id: str = ""
@@ -128,7 +128,7 @@ class TradingSettings(BaseModel):
     
     # Auto-trading
     auto_trading_enabled: bool = True
-    simulation_mode: bool = True
+    simulation_mode: bool = False
     
     # Risk
     max_open_positions: int = 10
@@ -352,7 +352,7 @@ class BotStatus(BaseModel):
     
     # Trading
     auto_trading_enabled: bool = True
-    simulation_mode: bool = True
+    simulation_mode: bool = False
     
     # Statistics
     alerts_processed: int = 0

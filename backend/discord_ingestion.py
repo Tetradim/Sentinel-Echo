@@ -9,7 +9,7 @@ from discord_alert_text import build_discord_alert_text
 from models import Alert
 from settings_flags import coerce_bool
 from source_config import resolve_source_config, source_skip_reason
-from utils import parse_alert
+from utils import normalize_parsed_alert, parse_alert
 
 
 EXIT_ALERT_TYPES = {"sell", "trim", "close"}
@@ -33,6 +33,7 @@ class DiscordIngestionDeps:
     update_status: Callable[[str, Any], Any]
     is_duplicate_alert: Callable[[dict], bool] = lambda parsed: False
     increment_alerts_processed: Optional[Callable[[], Any]] = None
+    card_database: Any = None
 
 
 async def handle_discord_message(
@@ -41,6 +42,7 @@ async def handle_discord_message(
     channel_ids: list[str],
     deps: DiscordIngestionDeps,
     bot_user=None,
+    parsed_override: Optional[dict] = None,
 ) -> DiscordIngestionResult:
     """Parse and persist a Discord alert, then request trading when settings allow."""
     if _same_user(getattr(message, "author", None), bot_user):
@@ -59,7 +61,11 @@ async def handle_discord_message(
         channel_name=getattr(channel, "name", ""),
     )
     metadata = _message_metadata(message, source_config)
-    parsed = parse_alert(alert_text)
+    parsed = (
+        dict(parsed_override)
+        if isinstance(parsed_override, dict)
+        else normalize_parsed_alert(parse_alert(alert_text))
+    )
     if not parsed:
         alert = _build_alert(
             parsed=None,
@@ -77,7 +83,14 @@ async def handle_discord_message(
             trade_request_reason="unparsed",
         )
 
-    skip_reason = source_skip_reason(parsed, source_config)
+    card_reason = ''
+    if parsed.get('_card'):
+        from card_ingestion import prepare_card
+
+        parsed, card_reason = await prepare_card(
+            deps.card_database, parsed, channel_id, str(getattr(message, 'id', '') or ''), settings,
+        )
+    skip_reason = card_reason or source_skip_reason(parsed, source_config)
     if skip_reason:
         alert = _build_alert(
             parsed=parsed,
@@ -96,12 +109,10 @@ async def handle_discord_message(
             trade_request_reason=skip_reason,
         )
 
-    if source_config.get("paper_only"):
-        parsed["_force_simulation"] = True
     parsed["_source_config"] = source_config
 
     duplicate_check = getattr(deps, "is_duplicate_alert", lambda alert: False)
-    if duplicate_check(parsed):
+    if not parsed.get('_card') and duplicate_check(parsed):
         return DiscordIngestionResult(parsed=parsed, skip_reason="duplicate alert", trade_request_reason="duplicate alert")
 
     if _is_exit_alert(parsed) and not _sell_alert_listening_enabled(settings):
@@ -131,10 +142,7 @@ async def handle_discord_message(
     trade_requested = False
     skip_reason = ""
     trade_request_reason = ""
-    if source_config.get("require_manual_confirm"):
-        skip_reason = "manual confirmation required"
-        trade_request_reason = "manual confirmation required"
-    elif not _auto_trading_enabled(settings):
+    if not _auto_trading_enabled(settings):
         skip_reason = _trade_request_disabled_reason(settings)
         trade_request_reason = skip_reason
     else:
@@ -147,11 +155,14 @@ async def handle_discord_message(
         skip_reason=skip_reason,
         trade_request_reason=trade_request_reason,
     )
-    await _maybe_await(deps.insert_alert(alert))
+    if parsed.get('_card') and _auto_trading_enabled(settings):
+        alert.id = parsed['_card']['action_id']
+        if not await deps.card_database.insert_card_alert(alert.model_dump(mode='json')):
+            return DiscordIngestionResult(parsed=parsed, skip_reason='duplicate card action', trade_request_reason='duplicate card action')
+    else:
+        await _maybe_await(deps.insert_alert(alert))
 
-    if source_config.get("require_manual_confirm"):
-        pass
-    elif _auto_trading_enabled(settings):
+    if _auto_trading_enabled(settings):
         await deps.process_trade(alert, parsed)
         trade_requested = True
     else:
@@ -194,6 +205,7 @@ def _build_alert(
         skip_reason=reason or None,
         trade_request_reason=trade_request_reason or None,
         exit_trigger="sell_alert" if _is_exit_alert(parsed) else None,
+        card_action=parsed.get('_card'),
         **metadata,
     )
 

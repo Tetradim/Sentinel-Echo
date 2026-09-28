@@ -24,6 +24,11 @@ def record_alert_capture(
     observed_at: str | None,
     parsed: dict[str, Any] | None,
     ingestion_result: dict[str, Any],
+    revision_hash: str | None = None,
+    event_type: str = "created",
+    author_raw: str | None = None,
+    attachment_urls: list[str] | None = None,
+    ocr_confidence: float | None = None,
 ) -> Path:
     """Append a permanent human-readable market-day alert capture line."""
 
@@ -36,9 +41,14 @@ def record_alert_capture(
         "captured_at": captured_at.astimezone(timezone.utc).isoformat(),
         "market_day": market_day,
         "event_id": event_id,
+        "revision_hash": revision_hash,
+        "event_type": event_type,
         "channel_id": channel_id,
         "channel_name": channel_name,
         "author_name": author_name,
+        "author_raw": author_raw or author_name,
+        "attachment_urls": list(attachment_urls or []),
+        "ocr_confidence": ocr_confidence,
         "raw_text": raw_text,
         "parsed": parsed,
         "ingestion_result": ingestion_result,

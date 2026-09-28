@@ -21,6 +21,7 @@ const OPERATOR_LABELS: Record<string, string> = {
   'strike-selection': 'Strike Selection',
   'trading-settings': 'Trading',
   'risk-settings': 'Risk',
+  'runner-settings': 'Core / Runners',
   'discord-settings': 'Discord',
   'broker-config': 'Broker',
   profiles: 'Profiles',
@@ -481,6 +482,7 @@ export default function RootLayout() {
       <Stack.Screen name="positions" />
       <Stack.Screen name="operator-lab" />
       <Stack.Screen name="risk-settings" />
+      <Stack.Screen name="runner-settings" />
       <Stack.Screen name="trading-settings" />
       <Stack.Screen name="strike-selection" />
       <Stack.Screen name="discord-settings" />

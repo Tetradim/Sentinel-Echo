@@ -1,4 +1,5 @@
 """Operator lab, safety controls, reconciliation, and event log endpoints."""
+from dataclasses import replace
 from datetime import datetime, timezone
 import inspect
 from typing import Any, Optional
@@ -6,7 +7,7 @@ from typing import Any, Optional
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field
 
-from fill_reconciliation import BrokerOrderUpdate, OrderContext, reconcile_order_update
+from fill_reconciliation import BrokerOrderUpdate, OrderContext, reconcile_order_update, trade_owns_alert_status
 from live_arming import arm_live_trading, disarm_live_trading
 from live_readiness import evaluate_live_readiness, required_readiness_gate_definitions
 from order_execution import BrokerConfigurationError, close_broker_client, get_configured_broker_client
@@ -22,9 +23,9 @@ from readiness_evidence import (
 )
 from readiness_status import readiness_ready_for_live, status_flag
 from reconciliation import build_alert_chain_report, build_reconciliation_rows, summarize_reconciliation_rows
-from routes.trading import create_test_alert_records
 from settings_flags import coerce_bool
 from trailing_stop_engine import evaluate_trailing_stop as build_trailing_stop_decision
+from utils import normalize_expiration_for_order
 
 router = APIRouter(tags=["Operator"])
 
@@ -75,7 +76,7 @@ def _pending_live_broker_orders(
     *,
     active_broker: str,
 ) -> list[dict[str, str]]:
-    pending_statuses = {"pending", "submitted", "unconfirmed"}
+    pending_statuses = {"pending", "submitted", "unconfirmed", "pending_broker"}
     orders: list[dict[str, str]] = []
     seen_order_ids: set[str] = set()
     for value in trades:
@@ -88,8 +89,6 @@ def _pending_live_broker_orders(
         if coerce_bool(value.get("simulated"), default=False):
             continue
         broker = _broker_id_text(value.get("broker"))
-        if broker.endswith(":paper_shadow"):
-            continue
         if broker and broker != active_broker:
             continue
         if order_id in seen_order_ids:
@@ -142,7 +141,84 @@ def _order_context_from_trade(trade: dict[str, Any], *, order_id: str) -> OrderC
         alert_id=_clean_text(trade.get("alert_id")) or None,
         alert_price=float(trade.get("entry_price") or trade.get("exit_price") or 0.0) or None,
         simulated=coerce_bool(trade.get("simulated"), default=False),
+        sell_percentage=_optional_float(trade.get("sell_percentage")),
+        exit_trigger=_clean_text(trade.get("exit_trigger")) or None,
+        exit_allocation_target=_clean_text(trade.get("exit_allocation_target")) or None,
+        target_remaining_quantity=(
+            int(trade.get("target_remaining_quantity"))
+            if trade.get("target_remaining_quantity") is not None
+            else None
+        ),
+        update_alert_status=trade_owns_alert_status(trade),
     )
+
+
+def _optional_float(value: Any) -> float | None:
+    try:
+        return float(value) if value is not None and value != "" else None
+    except (TypeError, ValueError):
+        return None
+
+
+def _date_key(value: Any) -> str:
+    return (
+        str(normalize_expiration_for_order(value, roll_forward=False) or value or "")
+        .strip()
+        .upper()
+        .replace("-", "/")
+    )
+
+
+def _same_contract(left: dict[str, Any], right: dict[str, Any]) -> bool:
+    if _clean_text(left.get("ticker")).upper() != _clean_text(right.get("ticker")).upper():
+        return False
+    try:
+        if abs(float(left.get("strike") or 0.0) - float(right.get("strike") or 0.0)) >= 0.001:
+            return False
+    except (TypeError, ValueError):
+        return False
+    if _clean_text(left.get("option_type")).upper() != _clean_text(right.get("option_type")).upper():
+        return False
+    return _date_key(left.get("expiration")) == _date_key(right.get("expiration"))
+
+
+async def _infer_sell_position_id(trade: dict[str, Any]) -> str | None:
+    if _clean_text(trade.get("side")).upper() != "SELL":
+        return None
+    if _clean_text(trade.get("position_id")):
+        return _clean_text(trade.get("position_id"))
+    if not hasattr(db, "get_positions"):
+        return None
+
+    positions = []
+    for status in ("open", "partial"):
+        batch = await db.get_positions(status)
+        if isinstance(batch, list):
+            positions.extend(value for value in batch if isinstance(value, dict))
+
+    matches = [
+        position
+        for position in positions
+        if _same_contract(position, trade)
+        and not coerce_bool(position.get("simulated"), default=False)
+        and _broker_id_text(position.get("broker")) == _broker_id_text(trade.get("broker"))
+    ]
+    if len(matches) > 1:
+        raise ValueError(
+            f"Multiple open positions match SELL trade {_clean_text(trade.get('id'))}; position_id is required."
+        )
+    if not matches:
+        return None
+    return _clean_text(matches[0].get("id")) or None
+
+
+async def _order_context_from_trade_for_refresh(trade: dict[str, Any], *, order_id: str) -> OrderContext:
+    context = _order_context_from_trade(trade, order_id=order_id)
+    if context.side == "SELL" and not context.position_id:
+        inferred_position_id = await _infer_sell_position_id(trade)
+        if inferred_position_id:
+            context = replace(context, position_id=inferred_position_id)
+    return context
 
 
 def _broker_update_from_status(status_data: dict[str, Any]) -> BrokerOrderUpdate:
@@ -194,14 +270,13 @@ def _dedupe_cancellation_targets(targets: list[dict[str, str]]) -> list[dict[str
 
 def _is_live_open_position(position: dict[str, Any]) -> bool:
     status = _clean_text(position.get("status") or "open").lower()
-    broker = _clean_text(position.get("broker")).lower()
     if status not in {"open", "partial"}:
         return False
     if _positive_int(position.get("remaining_quantity") or position.get("quantity")) <= 0:
         return False
     if coerce_bool(position.get("simulated"), default=False):
         return False
-    return not broker.endswith(":paper_shadow")
+    return True
 
 
 def _extract_broker_order_id(value: Any) -> str:
@@ -460,56 +535,19 @@ async def record_readiness_gate_evidence(gate_key: str, request: ReadinessGateEv
 
 @router.post("/operator/test-alert")
 async def create_operator_test_alert():
-    """Create a safe simulated alert/trade/position and log the action."""
-    result = await create_test_alert_records(db, message="Operator test alert created")
-    event = await record_operator_event(
-        db,
-        "test_lab",
-        "test_alert_created",
-        "Created simulated SPY alert, trade, and position.",
-        details=result,
-    )
-    return {**result, "event_id": event["id"]}
+    """Reject removed local synthetic alert creation."""
+    raise HTTPException(status_code=410, detail="Operator test alerts have been removed; broker-routed alerts are required.")
 
 
 @router.post("/operator/simulate-exit")
 async def simulate_exit(request: OperatorSimulateExitRequest):
-    """Sell a simulated/open position from the operator lab and log the action."""
-    position_id = request.position_id
-    if not position_id:
-        positions = await db.get_positions()
-        first_open = next(
-            (
-                position for position in positions
-                if position.get("status") in {"open", "partial"} and int(position.get("remaining_quantity") or 0) > 0
-            ),
-            None,
-        )
-        if not first_open:
-            raise HTTPException(status_code=404, detail="No open position is available to sell.")
-        position_id = first_open["id"]
-
-    from routes import trading as trading_route
-
-    result = await trading_route.sell_position_from_operator(
-        position_id,
-        sell_percentage=request.sell_percentage,
-        exit_price=request.exit_price,
-        exit_trigger="operator_sell",
-    )
-    event = await record_operator_event(
-        db,
-        "test_lab",
-        "simulated_exit",
-        f"Sold {result.get('sold_quantity', 0)} contract(s) from a test position.",
-        details=result,
-    )
-    return {**result, "event_id": event["id"]}
+    """Reject removed local synthetic exit creation."""
+    raise HTTPException(status_code=410, detail="Operator simulated exits have been removed; broker-routed exits are required.")
 
 
 @router.post("/operator/trailing-stop/evaluate")
 async def evaluate_trailing_stop(request: OperatorTrailingStopRequest):
-    """Evaluate one mark against a position trailing stop and sell when it triggers in simulation."""
+    """Evaluate one mark against a position trailing stop and submit a broker SELL when it triggers."""
     position_id = request.position_id
     if not position_id:
         positions = await db.get_positions()
@@ -545,19 +583,6 @@ async def evaluate_trailing_stop(request: OperatorTrailingStopRequest):
     )
 
     if decision["triggered"]:
-        simulation_mode = coerce_bool(settings.get("simulation_mode"), default=True)
-        simulated_position = coerce_bool(position.get("simulated"), default=False)
-        if not simulation_mode and not simulated_position:
-            event = await record_operator_event(
-                db,
-                "position",
-                "trailing_stop_live_blocked",
-                f"Trailing stop triggered for position {position_id}, but live auto-sell is not supported.",
-                severity="warning",
-                details={"decision": decision},
-            )
-            return {"decision": {**decision, "action": "blocked_live"}, "sell_result": None, "event_id": event["id"]}
-
         from routes import trading as trading_route
 
         sell_result = await trading_route.sell_position_from_operator(
@@ -570,7 +595,7 @@ async def evaluate_trailing_stop(request: OperatorTrailingStopRequest):
             db,
             "position",
             "trailing_stop_triggered",
-            f"Trailing stop sold position {position_id}.",
+            f"Trailing stop submitted SELL for position {position_id}.",
             severity="warning",
             details={"decision": decision, "sell_result": sell_result},
         )
@@ -1063,11 +1088,11 @@ async def refresh_broker_orders():
             status = _clean_text(status_data.get("status") or "unknown").lower()
             row = {"trade_id": trade_id, "order_id": order_id, "status": status}
             checked.append(row)
-            if status in {"filled", "partial", "rejected", "cancelled", "canceled", "expired", "unknown", "error", "unconfirmed"}:
+            if status in {"filled", "partial", "rejected", "cancelled", "canceled", "expired", "unknown", "error", "unconfirmed", "pending_broker"}:
                 try:
                     result = await reconcile_order_update(
                         db,
-                        _order_context_from_trade(trade, order_id=order_id),
+                        await _order_context_from_trade_for_refresh(trade, order_id=order_id),
                         _broker_update_from_status(status_data),
                         settings=settings,
                     )
@@ -1111,6 +1136,52 @@ async def refresh_broker_orders():
 async def get_reconciliation(limit: int = Query(default=100, ge=1, le=500)):
     """Return alert/trade/position reconciliation rows."""
     return await build_reconciliation_rows(db, limit=limit)
+
+
+@router.get("/operator/runner-state")
+async def get_operator_runner_state():
+    """Return active runner ownership and exit telemetry without broker credentials."""
+    settings = _dict_or_empty(await db.get_settings())
+    positions = await db.get_positions() if hasattr(db, "get_positions") else []
+    open_positions = [
+        position
+        for position in (positions or [])
+        if isinstance(position, dict)
+        and _clean_text(position.get("status") or "open").lower() in {"open", "partial"}
+        and _positive_int(position.get("remaining_quantity") or position.get("quantity")) > 0
+    ]
+    rows = []
+    for position in open_positions:
+        rows.append(
+            {
+                "position_id": _clean_text(position.get("id") or position.get("_id")),
+                "ticker": _clean_text(position.get("ticker")),
+                "strike": position.get("strike"),
+                "option_type": _clean_text(position.get("option_type")),
+                "expiration": _clean_text(position.get("expiration")),
+                "remaining_quantity": _positive_int(position.get("remaining_quantity") or position.get("quantity")),
+                "original_quantity": _positive_int(position.get("core_runner_original_quantity") or position.get("original_quantity")),
+                "core_quantity": _positive_int(position.get("core_runner_core_quantity")),
+                "candidate_quantity": _positive_int(position.get("core_runner_candidate_quantity")),
+                "dedicated_quantity": _positive_int(position.get("core_runner_dedicated_quantity")),
+                "activated": coerce_bool(position.get("core_runner_activated"), default=False),
+                "activation_mfe_percent": position.get("core_runner_activation_mfe_percent"),
+                "mfe_percent": position.get("core_runner_mfe_percent"),
+                "trailing_tier_mfe_percent": position.get("core_runner_trailing_tier_mfe_percent"),
+                "trailing_percent": position.get("core_runner_trailing_percent"),
+                "trailing_floor": position.get("core_runner_trailing_floor"),
+                "trailing_confirmation_count": _positive_int(position.get("core_runner_trailing_confirmation_count")),
+                "catastrophic_confirmation_count": _positive_int(position.get("core_runner_catastrophic_confirmation_count")),
+                "suppressed_trigger": _clean_text(position.get("core_runner_suppressed_trigger")),
+            }
+        )
+    return {
+        "enabled": coerce_bool(settings.get("core_runner_enabled"), default=False),
+        "catastrophic_stop_percent": settings.get("core_runner_catastrophic_stop_percent", 65.0),
+        "trailing_enabled": coerce_bool(settings.get("core_runner_trailing_enabled"), default=True),
+        "trailing_mode": _clean_text(settings.get("core_runner_trailing_mode") or "tiered"),
+        "positions": rows,
+    }
 
 
 @router.get("/operator/alert-chains")

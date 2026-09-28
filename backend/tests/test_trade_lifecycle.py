@@ -78,6 +78,36 @@ class TradeLifecycleTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             build_exit_plans(positions, alert)
 
+    def test_market_exit_does_not_use_stale_position_price(self):
+        from trade_lifecycle import build_exit_plans
+
+        positions = [
+            {
+                "id": "pos-1",
+                "ticker": "QQQ",
+                "strike": 709.0,
+                "option_type": "CALL",
+                "expiration": "07/02/26",
+                "entry_price": 1.35,
+                "current_price": 1.35,
+                "remaining_quantity": 1,
+                "status": "open",
+            }
+        ]
+        alert = {
+            "alert_type": "sell",
+            "ticker": "QQQ",
+            "strike": 709.0,
+            "option_type": "CALL",
+            "expiration": "7/2",
+            "sell_percentage": 100.0,
+            "entry_price": None,
+            "market_price": True,
+        }
+
+        with self.assertRaises(ValueError):
+            build_exit_plans(positions, alert)
+
     def test_broad_exit_alert_blocks_when_multiple_positions_match(self):
         from trade_lifecycle import build_exit_plans
 
@@ -120,7 +150,75 @@ class TradeLifecycleTests(unittest.TestCase):
 
         self.assertIn("ambiguous exit alert", str(caught.exception))
 
-    def test_live_exit_plans_exclude_simulated_shadow_positions(self):
+    def test_broad_exit_alert_can_be_disabled_by_source_behavior(self):
+        from trade_lifecycle import build_exit_plans
+
+        positions = [
+            {
+                "id": "pos-1",
+                "ticker": "SPY",
+                "strike": 749.0,
+                "option_type": "CALL",
+                "expiration": "6/21",
+                "entry_price": 1.00,
+                "current_price": 1.20,
+                "remaining_quantity": 1,
+                "status": "open",
+            },
+        ]
+        alert = {
+            "alert_type": "sell",
+            "ticker": "SPY",
+            "strike": None,
+            "option_type": "CALL",
+            "expiration": None,
+            "sell_percentage": 100.0,
+            "entry_price": 1.20,
+            "_source_config": {
+                "allow_broad_exit_matching": False,
+            },
+        }
+
+        with self.assertRaises(ValueError) as caught:
+            build_exit_plans(positions, alert)
+
+        self.assertIn("broad exit matching disabled", str(caught.exception))
+
+    def test_missing_expiration_sell_can_be_disabled_by_source_behavior(self):
+        from trade_lifecycle import build_exit_plans
+
+        positions = [
+            {
+                "id": "pos-1",
+                "ticker": "SPY",
+                "strike": 749.0,
+                "option_type": "CALL",
+                "expiration": "6/21",
+                "entry_price": 1.00,
+                "current_price": 1.20,
+                "remaining_quantity": 1,
+                "status": "open",
+            },
+        ]
+        alert = {
+            "alert_type": "sell",
+            "ticker": "SPY",
+            "strike": 749.0,
+            "option_type": "CALL",
+            "expiration": None,
+            "sell_percentage": 100.0,
+            "entry_price": 1.20,
+            "_source_config": {
+                "allow_single_position_inferred_sell": False,
+            },
+        }
+
+        with self.assertRaises(ValueError) as caught:
+            build_exit_plans(positions, alert)
+
+        self.assertIn("single-position inferred sell disabled", str(caught.exception))
+
+    def test_exit_plans_include_matching_open_positions_without_mode_filter(self):
         from trade_lifecycle import build_exit_plans
 
         positions = [
@@ -162,11 +260,14 @@ class TradeLifecycleTests(unittest.TestCase):
         }
 
         live_plans = build_exit_plans(positions, alert, include_simulated=False)
-        simulated_plans = build_exit_plans(positions, alert, include_simulated=True)
+        all_plans = build_exit_plans(positions, alert, include_simulated=True)
 
-        self.assertEqual([plan["position"]["id"] for plan in live_plans], ["live-pos"])
         self.assertEqual(
-            [plan["position"]["id"] for plan in simulated_plans],
+            [plan["position"]["id"] for plan in live_plans],
+            ["shadow-pos", "live-pos"],
+        )
+        self.assertEqual(
+            [plan["position"]["id"] for plan in all_plans],
             ["shadow-pos", "live-pos"],
         )
 

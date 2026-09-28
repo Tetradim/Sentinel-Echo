@@ -46,15 +46,13 @@ test('summarizes a simulated guarded configuration as ready', () => {
 
   assert.equal(digest.primaryStatus.title, 'Simulation Guarded');
   assert.equal(digest.primaryStatus.tone, 'live');
-  assert.equal(digest.guardrailCount, 6);
+  assert.equal(digest.guardrailCount, 5);
   assert.equal(digest.guardrailCoveragePercent, 100);
-  assert.equal(digest.channelLabel, '2 channels');
-  assert.equal(digest.parserLabel, '10 patterns');
   assert.equal(digest.notificationLabel, 'In-app only');
   assert.deepEqual(digest.warningItems, []);
 });
 
-test('prioritizes Discord setup before parser and guardrail warnings', () => {
+test('leaves Discord and parser setup to the Discord readiness screen', () => {
   const digest = summarizeSettings({
     ...guardedSettings,
     discord_token: '',
@@ -66,17 +64,11 @@ test('prioritizes Discord setup before parser and guardrail warnings', () => {
     ignore_patterns: [],
   });
 
-  assert.equal(digest.primaryStatus.title, 'Discord Setup');
+  assert.equal(digest.primaryStatus.title, 'Guardrail Review');
   assert.equal(digest.primaryStatus.tone, 'attention');
   assert.deepEqual(
     digest.warningItems.map((item) => item.title),
-    [
-      'Discord token missing',
-      'Discord channels empty',
-      'Buy patterns empty',
-      'Ignore patterns empty',
-      'Stop loss disabled',
-    ]
+    ['Stop loss disabled']
   );
 });
 
@@ -107,8 +99,8 @@ test('treats string false settings flags as disabled', () => {
 
   assert.equal(digest.primaryStatus.title, 'Guardrail Review');
   assert.equal(digest.modeLabel, 'Manual');
-  assert.equal(digest.guardrailCount, 1);
-  assert.equal(digest.guardrailCoveragePercent, 17);
+  assert.equal(digest.guardrailCount, 0);
+  assert.equal(digest.guardrailCoveragePercent, 0);
   assert.equal(digest.notificationLabel, 'In-app only');
   assert.deepEqual(
     digest.warningItems.map((item) => item.title),
@@ -121,18 +113,14 @@ test('treats string false settings flags as disabled', () => {
   );
 });
 
-test('uses pattern review when Discord is connected but parser coverage is thin', () => {
+test('does not surface parser coverage in the general settings digest', () => {
   const digest = summarizeSettings(guardedSettings, {
     ...guardedPatterns,
     sell_patterns: [],
     ignore_patterns: [],
   });
 
-  assert.equal(digest.primaryStatus.title, 'Pattern Review');
-  assert.equal(digest.primaryStatus.tone, 'attention');
-  assert.equal(digest.parserLabel, '6 patterns');
-  assert.deepEqual(
-    digest.warningItems.map((item) => item.title),
-    ['Sell patterns empty', 'Ignore patterns empty']
-  );
+  assert.equal(digest.primaryStatus.title, 'Simulation Guarded');
+  assert.equal(digest.primaryStatus.tone, 'live');
+  assert.deepEqual(digest.warningItems, []);
 });

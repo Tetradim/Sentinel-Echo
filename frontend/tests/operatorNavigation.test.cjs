@@ -33,6 +33,7 @@ test('exposes the primary operator workflows in bottom navigation order', () => 
       ['strike-selection', 'Strikes'],
       ['trading-settings', 'Trading'],
       ['risk-settings', 'Risk'],
+      ['runner-settings', 'Runners'],
       ['discord-settings', 'Discord'],
       ['broker-config', 'Broker'],
       ['profiles', 'Profiles'],
@@ -46,6 +47,7 @@ test('maps tab names to Expo route paths', () => {
   assert.equal(getOperatorRoutePath('operator-lab'), '/operator-lab');
   assert.equal(getOperatorRoutePath('broker-config'), '/broker-config');
   assert.equal(getOperatorRoutePath('profiles'), '/profiles');
+  assert.equal(getOperatorRoutePath('runner-settings'), '/runner-settings');
 });
 
 test('normalizes the current route into the active tab name', () => {

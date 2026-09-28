@@ -3,7 +3,7 @@ Sentinel Pulse — Multi-Broker Adapter Layer
 
 Architecture:
   BrokerAdapter (ABC)  <-- common interface with aiohttp session pooling
-     ├── AlpacaAdapter        (official API, paper+live)
+     ├── AlpacaAdapter        (official API)
      ├── IBKRAdapter          (TWS/Gateway REST)
      ├── TDAmeritradeAdapter  (Schwab OAuth)
      ├── TradierAdapter       (REST API)

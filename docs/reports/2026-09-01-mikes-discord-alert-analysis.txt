@@ -1,0 +1,422 @@
+SENTINEL ECHO - MIKES DISCORD ALERT ANALYSIS
+Report date: September 1, 2026
+Repository: C:\Users\automation\GitBots\Sentinel-Echo
+
+PURPOSE
+
+This report explains how the conclusions about Mike's Discord alerts were reached,
+which failures were parser failures versus execution-policy failures, which controls
+were implemented, and which additional controls would improve testing.
+
+This is an engineering analysis of Echo's handling of paper-account alerts. It is
+not a claim that any setting or alert source will be profitable.
+
+
+1. EVIDENCE REVIEWED
+
+The analysis used local evidence produced by Echo rather than relying on the final
+alert rows alone:
+
+1. The active SQLite database:
+   data\sentinel-echo.sqlite3
+
+2. Preserved daily databases under:
+   data\backups\fresh-start-20260827-063249\sentinel-echo.sqlite3
+   data\backups\fresh-start-20260831-20260831-062515\sentinel-echo.sqlite3
+   data\backups\before-closed-position-cleanup-20260901-092218\sentinel-echo.sqlite3
+   data\backups\before-spy-766-reconciliation-repair-20260901-114156\sentinel-echo.sqlite3
+
+3. The alerts table, including raw Discord text, parsed contract fields, execution
+   status, broker result, source channel, and skip reason.
+
+4. The operator_events table. This was especially important because it preserves
+   the original Chrome bridge payload and later Discord updates separately.
+
+5. The positions and trades tables, which connected each parsed alert to the local
+   position and Alpaca order lifecycle.
+
+6. Existing parser, Chrome bridge, trade lifecycle, fill monitor, and bot-managed
+   exit code and tests.
+
+The evidence covered Mike's messages observed on August 26, August 27, August 28,
+and September 1, 2026.
+
+
+2. WHY THE FINAL ALERT ROW WAS NOT ALWAYS ENOUGH
+
+Older Chrome bridge behavior sometimes associated later messages from the same
+channel with an existing alert. It then updated that alert's raw_message field.
+This made some database rows appear impossible. For example, a row could contain
+a complete NOW option contract but show raw text such as "Thank you whales!!!"
+
+The operator audit showed what actually happened:
+
+- The original message was a valid NOW 140 call entry.
+- Later conversational messages arrived with different Discord event IDs.
+- Older channel-level association logic attached those messages to the entry row.
+- The final raw_message no longer represented the message that initiated the order.
+
+For this reason, conclusions were based on the chronological operator audit plus
+orders and positions, not only the last version of each alert row.
+
+
+3. OBSERVED MESSAGE STRUCTURE
+
+Mike's alert flow is conversational rather than one-message-per-command.
+
+A typical sequence is:
+
+1. A complete entry:
+   "$SPY $758 PUTS EXPIRATION 9/1/2026 $.32 Entry"
+
+2. An edit to the original entry:
+   "$.27 AVG"
+
+3. An appended update:
+   "DCA'd down to $.27 AVG Filled adds at $.2"
+
+4. Progress commentary:
+   "$.32 HERE ON SPY PUTS UP +60%"
+
+5. An exit in another channel:
+   "SOLD 80% SPY $758 PUTS HERE AT $.32 FILL"
+
+6. Sometimes a contract-free conversational exit:
+   "SOLD MAJORITY"
+
+This structure creates four distinct classes of text:
+
+- Complete entry commands.
+- Immediate position-management commands.
+- Future or conditional planning language.
+- Commentary and performance updates.
+
+Treating all four classes as equivalent trade commands caused the largest errors.
+
+
+4. DCA ANALYSIS
+
+Problem A: planning language looked like an immediate DCA command.
+
+Observed examples included:
+
+- "leave DCA room and be patient"
+- "add on pullbacks"
+- "adding to setup"
+- "still looking for downside to DCA"
+
+These phrases describe future intent or position planning. They do not say that an
+add was executed now. A keyword-only parser sees DCA, ADDING, or ADD TO and can
+incorrectly classify the entire message as average_down.
+
+The August 26 QQQ 716 call illustrates the consequence. Its original entry included
+"adding to setup" and "add on pullbacks." It was classified as average_down even
+though there was no position to average down. That prevented the initial entry from
+being handled normally.
+
+Problem B: a real appended DCA used the wrong price.
+
+In the September 1 SPY 758 put update, the full payload contained:
+
+- Original entry: $.32
+- New average: $.27
+- Actual add fill: $.20
+
+The generic price extractor selected the first entry price in the combined text.
+For a DCA action, the latest executed add price is the relevant price.
+
+Implemented control:
+
+- Explicit execution language such as "DCA'd," "averaged down," "filled adds,"
+  or "added" is actionable.
+- Future language such as "DCA room," "looking to DCA," "will add," "add on
+  pullbacks," and "adding to setup" is not an immediate DCA.
+- An appended explicit DCA reads the most recent decimal premium from the latest
+  line, so the $.20 add is not replaced by the original $.32 entry.
+
+Resulting behavior:
+
+- A complete entry containing future DCA guidance remains a buy.
+- A future DCA follow-up is treated as a non-actionable update.
+- An executed DCA follow-up is an average_down action at the latest add price.
+
+
+5. BREAK-EVEN AND FLAT-STATUS EXIT ANALYSIS
+
+Observed phrases included:
+
+- "Runners hit b/e SL"
+- "SOLD RUNNERS AT B/E"
+- "For now staying hands off, & in cash"
+
+The first phrase was already recognized after an earlier fix because it contained
+both a stop reference and the word "hit." The second phrase used "sold" rather
+than "hit," so the narrower rule did not recognize it. The combined payload still
+contained the original entry and could be replayed as a buy.
+
+"In cash" is also materially different from ordinary commentary. When appended to
+the original contract alert, it means the analyst reports being flat on that setup.
+
+Implemented control:
+
+- A stop or break-even reference combined with hit, triggered, stopped, sold,
+  closed, or out is a full exit of the remaining position.
+- An appended statement containing "in cash" plus staying, hands off, or out is a
+  full exit of the contract identified by the preceding entry text.
+- The rule applies to appended follow-ups with contract context. A disclaimer such
+  as "stay hands off" inside a new high-risk entry is not treated as an exit by
+  itself.
+
+
+6. STANDALONE "SOLD MAJORITY" ANALYSIS
+
+Mike sometimes posts "SOLD MAJORITY" as a separate message without ticker, strike,
+expiration, or option side. A parser cannot safely construct an option contract
+from that text alone.
+
+Echo already had a configurable behavior named allow_single_position_inferred_sell,
+but Chrome bridge ingestion did not apply it to an unparsed standalone message.
+
+Implemented control:
+
+1. The message must begin with explicit exit language such as SOLD, SELL, STC,
+   TRIM, CLOSE, EXIT, OUT, or STOPPED OUT.
+
+2. The behavior must be enabled for that source.
+
+3. Echo loads open and partial positions.
+
+4. It follows each position's alert_id back to the originating Discord channel.
+
+5. Exactly one open position must have originated from the current channel.
+
+6. Echo then uses that position's ticker, strike, side, and expiration to create a
+   contract-specific sell instruction.
+
+7. "Majority" maps to 75 percent under Echo's existing sell-percentage rules.
+
+If zero positions match, the message stays unparsed. If two or more positions match,
+the message is ambiguous and stays blocked. Echo does not guess which position Mike
+meant.
+
+
+7. PROFIT-UPDATE ANALYSIS
+
+Mike frequently posts updates such as:
+
+- "$.54 HERE ON QQQ CALLS UP +17%"
+- "$.74 HERE ON SPY CALLS UP +90%"
+- "$1.02 HERE ON NOW CALLS UP +70%"
+
+These are useful market observations, but they are not necessarily sell commands.
+Automatically treating every profit update as a sell would stop Echo from following
+later "SOLD 80%" or runner instructions.
+
+Current control:
+
+- Profit updates can refresh a uniquely matched local position mark.
+- They do not create another buy.
+- They do not become a sell unless the text includes an explicit exit instruction.
+- Ambiguous mark updates are not applied.
+
+This preserves the distinction between "the option is up" and "sell the option."
+
+
+8. STRICT LIMIT-ENTRY ANALYSIS
+
+Several exact-price limit orders did not fill, even though later sell alerts reported
+large gains. Examples included September 1 SPY 765 calls and the final SPY 758 puts,
+plus August 28 SPY setups.
+
+The mechanism was:
+
+1. Mike posted a premium, for example $.20.
+2. Echo submitted that exact value as the maximum buy limit.
+3. The option moved above the limit before Alpaca filled the order.
+4. Echo waited for the configured confirmation period.
+5. The unfilled entry was canceled or remained unresolved according to broker state.
+6. A later profitable sell alert arrived, but Echo had no position to sell.
+
+Conclusion:
+
+This is not a parsing failure. It is an entry execution-policy tradeoff. Exact limits
+control slippage but miss fast-moving options.
+
+Recommended configurable control:
+
+- Use a marketable limit with a maximum premium buffer.
+- A reasonable first test is the smaller of $0.02 or 5 percent above the alert price.
+- Never use an unlimited market buy for thin option contracts.
+- Record the alert price, submitted limit, quote at submission, and actual fill so
+  the cost of the buffer can be measured.
+
+This control was not enabled during the stop-loss change because changing entry
+policy at the same time would make the stop-loss comparison harder to interpret.
+
+
+9. HIGH-RISK AND PROMOTIONAL LANGUAGE
+
+Observed high-risk phrases included:
+
+- "high risk lotto"
+- "size for $0, or skip"
+- "can't handle a loss? Stay hands off"
+
+These phrases do not make a complete contract alert invalid, but they identify a
+different risk class. They should not be silently discarded for every channel because
+some users may intentionally follow those trades.
+
+Recommended source behavior:
+
+- Add a per-source skip_high_risk_lotto toggle.
+- When disabled, trade the complete alert normally.
+- When enabled, persist the alert with a clear blocked reason.
+- A second option is a high_risk_quantity_multiplier rather than a full block.
+
+Promotional or conversational messages without complete contract grammar must never
+be accepted as new buys. Complete buy execution should require ticker, strike, option
+side, expiration, and entry price in the current actionable payload.
+
+
+10. MALFORMED CONTRACT ANALYSIS
+
+An August 28 message contained SPY 567 calls while SPY was trading in a substantially
+different range. Alpaca rejected the generated option symbol because the asset was
+not found.
+
+Recommended control:
+
+- Validate that the exact option asset exists before submitting an order.
+- Optionally warn when a same-day index/ETF strike is implausibly far from the
+  underlying price.
+- Do not silently change 567 to 767. Automatic correction would create a different
+  financial instruction from the one received.
+
+
+11. EXIT-SETTING CONCLUSION
+
+The active experiment settings after this analysis are:
+
+- Trailing stop: disabled
+- Stop loss: enabled at 50 percent, meaning approximately a -50 percent premium exit
+- Stop-loss order type: market
+- Take profit: enabled at +35 percent
+
+Why trailing stop was disabled:
+
+Options frequently retraced more than 10 percent shortly after entry. The previous
+10 percent trailing stop closed several positions before Mike posted later gains or
+explicit exits. This does not prove that trailing stops are unprofitable; it proves
+that 10 percent was tight relative to the observed option volatility.
+
+Why a 50 percent stop must be interpreted carefully:
+
+- Ten contracts bought at $.30 cost approximately $300 before fees.
+- A 50 percent premium loss is approximately $150 before spread and slippage.
+- The wider stop gives volatile contracts more recovery room.
+- It also permits materially larger losses when the trade does not recover.
+
+Why take profit matters to the experiment:
+
+The +35 percent take profit still closes the full position. Echo therefore cannot
+participate in a later +70 or +100 percent move after the take profit fills. Keeping
+take profit constant makes the stop-loss comparison cleaner, but it caps upside.
+
+A later controlled test should compare:
+
+- Full exit at +35 percent.
+- Partial exit at +35 percent with runners retained.
+- Analyst-directed exits with no fixed take profit.
+
+
+12. HOW TO EVALUATE A STOP-LOSS SWEET SPOT
+
+Changing one threshold each day does not, by itself, identify a reliable optimum.
+Different days have different volatility and trend conditions. A 20 percent stop on
+a calm day cannot be compared directly with a 50 percent stop on a volatile day.
+
+For a useful comparison, Echo should record a quote path for every position:
+
+- Timestamp
+- Bid, ask, midpoint, and last trade when available
+- Entry price and current return percentage
+- Highest price since entry
+- Maximum adverse excursion (largest drawdown from entry)
+- Maximum favorable excursion (largest gain from entry)
+- Which hypothetical stop levels would have triggered
+- Price after each hypothetical trigger
+- Actual analyst exit time and price
+
+With that data, the same trade can be evaluated against 20, 30, 40, and 50 percent
+stops. This is more informative than assigning a different threshold to each day.
+
+Until full quote paths are stored, the database's highest and closing price cannot
+show whether a position first crossed a stop threshold and later recovered.
+
+
+13. CONTROLS IMPLEMENTED IN CODE
+
+Implemented parser and ingestion controls are located primarily in:
+
+- backend\utils\__init__.py
+  Actionable-versus-deferred DCA classification.
+
+- backend\routes\discord.py
+  Appended DCA price selection, appended break-even/flat exits, and single-channel
+  position inference for contract-free sell messages.
+
+Regression coverage was added to:
+
+- backend\tests\test_alert_parsing.py
+- backend\tests\test_discord_parse_preview.py
+- backend\tests\test_chrome_bridge.py
+
+The full backend suite passed 470 tests after the changes.
+
+
+14. FINAL CONTROL PRIORITIES
+
+Priority 1 - Completed
+Distinguish future DCA planning from an executed add.
+
+Priority 2 - Completed
+Use the latest add fill in appended DCA messages.
+
+Priority 3 - Completed
+Recognize sold runners, break-even stop hits, and explicit in-cash follow-ups.
+
+Priority 4 - Completed
+Infer standalone sells only from one unambiguous position in the same channel.
+
+Priority 5 - Recommended next
+Add bounded marketable-limit entry pricing and measure fill improvement versus
+slippage.
+
+Priority 6 - Recommended next
+Persist quote paths and calculate counterfactual stop-loss outcomes.
+
+Priority 7 - Optional source control
+Add a skip or reduced-size behavior for high-risk lotto alerts.
+
+Priority 8 - Recommended validation
+Perform broker asset validation and strike sanity warnings before order submission.
+
+
+15. OVERALL CONCLUSION
+
+Mike's alerts can be followed more reliably when Echo treats the channel as a
+conversation with explicit state rather than treating every message containing a
+trade-related word as an independent order.
+
+The correct hierarchy is:
+
+1. Require complete contract identity for a new buy.
+2. Use an existing position only for unambiguous follow-up management.
+3. Separate executed actions from future intentions.
+4. Treat profit updates as marks unless they include an exit command.
+5. Block ambiguous contract-free commands instead of guessing.
+6. Keep parser correctness separate from entry-price and exit-strategy experiments.
+
+The current changes address the observed parser failures. Entry fill policy, partial
+profit-taking, and quote-path recording remain the highest-value next areas for
+measuring profitability rather than only mechanical correctness.

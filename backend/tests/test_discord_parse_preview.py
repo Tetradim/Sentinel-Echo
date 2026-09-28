@@ -47,7 +47,6 @@ class DiscordParsePreviewTests(unittest.TestCase):
                 "max_position_size": 1000.0,
                 "source_overrides": {
                     "alerts": {
-                        "paper_only": True,
                         "risk_multiplier": 0.5,
                         "max_premium": 2.0,
                         "max_contracts": 1,
@@ -68,9 +67,7 @@ class DiscordParsePreviewTests(unittest.TestCase):
 
         self.assertEqual(result["parsed"]["ticker"], "SPY")
         self.assertIsNone(result["skip_reason"])
-        self.assertTrue(result["source_config"]["paper_only"])
         self.assertTrue(result["execution_preview"]["would_request_trade"])
-        self.assertTrue(result["execution_preview"]["simulation_mode"])
         self.assertEqual(result["execution_preview"]["quantity"], 1)
         self.assertEqual(result["execution_preview"]["uncapped_quantity"], 2)
         self.assertEqual(result["execution_preview"]["estimated_premium_cost"], 125.0)
@@ -102,7 +99,6 @@ class DiscordParsePreviewTests(unittest.TestCase):
         self.assertTrue(result["execution_preview"]["would_request_trade"])
         self.assertIsNone(result["execution_preview"]["reason"])
         self.assertTrue(result["execution_preview"]["auto_trading_enabled"])
-        self.assertTrue(result["execution_preview"]["simulation_mode"])
         self.assertNotIn("Auto trading is disabled; preview will not request a trade.", result["warnings"])
 
     def test_parse_preview_reports_malformed_source_overrides_without_crashing(self):
@@ -167,6 +163,271 @@ class DiscordParsePreviewTests(unittest.TestCase):
         self.assertEqual(result["parsed"]["strike"], 740.0)
         self.assertEqual(result["parsed"]["entry_price"], 1.10)
         self.assertTrue(result["execution_preview"]["would_request_trade"])
+
+    def test_parse_preview_ignores_discord_fill_update_that_replays_entry_text(self):
+        from routes import discord as discord_route
+
+        fake_db = FakePreviewDb(
+            {
+                "auto_trading_enabled": True,
+                "simulation_mode": False,
+                "default_quantity": 10,
+                "max_position_size": 100000.0,
+                "source_overrides": {},
+            },
+            patterns={
+                "buy_patterns": ["ENTRY"],
+                "case_sensitive": False,
+            },
+        )
+        discord_route.set_db(fake_db)
+
+        result = asyncio.run(
+            discord_route.preview_discord_alert(
+                {
+                    "raw_text": (
+                        "$QQQ $716 CALLS EXPIRATION 8/26/2026 $.5 Entry @everyone "
+                        "$715/$716 upper band extension pt , last alert for today ,\n"
+                        "JUST FILLED IN @ $.47 AVG FILL @everyone"
+                    ),
+                    "source_key": "alerts",
+                }
+            )
+        )
+
+        self.assertIsNone(result["parsed"])
+        self.assertEqual(result["skip_reason"], "ignored by alert pattern")
+        self.assertFalse(result["execution_preview"]["would_request_trade"])
+        self.assertEqual(result["parser_metadata"]["matched_pattern_type"], "followup_update")
+
+    def test_parse_preview_ignores_discord_profit_update_that_replays_entry_text(self):
+        from routes import discord as discord_route
+
+        fake_db = FakePreviewDb(
+            {
+                "auto_trading_enabled": True,
+                "simulation_mode": False,
+                "default_quantity": 10,
+                "max_position_size": 100000.0,
+                "source_overrides": {},
+            },
+            patterns={
+                "buy_patterns": ["ENTRY"],
+                "case_sensitive": False,
+            },
+        )
+        discord_route.set_db(fake_db)
+
+        result = asyncio.run(
+            discord_route.preview_discord_alert(
+                {
+                    "raw_text": (
+                        "$QQQ $716 CALLS EXPIRATION 8/26/2026 $.5 Entry, $.47 AVG "
+                        "@everyone $715/$716 upper band extension pt , last alert for today , "
+                        "(edited) Wednesday, August 26, 2026 at 2:15 PM\n"
+                        "$.54 HERE ON QQQ CALLS UP +17% @everyone"
+                    ),
+                    "source_key": "alerts",
+                }
+            )
+        )
+
+        self.assertIsNone(result["parsed"])
+        self.assertEqual(result["skip_reason"], "ignored by alert pattern")
+        self.assertFalse(result["execution_preview"]["would_request_trade"])
+        self.assertEqual(result["parser_metadata"]["matched_pattern_type"], "followup_update")
+
+    def test_parse_preview_treats_appended_break_even_stop_as_contract_exit(self):
+        from routes import discord as discord_route
+
+        fake_db = FakePreviewDb(
+            {
+                "auto_trading_enabled": True,
+                "simulation_mode": False,
+                "default_quantity": 10,
+                "max_position_size": 100000.0,
+                "source_overrides": {},
+            },
+            patterns={
+                "buy_patterns": ["ENTRY"],
+                "case_sensitive": False,
+            },
+        )
+        discord_route.set_db(fake_db)
+
+        result = asyncio.run(
+            discord_route.preview_discord_alert(
+                {
+                    "raw_text": (
+                        "$SPY $760 PUTS EXPIRATION 9/1/2026 $.18 Entry high risk lotto\n"
+                        "Solid attempt at a selloff. Runners hit b/e SL @everyone"
+                    ),
+                    "source_key": "alerts",
+                }
+            )
+        )
+
+        self.assertEqual(result["parsed"]["alert_type"], "sell")
+        self.assertEqual(result["parsed"]["ticker"], "SPY")
+        self.assertEqual(result["parsed"]["strike"], 760.0)
+        self.assertEqual(result["parsed"]["option_type"], "PUT")
+        self.assertEqual(result["parsed"]["expiration"], "09/01/26")
+        self.assertIsNone(result["parsed"].get("entry_price"))
+        self.assertEqual(result["parsed"]["sell_percentage"], 100.0)
+        self.assertTrue(result["execution_preview"]["would_request_trade"])
+        self.assertEqual(result["parser_metadata"]["matched_pattern_type"], "followup_exit")
+
+    def test_parse_preview_uses_latest_fill_for_appended_dca(self):
+        from routes import discord as discord_route
+
+        fake_db = FakePreviewDb(
+            {
+                "auto_trading_enabled": True,
+                "simulation_mode": False,
+                "default_quantity": 10,
+                "max_position_size": 100000.0,
+                "source_overrides": {},
+            },
+            patterns={
+                "buy_patterns": ["ENTRY"],
+                "average_down_patterns": ["DCA"],
+                "case_sensitive": False,
+            },
+        )
+        discord_route.set_db(fake_db)
+
+        result = asyncio.run(
+            discord_route.preview_discord_alert(
+                {
+                    "raw_text": (
+                        "$SPY $758 PUTS EXPIRATION 9/1/2026 $.32 Entry, $.27 AVG\n"
+                        "DCA'd down to $.27 AVG Filled adds at $.2"
+                    ),
+                    "source_key": "alerts",
+                }
+            )
+        )
+
+        self.assertEqual(result["parsed"]["alert_type"], "average_down")
+        self.assertEqual(result["parsed"]["entry_price"], 0.20)
+        self.assertEqual(result["parser_metadata"]["matched_pattern_type"], "followup_average_down")
+
+    def test_parse_preview_uses_readding_fill_not_target_average(self):
+        from routes import discord as discord_route
+
+        fake_db = FakePreviewDb(
+            {
+                "auto_trading_enabled": True,
+                "simulation_mode": False,
+                "default_quantity": 10,
+                "max_position_size": 100000.0,
+                "source_overrides": {},
+            },
+            patterns={
+                "buy_patterns": ["ENTRY"],
+                "average_down_patterns": ["ADDING"],
+                "case_sensitive": False,
+            },
+        )
+        discord_route.set_db(fake_db)
+
+        result = asyncio.run(
+            discord_route.preview_discord_alert(
+                {
+                    "raw_text": (
+                        "$SPY $768 CALLS EXPIRATION 9/11/2026 $.5 Entry\n"
+                        "RE-ADDING SPY $768 CALLS $.35 FILL "
+                        "(looking for a $.28-$.3 final AVG)"
+                    ),
+                    "source_key": "alerts",
+                }
+            )
+        )
+
+        self.assertEqual(result["parsed"]["alert_type"], "average_down")
+        self.assertEqual(result["parsed"]["entry_price"], 0.35)
+        self.assertEqual(result["parser_metadata"]["matched_pattern_type"], "followup_average_down")
+
+    def test_parse_preview_ignores_future_dca_followup(self):
+        from routes import discord as discord_route
+
+        fake_db = FakePreviewDb(
+            {
+                "auto_trading_enabled": True,
+                "simulation_mode": False,
+                "default_quantity": 10,
+                "max_position_size": 100000.0,
+                "source_overrides": {},
+            },
+            patterns={
+                "buy_patterns": ["ENTRY"],
+                "average_down_patterns": ["DCA"],
+                "case_sensitive": False,
+            },
+        )
+        discord_route.set_db(fake_db)
+
+        result = asyncio.run(
+            discord_route.preview_discord_alert(
+                {
+                    "raw_text": (
+                        "$SPCX $150 CALLS EXPIRATION 9/4/2026 $1.2 Entry\n"
+                        "b/e HERE ON SPCX & STILL LOOKING FOR DOWNSIDE TO DCA"
+                    ),
+                    "source_key": "alerts",
+                }
+            )
+        )
+
+        self.assertIsNone(result["parsed"])
+        self.assertEqual(result["skip_reason"], "ignored by alert pattern")
+        self.assertEqual(result["parser_metadata"]["matched_pattern_type"], "followup_update")
+
+    def test_parse_preview_treats_sold_runners_at_break_even_as_exit(self):
+        from routes import discord as discord_route
+
+        discord_route.set_db(FakePreviewDb({"auto_trading_enabled": True}))
+
+        result = asyncio.run(
+            discord_route.preview_discord_alert(
+                {
+                    "raw_text": (
+                        "$SPY $768 PUTS EXPIRATION 8/28/2026 $.35 Entry\n"
+                        "SOLD RUNNERS AT B/E @everyone"
+                    ),
+                    "source_key": "alerts",
+                }
+            )
+        )
+
+        self.assertEqual(result["parsed"]["alert_type"], "sell")
+        self.assertEqual(result["parsed"]["ticker"], "SPY")
+        self.assertEqual(result["parsed"]["strike"], 768.0)
+        self.assertEqual(result["parsed"]["sell_percentage"], 100.0)
+        self.assertEqual(result["parser_metadata"]["matched_pattern_type"], "followup_exit")
+
+    def test_parse_preview_treats_in_cash_followup_as_exit(self):
+        from routes import discord as discord_route
+
+        discord_route.set_db(FakePreviewDb({"auto_trading_enabled": True}))
+
+        result = asyncio.run(
+            discord_route.preview_discord_alert(
+                {
+                    "raw_text": (
+                        "$SPY $763 PUTS EXPIRATION 8/26/2026 $.65 Entry\n"
+                        "Markets are back into chop. For now staying hands off, & in cash."
+                    ),
+                    "source_key": "alerts",
+                }
+            )
+        )
+
+        self.assertEqual(result["parsed"]["alert_type"], "sell")
+        self.assertEqual(result["parsed"]["ticker"], "SPY")
+        self.assertEqual(result["parsed"]["strike"], 763.0)
+        self.assertEqual(result["parsed"]["sell_percentage"], 100.0)
+        self.assertEqual(result["parser_metadata"]["matched_pattern_type"], "followup_exit")
 
     def test_parse_preview_reports_source_policy_skip(self):
         from routes import discord as discord_route
@@ -247,6 +508,75 @@ class DiscordParsePreviewTests(unittest.TestCase):
         self.assertEqual(result["execution_preview"]["matched_pattern"], "SCALE")
         self.assertEqual(result["parser_metadata"]["confidence"], "high")
         self.assertEqual(result["confidence"], "high")
+
+    def test_parse_preview_keeps_trade_echo_closed_summary_as_sell(self):
+        from models import DiscordAlertPatterns
+        from routes import discord as discord_route
+
+        fake_db = FakePreviewDb(
+            {
+                "auto_trading_enabled": True,
+                "simulation_mode": False,
+                "default_quantity": 1,
+                "max_position_size": 1000.0,
+                "source_overrides": {},
+            },
+            patterns=DiscordAlertPatterns().model_dump(),
+        )
+        discord_route.set_db(fake_db)
+
+        result = asyncio.run(
+            discord_route.preview_discord_alert(
+                {
+                    "raw_text": (
+                        "Trade by steel5477\n"
+                        "Closed 60 AAPL 307.5P 07/02 @ $1.01 "
+                        "(Entry: $0.79) | Gain: +27.8%"
+                    ),
+                    "source_key": "alerts",
+                }
+            )
+        )
+
+        self.assertEqual(result["parsed"]["alert_type"], "sell")
+        self.assertEqual(result["parsed"]["ticker"], "AAPL")
+        self.assertEqual(result["parsed"]["expiration"], "07/02/26")
+        self.assertEqual(result["parsed"]["entry_price"], 1.01)
+        self.assertTrue(result["execution_preview"]["would_request_trade"])
+
+    def test_parse_preview_keeps_trade_echo_partial_summary_as_trim(self):
+        from models import DiscordAlertPatterns
+        from routes import discord as discord_route
+
+        fake_db = FakePreviewDb(
+            {
+                "auto_trading_enabled": True,
+                "simulation_mode": False,
+                "default_quantity": 1,
+                "max_position_size": 1000.0,
+                "source_overrides": {},
+            },
+            patterns=DiscordAlertPatterns().model_dump(),
+        )
+        discord_route.set_db(fake_db)
+
+        result = asyncio.run(
+            discord_route.preview_discord_alert(
+                {
+                    "raw_text": (
+                        "Trade by steel5477\n"
+                        "Partially Closed 60 AAPL 307.5P 07/02 @ $0.92 "
+                        "(Entry: $0.79) | Gain: +16.5%"
+                    ),
+                    "source_key": "alerts",
+                }
+            )
+        )
+
+        self.assertEqual(result["parsed"]["alert_type"], "trim")
+        self.assertEqual(result["parsed"]["ticker"], "AAPL")
+        self.assertEqual(result["parsed"]["expiration"], "07/02/26")
+        self.assertEqual(result["parsed"]["entry_price"], 0.92)
 
     def test_parse_preview_configured_action_pattern_does_not_replace_ticker(self):
         from routes import discord as discord_route
@@ -375,6 +705,35 @@ class DiscordParsePreviewTests(unittest.TestCase):
         self.assertEqual(result["skip_reason"], "ignored by alert pattern")
         self.assertFalse(result["execution_preview"]["would_insert_alert"])
         self.assertEqual(result["execution_preview"]["matched_pattern"], "WATCH")
+
+    def test_explicit_entry_precedes_hypothetical_word_in_trailing_commentary(self):
+        from routes import discord as discord_route
+
+        raw_text = (
+            "$SPY $765 CALLS EXPIRATION 9/2/2026 $.55 Entry @everyone "
+            "dealer exposure favors calls; if we see upside follow through and break out it may be explosive"
+        )
+        patterns = {
+            "buy_patterns": ["ENTRY"],
+            "sell_patterns": ["OUT"],
+            "ignore_patterns": ["IF"],
+            "case_sensitive": False,
+        }
+
+        parsed, metadata = discord_route._parse_alert_for_preview(raw_text, patterns)
+
+        self.assertIsNotNone(parsed)
+        self.assertEqual(parsed["alert_type"], "buy")
+        self.assertEqual(parsed["ticker"], "SPY")
+        self.assertEqual(metadata["matched_pattern_type"], "buy_patterns")
+        self.assertFalse(metadata["ignored"])
+
+        ignored, ignored_metadata = discord_route._parse_alert_for_preview(
+            "IF $SPY $765 CALLS EXPIRATION 9/2/2026 $.55 Entry",
+            patterns,
+        )
+        self.assertIsNone(ignored)
+        self.assertEqual(ignored_metadata["matched_pattern_type"], "ignore_patterns")
 
     def test_parse_preview_rejects_invalid_pattern_overrides(self):
         from fastapi import HTTPException
@@ -508,9 +867,8 @@ class DiscordParsePreviewTests(unittest.TestCase):
         self.assertFalse(result["execution_preview"]["would_request_trade"])
         self.assertEqual(result["execution_preview"]["reason"], "auto trading disabled")
         self.assertFalse(result["execution_preview"]["auto_trading_enabled"])
-        self.assertFalse(result["execution_preview"]["simulation_mode"])
 
-    def test_parse_preview_reports_manual_confirmation_requirement(self):
+    def test_parse_preview_ignores_removed_manual_confirmation_requirement(self):
         from routes import discord as discord_route
 
         fake_db = FakePreviewDb(
@@ -536,14 +894,11 @@ class DiscordParsePreviewTests(unittest.TestCase):
         )
 
         self.assertTrue(result["execution_preview"]["would_insert_alert"])
-        self.assertFalse(result["execution_preview"]["would_request_trade"])
-        self.assertEqual(result["execution_preview"]["reason"], "manual confirmation required")
-        self.assertIn(
-            "Source requires manual confirmation before trade execution.",
-            result["warnings"],
-        )
+        self.assertTrue(result["execution_preview"]["would_request_trade"])
+        self.assertIsNone(result["execution_preview"]["reason"])
+        self.assertNotIn("Source requires manual confirmation before trade execution.", result["warnings"])
 
-    def test_parse_preview_reports_paper_shadow_for_live_source(self):
+    def test_parse_preview_ignores_removed_paper_shadow_setting(self):
         from routes import discord as discord_route
 
         fake_db = FakePreviewDb(
@@ -569,11 +924,8 @@ class DiscordParsePreviewTests(unittest.TestCase):
         )
 
         self.assertTrue(result["execution_preview"]["would_request_trade"])
-        self.assertTrue(result["execution_preview"]["would_create_paper_shadow"])
-        self.assertIn(
-            "Paper-shadow recording is enabled for this source.",
-            result["warnings"],
-        )
+        self.assertNotIn("would_create_paper_shadow", result["execution_preview"])
+        self.assertNotIn("Paper-shadow recording is enabled for this source.", result["warnings"])
 
 
 if __name__ == "__main__":

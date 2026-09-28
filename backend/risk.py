@@ -177,6 +177,8 @@ def calculate_position_size(
     default_quantity: int,
     max_position_size: float,
     risk_multiplier: float = 1.0,
+    max_loss_per_trade: float | None = None,
+    stop_loss_percent: float | None = None,
 ) -> int:
     """
     Return the number of contracts to trade.
@@ -218,12 +220,25 @@ def calculate_position_size(
         logger.warning("[risk] max_position_size <= 0 - blocking trade")
         return 0
 
-    risk_qty = int(max_position_size / cost_per_contract)
-    quantity = min(risk_qty, adjusted_default_quantity)
+    position_value_qty = int(max_position_size / cost_per_contract)
+    quantity = min(position_value_qty, adjusted_default_quantity)
+
+    loss_budget_qty = 0
+    try:
+        loss_budget = float(max_loss_per_trade or 0.0)
+        loss_percent = float(stop_loss_percent or 0.0)
+    except (TypeError, ValueError):
+        loss_budget = 0.0
+        loss_percent = 0.0
+    if loss_budget > 0 and loss_percent > 0:
+        estimated_loss_per_contract = cost_per_contract * loss_percent / 100.0
+        loss_budget_qty = max(1, int(loss_budget / estimated_loss_per_contract))
+        quantity = min(quantity, loss_budget_qty)
 
     logger.info(
         f"[risk] sizing: entry=${entry_price:.2f} cost/contract=${cost_per_contract:.0f} "
-        f"max_size=${max_position_size:.0f} risk_qty={risk_qty} "
+        f"max_size=${max_position_size:.0f} position_value_qty={position_value_qty} "
+        f"loss_budget_qty={loss_budget_qty or 'off'} "
         f"default_qty={default_quantity} -> final={quantity}"
     )
     return quantity

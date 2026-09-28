@@ -20,7 +20,7 @@ from utils.credentials import credential_key_status
 
 
 LOCAL_BIND_HOSTS = {"127.0.0.1", "localhost", "::1"}
-DEFAULT_SENTINEL_ECHO_ROLE = "paper_shadow"
+DEFAULT_SENTINEL_ECHO_ROLE = "live_executioner"
 LIVE_EXECUTION_ROLE = "live_executioner"
 SUPPORTED_SENTINEL_ECHO_ROLES = {
     "portfolio_ops",

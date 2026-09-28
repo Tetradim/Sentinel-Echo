@@ -3,6 +3,8 @@ from __future__ import annotations
 from math import floor
 from typing import Any, Dict, Iterable, List, Optional
 
+from utils import normalize_expiration_for_order
+
 
 EXIT_ALERT_TYPES = {"sell", "trim", "close"}
 
@@ -16,6 +18,7 @@ def build_exit_plans(
     parsed_alert: Dict[str, Any],
     *,
     include_simulated: bool = True,
+    allow_missing_exit_price: bool = False,
 ) -> List[Dict[str, Any]]:
     """Build sell plans for open positions matching an exit alert."""
     if not is_exit_alert(parsed_alert):
@@ -25,11 +28,25 @@ def build_exit_plans(
         position
         for position in positions
         if _is_open_position(position) and _matches_alert(position, parsed_alert)
-        and (include_simulated or not _is_simulated_position(position))
     ]
 
     if not matched:
         return []
+
+    source_config = parsed_alert.get("_source_config") if isinstance(parsed_alert.get("_source_config"), dict) else {}
+    if _is_broad_exit_alert(parsed_alert):
+        if not _behavior_enabled(source_config, "allow_broad_exit_matching", default=True) and (
+            parsed_alert.get("strike") is None or not parsed_alert.get("option_type")
+        ):
+            raise ValueError(
+                f"broad exit matching disabled for {parsed_alert.get('ticker')}: "
+                "alert requires strike and option type."
+            )
+        if not _behavior_enabled(source_config, "allow_single_position_inferred_sell", default=True) and not parsed_alert.get("expiration"):
+            raise ValueError(
+                f"single-position inferred sell disabled for {parsed_alert.get('ticker')}: "
+                "alert requires expiration."
+            )
 
     if len(matched) > 1 and _is_broad_exit_alert(parsed_alert):
         raise ValueError(
@@ -47,7 +64,7 @@ def build_exit_plans(
             continue
 
         exit_price = _exit_price(parsed_alert, position)
-        if exit_price is None:
+        if exit_price is None and not allow_missing_exit_price:
             raise ValueError(
                 f"Exit alert for {parsed_alert.get('ticker')} matched position "
                 f"{position.get('id')}, but no exit price or current position price is available."
@@ -68,11 +85,6 @@ def _is_open_position(position: Dict[str, Any]) -> bool:
     return str(position.get("status", "open")).lower() in {"open", "partial"}
 
 
-def _is_simulated_position(position: Dict[str, Any]) -> bool:
-    broker = str(position.get("broker") or "").lower()
-    return bool(position.get("simulated")) or broker.endswith(":paper_shadow")
-
-
 def _is_broad_exit_alert(parsed_alert: Dict[str, Any]) -> bool:
     return (
         parsed_alert.get("strike") is None
@@ -82,6 +94,8 @@ def _is_broad_exit_alert(parsed_alert: Dict[str, Any]) -> bool:
 
 
 def _matches_alert(position: Dict[str, Any], parsed_alert: Dict[str, Any]) -> bool:
+    if parsed_alert.get('_card') and position.get('id') != parsed_alert['_card'].get('position_id'):
+        return False
     if _norm(position.get("ticker")) != _norm(parsed_alert.get("ticker")):
         return False
 
@@ -117,6 +131,9 @@ def _exit_price(parsed_alert: Dict[str, Any], position: Dict[str, Any]) -> Optio
         if _positive_number(value):
             return float(value)
 
+    if parsed_alert.get("market_price"):
+        return None
+
     current = position.get("current_price")
     if _positive_number(current):
         return float(current)
@@ -142,4 +159,23 @@ def _norm(value: Any) -> str:
 
 
 def _date_key(value: Any) -> str:
-    return str(value or "").strip().upper().replace("-", "/")
+    return (
+        str(normalize_expiration_for_order(value, roll_forward=False) or value or "")
+        .strip()
+        .upper()
+        .replace("-", "/")
+    )
+
+
+def _behavior_enabled(source_config: Dict[str, Any], key: str, *, default: bool) -> bool:
+    value = (source_config or {}).get(key, default)
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return value != 0
+    normalized = str(value).strip().lower()
+    if normalized in {"true", "1", "yes", "on"}:
+        return True
+    if normalized in {"false", "0", "no", "off"}:
+        return False
+    return default

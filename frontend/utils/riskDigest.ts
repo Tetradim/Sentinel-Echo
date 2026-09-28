@@ -82,8 +82,8 @@ export function summarizeRiskSettings(settings: DigestRiskSettings): RiskDigest 
 
   if (hasConfiguredExitGuard && !liveExitAutomationSupported) {
     guardWarnings.push({
-      title: 'Broker-side exits not staged',
-      detail: 'Stop, target, and trailing settings are saved. The active route has not confirmed automatic broker-side child orders.',
+      title: 'Bot-managed exits not confirmed',
+      detail: 'Stop, target, and trailing settings are saved. The active route has not confirmed Echo-managed exit automation.',
     });
   }
   if (!stopLossEnabled) {
@@ -126,7 +126,7 @@ export function summarizeRiskSettings(settings: DigestRiskSettings): RiskDigest 
 
   if (guardWarnings.length > 0) {
     primaryStatus = {
-      title: guardWarnings.some((warning) => warning.title.includes('Broker-side') || warning.title.includes('advisory'))
+      title: guardWarnings.some((warning) => warning.title.includes('Bot-managed') || warning.title.includes('advisory'))
         ? 'Needs Execution Confirmation'
         : 'Needs Guardrails',
       detail: `${guardWarnings.length} risk control${guardWarnings.length === 1 ? '' : 's'} need attention.`,

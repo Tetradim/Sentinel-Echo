@@ -19,6 +19,7 @@ from typing import Any, List
 import discord
 from discord.ext import commands
 import asyncio
+import uuid
 
 # Import models
 from models import Alert, Settings
@@ -27,12 +28,6 @@ from order_execution import (
     build_oco_exit_plan,
     calculate_option_buy_limit_price,
 )
-from paper_shadow import (
-    build_entry_shadow_records,
-    build_exit_shadow_records,
-    is_paper_shadow_position,
-)
-
 # Import utilities
 from discord_ingestion import DiscordIngestionDeps, handle_discord_message
 from openclaw_discord_config import resolve_saved_or_runtime_discord_config
@@ -45,14 +40,28 @@ from risk import (
     check_correlation,
 )
 from source_config import apply_source_quantity_limits
+from settings_flags import coerce_bool
+from entry_alignment import (
+    EntryAlignmentDecision,
+    apply_alignment_quantity,
+    disabled_entry_alignment,
+    evaluate_entry_alignment,
+    entry_slippage_size_cap,
+)
 from notifications import (
     notify_trade_filled, notify_trade_failed,
     notify_auto_shutdown, notify_discord_disconnected,
     notify_correlation_block,
 )
 from fill_monitor import monitor_fill
-from fill_reconciliation import OrderContext
+from fill_reconciliation import (
+    BrokerOrderUpdate,
+    OrderContext,
+    reconcile_order_update,
+    trade_owns_alert_status,
+)
 from trade_lifecycle import build_exit_plans, is_exit_alert
+from utils import normalize_expiration_for_order
 
 # Import database abstraction
 from database import init_database, get_db, USE_SQLITE, MongoDBDatabase
@@ -62,7 +71,7 @@ from database_paths import configured_database_path
 from routes import (
     health_router, brokers_router, settings_router, 
     discord_router, profiles_router, trading_router,
-    operator_router, analytics_router, sentinel_archive_router,
+    operator_router, analytics_router,
     bot_bus_router, pairing_router, init_routes, update_bot_status, set_discord_bot
 )
 
@@ -184,6 +193,7 @@ def create_discord_bot(token: str, channel_ids: List[str]):
                 update_status=update_bot_status,
                 is_duplicate_alert=check_duplicate_alert,
                 increment_alerts_processed=increment_alerts_processed,
+                card_database=get_db(),
             ),
             bot_user=bot.user,
         )
@@ -209,35 +219,395 @@ def _mapping_from_model(value: Any) -> dict[str, Any]:
     return {}
 
 
-def _active_broker_is_paper(settings: Settings, settings_raw: dict[str, Any]) -> bool:
-    active_broker = str(_plain_value(settings.active_broker) or "").strip().lower()
-    broker_configs = settings_raw.get("broker_configs") if isinstance(settings_raw, dict) else {}
-    if not isinstance(broker_configs, dict):
-        broker_configs = {}
-    config = _mapping_from_model(broker_configs.get(active_broker))
+async def _reconcile_local_positions_before_entry(db_obj, settings: Settings, settings_raw: dict, log_context: str) -> None:
+    broker_client = None
+    try:
+        from bot_managed_exits import reconcile_local_positions_against_broker
+        from order_execution import get_configured_broker_client
 
-    truthy_paper_fields = ("paper_trading", "paper", "paper_mode", "is_paper", "sandbox")
-    if any(str(config.get(field) or "").strip().lower() in {"1", "true", "yes", "on"} for field in truthy_paper_fields):
-        return True
+        broker_client = get_configured_broker_client(
+            settings_raw,
+            settings.active_broker.value,
+            require_order_status=True,
+        )
+        stale = await reconcile_local_positions_against_broker(db_obj, broker_client, settings_raw)
+        if stale.get("closed"):
+            logger.info(
+                "[%s] closed %s stale local broker position(s) before entry matching",
+                log_context,
+                stale["closed"],
+            )
+    except Exception as exc:
+        logger.warning("[%s] broker position reconciliation skipped before entry matching: %s", log_context, exc)
+    finally:
+        if broker_client is not None:
+            from order_execution import close_broker_client
 
-    mode = str(config.get("mode") or config.get("trading_mode") or "").strip().lower()
-    if mode in {"paper", "paper_trading", "sandbox"}:
-        return True
-
-    base_url = str(config.get("base_url") or config.get("url") or "").strip().lower()
-    if active_broker == "alpaca" and "paper-api.alpaca.markets" in base_url:
-        return True
-    return False
+            await close_broker_client(broker_client)
 
 
-def _requires_live_arming(settings: Settings, settings_raw: dict[str, Any]) -> bool:
-    return not settings.simulation_mode and not _active_broker_is_paper(settings, settings_raw)
+async def resolve_entry_alignment(
+    alert: Alert,
+    settings: Settings,
+    settings_raw: dict,
+) -> EntryAlignmentDecision:
+    """Load point-in-time Alpaca context and produce a non-blocking sizing decision."""
+    if not settings.smart_sizing_enabled:
+        return disabled_entry_alignment()
+
+    context: dict[str, Any] = {}
+    broker_client = None
+    try:
+        from order_execution import get_configured_broker_client
+
+        broker_client = get_configured_broker_client(
+            settings_raw,
+            settings.active_broker.value,
+            require_order_status=True,
+        )
+        loader = getattr(broker_client, "get_entry_market_context", None)
+        if loader is not None:
+            context = await loader(
+                ticker=alert.ticker,
+                strike=alert.strike,
+                option_type=alert.option_type,
+                expiration=alert.expiration,
+            )
+    except Exception as exc:
+        logger.warning("[entry_alignment] context unavailable for %s: %s", alert.ticker, exc)
+    finally:
+        if broker_client is not None:
+            from order_execution import close_broker_client
+
+            await close_broker_client(broker_client)
+
+    return evaluate_entry_alignment(
+        option_type=alert.option_type,
+        bars=context.get("bars") if isinstance(context, dict) else [],
+        option_bid=context.get("option_bid") if isinstance(context, dict) else None,
+        option_ask=context.get("option_ask") if isinstance(context, dict) else None,
+        agreement_percent=settings.smart_sizing_agreement_percent,
+        mixed_percent=settings.smart_sizing_mixed_percent,
+        conflict_percent=settings.smart_sizing_conflict_percent,
+        source=str(context.get("source") or settings.active_broker.value) if isinstance(context, dict) else settings.active_broker.value,
+    )
+
+
+async def _process_starter_buy_alert(
+    alert: Alert,
+    settings: Settings,
+    settings_raw: dict,
+    source_config: dict | None = None,
+    *,
+    pending_trade_result: str | None = None,
+    log_context: str = "process_trade",
+) -> tuple[bool, str | None]:
+    """Submit a starter BUY using the standard entry path."""
+    from models import Trade
+
+    source_config = source_config or {}
+    trade_executed = False
+    trade_result = None
+
+    try:
+        db_for_entry = get_db()
+        await _reconcile_local_positions_before_entry(db_for_entry, settings, settings_raw, log_context)
+        open_positions = await db_for_entry.get_positions("open")
+        partial_positions = await db_for_entry.get_positions("partial")
+        closed_positions = await db_for_entry.get_positions("closed")
+        from entry_controls import existing_contract_entry_block_reason
+
+        block_reason = existing_contract_entry_block_reason(
+            list(open_positions or []) + list(partial_positions or []) + list(closed_positions or []),
+            {
+                "ticker": alert.ticker,
+                "strike": alert.strike,
+                "option_type": alert.option_type,
+                "expiration": alert.expiration,
+            },
+            alert.raw_message,
+            alert_id=alert.id,
+            allow_fresh_entry_after_close=coerce_bool(
+                source_config.get("allow_fresh_entry_after_close"),
+                default=False,
+            ),
+        )
+    except Exception as e:
+        logger.warning(f"[{log_context}] entry-state duplicate check unavailable: {e}")
+        block_reason = None
+    if block_reason:
+        logger.warning("[%s] trade BLOCKED: %s", log_context, block_reason)
+        return False, block_reason
+
+    # 1. Risk-based position sizing.
+    from entry_controls import alert_exit_profile, alert_risk_size_cap
+
+    risk_language_cap, risk_language_reasons = alert_risk_size_cap(
+        alert.raw_message,
+        cap_percent=settings.coordinated_high_risk_size_percent,
+    )
+    entry_risk_profile = "high_risk" if risk_language_reasons else "normal"
+    entry_exit_profile = alert_exit_profile(alert.raw_message)
+    estimated_stop_loss_percent = (
+        settings.coordinated_high_risk_stop_loss_percent
+        if entry_risk_profile == "high_risk"
+        else settings.coordinated_normal_stop_loss_percent
+    )
+    quantity = calculate_position_size(
+        entry_price=alert.entry_price,
+        default_quantity=settings.default_quantity,
+        max_position_size=settings.max_position_size,
+        risk_multiplier=source_config.get("risk_multiplier", 1.0),
+        max_loss_per_trade=(
+            settings.max_loss_per_trade if settings.risk_budget_sizing_enabled else None
+        ),
+        stop_loss_percent=(
+            estimated_stop_loss_percent if settings.risk_budget_sizing_enabled else None
+        ),
+    )
+    quantity = apply_source_quantity_limits(quantity, source_config)
+    if quantity <= 0:
+        logger.warning(
+            "[%s] trade BLOCKED: one contract for %s exceeds max_position_size",
+            log_context,
+            alert.ticker,
+        )
+        return False, "blocked: position size limit"
+
+    base_quantity = quantity
+    alignment = await resolve_entry_alignment(alert, settings, settings_raw)
+    sizing_percent = float(alignment.multiplier_percent)
+    alignment_context = alignment.as_dict()
+    alignment_context.update(
+        {
+            "entry_risk_profile": entry_risk_profile,
+            "entry_exit_profile": entry_exit_profile,
+            "risk_budget_sizing_enabled": settings.risk_budget_sizing_enabled,
+            "max_loss_budget": settings.max_loss_per_trade,
+            "estimated_stop_loss_percent": estimated_stop_loss_percent,
+        }
+    )
+    if risk_language_cap is not None:
+        sizing_percent = min(sizing_percent, risk_language_cap)
+        alignment_context.update(
+            {
+                "market_alignment_percent": float(alignment.multiplier_percent),
+                "multiplier_percent": sizing_percent,
+                "risk_language_cap_percent": risk_language_cap,
+                "risk_language_reasons": risk_language_reasons,
+            }
+        )
+    if settings.entry_slippage_sizing_enabled:
+        slippage_cap, slippage_percent = entry_slippage_size_cap(
+            alert.entry_price,
+            alignment.option_ask,
+            warning_percent=settings.entry_slippage_warning_percent,
+            severe_percent=settings.entry_slippage_severe_percent,
+            warning_size_percent=settings.entry_slippage_warning_size_percent,
+            severe_size_percent=settings.entry_slippage_severe_size_percent,
+            mode=settings.entry_slippage_mode,
+        )
+        alignment_context["entry_slippage_percent"] = slippage_percent
+        if slippage_cap is not None:
+            if slippage_cap <= 0:
+                return False, "blocked: entry price beyond binary slippage limit"
+            sizing_percent = min(sizing_percent, slippage_cap)
+            alignment_context.update(
+                {
+                    "slippage_size_cap_percent": slippage_cap,
+                    "multiplier_percent": sizing_percent,
+                }
+            )
+    quantity = apply_alignment_quantity(base_quantity, sizing_percent)
+    logger.info(
+        "[%s] entry alignment=%s score=%+.1f sizing=%.0f%% quantity=%s/%s",
+        log_context,
+        alignment.tier,
+        alignment.alignment_score,
+        sizing_percent,
+        quantity,
+        base_quantity,
+    )
+    try:
+        from operator_audit import record_operator_event
+
+        await record_operator_event(
+            get_db(),
+            "entry_intelligence",
+            "entry_size_selected",
+            f"Selected {quantity} of {base_quantity} contracts for {alert.ticker} {alert.option_type}.",
+            details={
+                "alert_id": alert.id,
+                "ticker": alert.ticker,
+                "strike": alert.strike,
+                "option_type": alert.option_type,
+                "expiration": alert.expiration,
+                "base_quantity": base_quantity,
+                "selected_quantity": quantity,
+                "decision": alignment_context,
+            },
+        )
+    except Exception as exc:
+        logger.warning("[%s] could not persist entry alignment telemetry: %s", log_context, exc)
+
+    # 2. Correlation / concentration check.
+    # We need the async db abstraction here.  In the SQLite path we use
+    # asyncio.get_event_loop() since we're already inside the Discord
+    # bot's own event loop.
+    try:
+        db_for_risk = get_db()
+        allowed, block_reason = await check_correlation(
+            ticker=alert.ticker,
+            db=db_for_risk,
+            settings=settings_raw,
+        )
+    except Exception as e:
+        logger.error(f"[{log_context}] blocking trade because correlation check failed: {e}")
+        allowed, block_reason = False, "Risk controls unavailable"
+
+    if not allowed:
+        logger.warning(f"[{log_context}] trade BLOCKED: {block_reason}")
+        try:
+            open_count = int(block_reason.split()[2]) if block_reason else 0
+        except (IndexError, ValueError):
+            open_count = 0
+        await notify_correlation_block(
+            ticker=alert.ticker,
+            open_count=open_count,
+            max_count=int(settings_raw.get("max_positions_per_ticker", 3)),
+            settings=settings_raw,
+        )
+        return False, f"blocked: {block_reason}"
+
+    # 3. Build the trade record.
+    trade = Trade(
+        alert_id=alert.id,
+        ticker=alert.ticker,
+        strike=alert.strike,
+        option_type=alert.option_type,
+        expiration=alert.expiration,
+        entry_price=alert.entry_price,
+        quantity=quantity,
+        broker=settings.active_broker.value,
+        simulated=False,
+        entry_alignment_tier=alignment.tier,
+        entry_alignment_score=alignment.alignment_score,
+        entry_sizing_percent=sizing_percent,
+        entry_alignment_context=alignment_context,
+        entry_risk_profile=entry_risk_profile,
+        entry_exit_profile=entry_exit_profile,
+        max_loss_budget=settings.max_loss_per_trade,
+        estimated_stop_loss_percent=estimated_stop_loss_percent,
+    )
+
+    # Place with broker, store as "pending", start fill monitor.
+    trade.status = "pending"
+    order_id = None
+    broker_client = None
+    fill_monitor_started = False
+
+    limit_price = calculate_option_buy_limit_price(
+        alert.entry_price,
+        premium_buffer_enabled=settings.premium_buffer_enabled,
+        premium_buffer_amount=settings.premium_buffer_amount,
+        live_ask=alignment.option_ask,
+        marketable_entry_enabled=settings.marketable_entry_enabled,
+    )
+    if settings.premium_buffer_enabled:
+        buffer_applied = limit_price - alert.entry_price
+        logger.info(
+            "[%s] applying premium cap: +$%.2f (limit: $%.2f)",
+            log_context,
+            buffer_applied,
+            limit_price,
+        )
+
+    try:
+        from order_execution import get_configured_broker_client
+
+        broker_client = get_configured_broker_client(
+            settings_raw,
+            settings.active_broker.value,
+            require_order_status=True,
+        )
+        order_result = await broker_client.place_order(
+            ticker=alert.ticker,
+            strike=alert.strike,
+            option_type=alert.option_type,
+            expiration=alert.expiration,
+            side="BUY",
+            quantity=quantity,
+            price=limit_price,
+            client_order_id=build_client_order_id(alert.id, "BUY"),
+        )
+        order_id = order_result.get("order_id")
+        if not order_id:
+            raise ValueError(order_result.get("error", "Broker did not return an order id"))
+        trade.order_id = order_id
+        logger.info(
+            f"[{log_context}] placed order {order_id} for "
+            f"{quantity}x {alert.ticker} ${alert.strike} {alert.option_type}"
+        )
+        trade_result = pending_trade_result
+    except Exception as e:
+        trade.status = "failed"
+        trade.error_message = str(e)
+        trade_result = f"failed: {trade.error_message}"
+        logger.error(f"[{log_context}] order placement failed: {e}")
+        await notify_trade_failed(
+            trade.id, alert.ticker, alert.strike, alert.option_type,
+            str(e), settings_raw,
+        )
+
+    # Persist the trade (pending or failed)
+    if USE_SQLITE:
+        from database_sqlite import insert_trade
+        insert_trade(trade.model_dump())
+    else:
+        sync_mongo_db.trades.insert_one(trade.model_dump())
+
+    # 4. Fill confirmation monitor.
+    if trade.status == "pending" and order_id:
+        try:
+            db_obj = get_db()
+            asyncio.create_task(monitor_fill(
+                order_context=OrderContext(
+                    trade_id=trade.id,
+                    order_id=order_id,
+                    side="BUY",
+                    ticker=alert.ticker,
+                    strike=alert.strike,
+                    option_type=alert.option_type,
+                    expiration=alert.expiration,
+                    requested_quantity=quantity,
+                    broker=settings.active_broker.value,
+                    alert_id=alert.id,
+                    alert_price=alert.entry_price,
+                    simulated=False,
+                    entry_risk_profile=entry_risk_profile,
+                    entry_exit_profile=entry_exit_profile,
+                    max_loss_budget=settings.max_loss_per_trade,
+                    estimated_stop_loss_percent=estimated_stop_loss_percent,
+                ),
+                broker_client=broker_client,
+                db=db_obj,
+                settings=settings_raw,
+                close_broker_client_when_done=True,
+            ))
+            fill_monitor_started = True
+        except Exception as e:
+            logger.error(f"[{log_context}] failed to start fill monitor: {e}")
+
+    if broker_client is not None and not fill_monitor_started:
+        from order_execution import close_broker_client
+
+        await close_broker_client(broker_client)
+
+    return trade_executed, trade_result
 
 
 async def process_trade(alert: Alert, parsed: dict):
     """Process a trade based on parsed alert — with risk sizing, correlation check, fill monitoring."""
-    from models import Trade, Position
-    
     # Get settings
     if USE_SQLITE:
         from database_sqlite import get_settings
@@ -245,299 +615,31 @@ async def process_trade(alert: Alert, parsed: dict):
     else:
         settings_doc = sync_mongo_db.settings.find_one({'id': 'main_settings'})
         settings_dict = settings_doc if settings_doc else {}
-    
+
     settings = Settings(**settings_dict) if settings_dict else Settings()
     settings_raw = settings_dict or {}
-    if parsed.get("_force_simulation"):
-        settings.simulation_mode = True
-        settings_raw = dict(settings_raw)
-        settings_raw["simulation_mode"] = True
     trade_executed = False
     trade_result = None
 
     if parsed['alert_type'] == 'buy':
-        source_config = parsed.get("_source_config") or {}
-
-        # 1. Risk-based position sizing.
-        quantity = calculate_position_size(
-            entry_price=alert.entry_price,
-            default_quantity=settings.default_quantity,
-            max_position_size=settings.max_position_size,
-            risk_multiplier=source_config.get("risk_multiplier", 1.0),
+        trade_executed, trade_result = await _process_starter_buy_alert(
+            alert,
+            settings,
+            settings_raw,
+            source_config=parsed.get("_source_config") or {},
         )
-        quantity = apply_source_quantity_limits(quantity, source_config)
-        if quantity <= 0:
-            logger.warning(
-                "[process_trade] trade BLOCKED: one contract for %s exceeds max_position_size",
-                alert.ticker,
-            )
-            await update_alert_status(
-                alert.id,
-                {
-                    'processed': True,
-                    'trade_executed': False,
-                    'trade_result': 'blocked: position size limit',
-                },
-            )
-            return
-
-        # 2. Correlation / concentration check.
-        # We need the async db abstraction here.  In the SQLite path we use
-        # asyncio.get_event_loop() since we're already inside the Discord
-        # bot's own event loop.
-        try:
-            db_for_risk = get_db()
-            allowed, block_reason = await check_correlation(
-                ticker=alert.ticker,
-                db=db_for_risk,
-                settings=settings_raw,
-            )
-        except Exception as e:
-            logger.error(f"[process_trade] blocking trade because correlation check failed: {e}")
-            allowed, block_reason = False, "Risk controls unavailable"
-
-        if not allowed:
-            logger.warning(f"[process_trade] trade BLOCKED: {block_reason}")
-            try:
-                open_count = int(block_reason.split()[2]) if block_reason else 0
-            except (IndexError, ValueError):
-                open_count = 0
-            await notify_correlation_block(
-                ticker=alert.ticker,
-                open_count=open_count,
-                max_count=int(settings_raw.get("max_positions_per_ticker", 3)),
-                settings=settings_raw,
-            )
-            # Update alert as processed but not executed
-            await update_alert_status(
-                alert.id,
-                {
-                    'processed': True,
-                    'trade_executed': False,
-                    'trade_result': f'blocked: {block_reason}',
-                },
-            )
-            return
-
-        if _requires_live_arming(settings, settings_raw):
-            try:
-                from live_arming import is_live_trading_armed
-                from live_readiness import live_execution_role_enabled
-
-                runtime_state = await get_db().get_runtime_state()
-                if not is_live_trading_armed(runtime_state):
-                    logger.warning("[process_trade] live BUY blocked because live trading is not armed")
-                    await update_alert_status(
-                        alert.id,
-                        {
-                            'processed': True,
-                            'trade_executed': False,
-                            'trade_result': 'blocked: live trading not armed',
-                        },
-                    )
-                    return
-                if not live_execution_role_enabled():
-                    logger.warning("[process_trade] live BUY blocked because Sentinel Echo is not in live_executioner role")
-                    await update_alert_status(
-                        alert.id,
-                        {
-                            'processed': True,
-                            'trade_executed': False,
-                            'trade_result': 'blocked: live executioner role disabled',
-                        },
-                    )
-                    return
-            except Exception as exc:
-                logger.error("[process_trade] live BUY blocked while checking arming state: %s", exc)
-                await update_alert_status(
-                    alert.id,
-                    {
-                        'processed': True,
-                        'trade_executed': False,
-                        'trade_result': f'blocked: live arming check failed: {exc}',
-                    },
-                )
-                return
-
-        # 3. Build the trade record.
-        trade = Trade(
-            alert_id=alert.id,
-            ticker=alert.ticker,
-            strike=alert.strike,
-            option_type=alert.option_type,
-            expiration=alert.expiration,
-            entry_price=alert.entry_price,
-            quantity=quantity,
-            broker=settings.active_broker.value,
-            simulated=settings.simulation_mode
-        )
-
-        if source_config.get("paper_shadow") and not settings.simulation_mode:
-            shadow_trade, shadow_position = build_entry_shadow_records(
-                alert=alert,
-                quantity=quantity,
-                broker=settings.active_broker.value,
-            )
-            shadow_position_data = shadow_position.model_dump(mode="json")
-            shadow_oco_exit_plan = build_oco_exit_plan(
-                settings_raw,
-                alert_id=alert.id,
-                position_id=shadow_position.id,
-                entry_price=alert.entry_price,
-                quantity=quantity,
-            )
-            if shadow_oco_exit_plan:
-                shadow_position_data["oco_exit_plan"] = shadow_oco_exit_plan
-                shadow_position_data["oco_exit_protected"] = True
-            if USE_SQLITE:
-                from database_sqlite import insert_trade, insert_position
-                insert_trade(shadow_trade.model_dump(mode="json"))
-                insert_position(shadow_position_data)
-            else:
-                sync_mongo_db.trades.insert_one(shadow_trade.model_dump())
-                sync_mongo_db.positions.insert_one(shadow_position_data)
-
-        if settings.simulation_mode:
-            # Simulated — no broker call, no fill monitoring needed
-            trade.status = "simulated"
-            trade.executed_at = datetime.now(timezone.utc)
-            logger.info(
-                f"SIMULATED BUY: {trade.quantity}x {trade.ticker} "
-                f"${trade.strike} {trade.option_type} @ ${trade.entry_price:.2f}"
-            )
-            position = Position(
-                ticker=alert.ticker,
-                strike=alert.strike,
-                option_type=alert.option_type,
-                expiration=alert.expiration,
-                entry_price=alert.entry_price,
-                original_quantity=quantity,
-                remaining_quantity=quantity,
-                total_cost=alert.entry_price * quantity * 100,
-                broker=settings.active_broker.value,
-                simulated=True,
-                trade_ids=[trade.id],
-                highest_price=alert.entry_price
-            )
-            position_data = position.model_dump()
-            oco_exit_plan = build_oco_exit_plan(
-                settings_raw,
-                alert_id=alert.id,
-                position_id=position.id,
-                entry_price=alert.entry_price,
-                quantity=quantity,
-            )
-            if oco_exit_plan:
-                position_data["oco_exit_plan"] = oco_exit_plan
-                position_data["oco_exit_protected"] = True
-            if USE_SQLITE:
-                from database_sqlite import insert_trade, insert_position
-                insert_trade(trade.model_dump())
-                insert_position(position_data)
-            else:
-                sync_mongo_db.trades.insert_one(trade.model_dump())
-                sync_mongo_db.positions.insert_one(position_data)
-
-            await notify_trade_filled(
-                trade.id, trade.ticker, trade.strike, trade.option_type,
-                quantity, trade.entry_price, "BUY (SIM)", settings_raw,
-            )
-            trade_executed = True
-
-        else:
-            # Real order — place with broker, store as "pending", start fill monitor
-            trade.status = "pending"
-            order_id = None
-            
-            limit_price = calculate_option_buy_limit_price(
-                alert.entry_price,
-                premium_buffer_enabled=settings.premium_buffer_enabled,
-                premium_buffer_amount=settings.premium_buffer_amount,
-            )
-            if settings.premium_buffer_enabled:
-                buffer_applied = limit_price - alert.entry_price
-                logger.info(
-                    "[process_trade] applying premium cap: +$%.2f (limit: $%.2f)",
-                    buffer_applied,
-                    limit_price,
-                )
-            
-            try:
-                from order_execution import get_configured_broker_client
-
-                broker_client = get_configured_broker_client(
-                    settings_raw,
-                    settings.active_broker.value,
-                    require_order_status=True,
-                )
-                order_result = await broker_client.place_order(
-                    ticker=alert.ticker,
-                    strike=alert.strike,
-                    option_type=alert.option_type,
-                    expiration=alert.expiration,
-                    side="BUY",
-                    quantity=quantity,
-                    price=limit_price,
-                    client_order_id=build_client_order_id(alert.id, "BUY"),
-                )
-                order_id = order_result.get("order_id")
-                if not order_id:
-                    raise ValueError(order_result.get("error", "Broker did not return an order id"))
-                trade.order_id = order_id
-                logger.info(
-                    f"[process_trade] placed order {order_id} for "
-                    f"{quantity}x {alert.ticker} ${alert.strike} {alert.option_type}"
-                )
-            except Exception as e:
-                trade.status = "failed"
-                trade.error_message = str(e)
-                trade_result = f"failed: {trade.error_message}"
-                logger.error(f"[process_trade] order placement failed: {e}")
-                await notify_trade_failed(
-                    trade.id, alert.ticker, alert.strike, alert.option_type,
-                    str(e), settings_raw,
-                )
-
-            # Persist the trade (pending or failed)
-            if USE_SQLITE:
-                from database_sqlite import insert_trade
-                insert_trade(trade.model_dump())
-            else:
-                sync_mongo_db.trades.insert_one(trade.model_dump())
-
-            # 4. Fill confirmation monitor.
-            if trade.status == "pending" and order_id:
-                try:
-                    db_obj = get_db()
-                    asyncio.create_task(monitor_fill(
-                        order_context=OrderContext(
-                            trade_id=trade.id,
-                            order_id=order_id,
-                            side="BUY",
-                            ticker=alert.ticker,
-                            strike=alert.strike,
-                            option_type=alert.option_type,
-                            expiration=alert.expiration,
-                            requested_quantity=quantity,
-                            broker=settings.active_broker.value,
-                            alert_id=alert.id,
-                            alert_price=alert.entry_price,
-                            simulated=False,
-                        ),
-                        broker_client=broker_client,
-                        db=db_obj,
-                        settings=settings_raw,
-                    ))
-                except Exception as e:
-                    logger.error(f"[process_trade] failed to start fill monitor: {e}")
     elif parsed["alert_type"] == "average_down":
-        trade_executed = await process_average_down_alert(
+        average_down_result = await process_average_down_alert(
             alert,
             parsed,
             settings,
             settings_raw,
             source_config=parsed.get("_source_config") or {},
         )
+        if isinstance(average_down_result, tuple):
+            trade_executed, trade_result = average_down_result
+        else:
+            trade_executed = average_down_result
     elif is_exit_alert(parsed):
         trade_executed = await process_exit_alert(
             alert,
@@ -546,11 +648,14 @@ async def process_trade(alert: Alert, parsed: dict):
             settings_raw,
             source_config=parsed.get("_source_config") or {},
         )
+        trade_result = parsed.get("_exit_skip_reason")
     else:
         logger.info("[process_trade] unsupported alert_type=%s", parsed.get("alert_type"))
 
     # Update alert status.
     updates = {'processed': True, 'trade_executed': trade_executed}
+    if parsed.get("_resolved_alert_type"):
+        updates["alert_type"] = parsed["_resolved_alert_type"]
     if is_exit_alert(parsed):
         updates['exit_trigger'] = str(parsed.get("exit_trigger") or "sell_alert")
     if trade_result is not None:
@@ -565,24 +670,55 @@ async def process_average_down_alert(
     settings_raw: dict,
     source_config: dict | None = None,
 ) -> bool:
-    """Process average-down alerts by adding to a matching open option position."""
+    """Resolve explicit adds against position state, then scale in or open a fresh re-entry."""
     from models import Trade
+    from entry_controls import explicit_reentry_allowed
 
-    if not settings.averaging_down_enabled:
-        logger.info("[process_average_down_alert] averaging down is disabled")
-        return False
+    source_config = source_config or {}
+    explicit_reentry = explicit_reentry_allowed(alert.raw_message)
 
     db_obj = get_db()
+    await _reconcile_local_positions_before_entry(db_obj, settings, settings_raw, "process_average_down_alert")
     open_positions = await db_obj.get_positions("open")
     partial_positions = await db_obj.get_positions("partial")
     candidates = [
         position
         for position in open_positions + partial_positions
         if _average_down_position_matches(position, parsed)
-        and (settings.simulation_mode or not _position_is_simulated(position))
     ]
     if not candidates:
-        logger.info("[process_average_down_alert] no matching open position for %s", parsed)
+        if explicit_reentry:
+            parsed["_resolved_alert_type"] = "buy"
+            logger.info(
+                "[process_average_down_alert] explicit re-entry has no matching open position; "
+                "opening a fresh starter BUY",
+            )
+            return await _process_starter_buy_alert(
+                alert,
+                settings,
+                settings_raw,
+                source_config=source_config or {},
+                pending_trade_result="pending: explicit re-entry opened fresh buy",
+                log_context="process_reentry_alert",
+            )
+        if not settings.averaging_down_enabled:
+            logger.info("[process_average_down_alert] averaging down is disabled")
+            return False
+        logger.info(
+            "[process_average_down_alert] no matching open position for %s; falling back to starter BUY",
+            parsed,
+        )
+        return await _process_starter_buy_alert(
+            alert,
+            settings,
+            settings_raw,
+            source_config=source_config or {},
+            pending_trade_result="pending: average_down fallback opened starter buy",
+            log_context="process_average_down_alert",
+        )
+
+    if not settings.averaging_down_enabled:
+        logger.info("[process_average_down_alert] averaging down is disabled")
         return False
 
     position = candidates[0]
@@ -620,51 +756,8 @@ async def process_average_down_alert(
         quantity=quantity,
         side="BUY",
         broker=settings.active_broker.value,
-        simulated=settings.simulation_mode,
+        simulated=False,
     )
-
-    if settings.simulation_mode:
-        trade.status = "simulated"
-        trade.executed_at = datetime.now(timezone.utc)
-        await db_obj.insert_trade(trade.model_dump())
-        await db_obj.update_position(
-            position["id"],
-            _average_down_position_update(
-                position,
-                trade_id=trade.id,
-                quantity=quantity,
-                entry_price=alert_price,
-                settings_raw=settings_raw,
-                alert_id=alert.id,
-            ),
-        )
-        await notify_trade_filled(
-            trade.id,
-            trade.ticker,
-            trade.strike,
-            trade.option_type,
-            quantity,
-            alert_price,
-            "AVG DOWN (SIM)",
-            settings_raw,
-        )
-        return True
-
-    if _requires_live_arming(settings, settings_raw):
-        try:
-            from live_arming import is_live_trading_armed
-            from live_readiness import live_execution_role_enabled
-
-            runtime_state = await db_obj.get_runtime_state()
-            if not is_live_trading_armed(runtime_state):
-                logger.warning("[process_average_down_alert] live BUY blocked because live trading is not armed")
-                return False
-            if not live_execution_role_enabled():
-                logger.warning("[process_average_down_alert] live BUY blocked because Sentinel Echo is not in live_executioner role")
-                return False
-        except Exception as exc:
-            logger.error("[process_average_down_alert] live BUY blocked while checking arming state: %s", exc)
-            return False
 
     limit_price = calculate_option_buy_limit_price(
         alert_price,
@@ -678,6 +771,7 @@ async def process_average_down_alert(
             limit_price,
         )
 
+    broker_client = None
     try:
         from order_execution import get_configured_broker_client
 
@@ -722,6 +816,7 @@ async def process_average_down_alert(
                 broker_client=broker_client,
                 db=db_obj,
                 settings=settings_raw,
+                close_broker_client_when_done=True,
             )
         )
         return False
@@ -738,6 +833,10 @@ async def process_average_down_alert(
             str(exc),
             settings_raw,
         )
+        if broker_client is not None:
+            from order_execution import close_broker_client
+
+            await close_broker_client(broker_client)
         return False
 
 
@@ -826,13 +925,51 @@ def _average_down_position_matches(position: dict[str, Any], parsed: dict) -> bo
     return _date_key(position.get("expiration")) == _date_key(parsed.get("expiration"))
 
 
-def _position_is_simulated(position: dict[str, Any]) -> bool:
-    broker = str(position.get("broker") or "").lower()
-    return bool(position.get("simulated")) or broker.endswith(":paper_shadow")
-
-
 def _date_key(value: Any) -> str:
-    return str(value or "").strip().upper().replace("-", "/")
+    return str(normalize_expiration_for_order(value) or value or "").strip().upper().replace("-", "/")
+
+
+async def _resolve_alert_exit_price(
+    broker_client,
+    position: dict[str, Any],
+    reported_price: float | None,
+) -> float:
+    """Use an executable broker quote, not the analyst's already-filled sale price."""
+    loader = getattr(broker_client, "get_option_market_context", None)
+    if loader is not None:
+        try:
+            context = await loader(
+                ticker=str(position.get("ticker") or "").upper(),
+                strike=float(position.get("strike") or 0.0),
+                option_type=str(position.get("option_type") or "").upper(),
+                expiration=str(position.get("expiration") or ""),
+            )
+            bid = float((context or {}).get("option_bid") or 0.0)
+            if bid > 0:
+                return round(bid, 2)
+        except Exception as exc:
+            logger.warning(
+                "[process_exit_alert] fresh option bid unavailable for %s: %s",
+                position.get("id"),
+                exc,
+            )
+
+    for key in ("option_bid", "current_price"):
+        try:
+            value = float(position.get(key) or 0.0)
+        except (TypeError, ValueError):
+            continue
+        if value > 0:
+            return round(value, 2)
+    try:
+        fallback = float(reported_price or 0.0)
+    except (TypeError, ValueError):
+        fallback = 0.0
+    if fallback > 0:
+        return round(fallback, 2)
+    raise ValueError(
+        f"No executable option bid is available for position {position.get('id')}"
+    )
 
 
 async def process_exit_alert(
@@ -844,65 +981,168 @@ async def process_exit_alert(
 ) -> bool:
     """Process sell/trim/close alerts against matching open positions."""
     from models import Trade, Position
-    from routes.settings import check_and_trigger_shutdown
 
     db_obj = get_db()
+    broker_client = None
+    broker_positions_failed = False
+    try:
+        from order_execution import get_configured_broker_client
+
+        broker_client = get_configured_broker_client(
+            settings_raw,
+            settings.active_broker.value,
+            require_order_status=True,
+        )
+    except Exception as exc:
+        logger.warning("[process_exit_alert] broker client unavailable before reconciliation: %s", exc)
+
+    if broker_client is not None:
+        try:
+            from bot_managed_exits import (
+                get_broker_positions_snapshot,
+                reconcile_pending_exit_orders,
+                reconcile_broker_positions,
+                reconcile_local_positions_against_broker,
+            )
+
+            broker_positions, broker_positions_failed = await get_broker_positions_snapshot(broker_client)
+            if broker_positions_failed:
+                logger.warning("[process_exit_alert] broker position snapshot failed before exit matching")
+            else:
+                repaired_exits = await reconcile_pending_exit_orders(
+                    db_obj,
+                    broker_client,
+                    settings_raw,
+                )
+                if repaired_exits:
+                    logger.info(
+                        "[process_exit_alert] reconciled %s pending exit order(s) before exit matching",
+                        repaired_exits,
+                    )
+                imported = await reconcile_broker_positions(
+                    db_obj,
+                    broker_client,
+                    settings_raw,
+                    broker_positions=broker_positions,
+                    broker_positions_failed=False,
+                )
+                if imported:
+                    logger.info("[process_exit_alert] imported %s broker position(s) before exit matching", imported)
+                stale = await reconcile_local_positions_against_broker(
+                    db_obj,
+                    broker_client,
+                    settings_raw,
+                    broker_positions=broker_positions,
+                    broker_positions_failed=False,
+                )
+                if stale.get("closed"):
+                    logger.info(
+                        "[process_exit_alert] closed %s stale local broker position(s) before exit matching",
+                        stale["closed"],
+                    )
+        except Exception as exc:
+            broker_positions_failed = True
+            logger.warning("[process_exit_alert] broker position reconciliation failed before exit matching: %s", exc)
+        finally:
+            from order_execution import close_broker_client
+
+            await close_broker_client(broker_client)
+            broker_client = None
+
     open_positions = await db_obj.get_positions("open")
     partial_positions = await db_obj.get_positions("partial")
     candidate_positions = open_positions + partial_positions
+    if parsed.get('_card'):
+        position_id = parsed['_card'].get('position_id')
+        candidate_positions = [position for position in candidate_positions if position.get('id') == position_id]
+    protected_positions = [] if coerce_bool(
+        settings_raw.get("core_runner_enabled"), default=False
+    ) else [
+        position
+        for position in candidate_positions
+        if _contextual_exit_is_trailing_protected(
+            position,
+            parsed,
+            settings_raw,
+            source_config or {},
+        )
+    ]
+    if protected_positions:
+        protected_ids = {str(position.get("id") or "") for position in protected_positions}
+        candidate_positions = [
+            position for position in candidate_positions if str(position.get("id") or "") not in protected_ids
+        ]
+        parsed["_exit_skip_reason"] = (
+            "contextual exit ignored for trailing-protected position: "
+            + ", ".join(sorted(position_id for position_id in protected_ids if position_id))
+        )
+        logger.info("[process_exit_alert] %s", parsed["_exit_skip_reason"])
+    if broker_positions_failed and _has_active_broker_option_positions(candidate_positions, settings_raw):
+        logger.warning("[process_exit_alert] blocked sell alert because broker positions could not be verified")
+        return False
     source_config = source_config or {}
     exit_trigger = str(parsed.get("exit_trigger") or "sell_alert").strip() or "sell_alert"
     any_submitted = False
-    any_executed = False
 
     try:
-        if source_config.get("paper_shadow") and not settings.simulation_mode:
-            shadow_exit_plans = build_exit_plans(
-                [
-                    position
-                    for position in candidate_positions
-                    if is_paper_shadow_position(position)
-                ],
-                parsed,
-                include_simulated=True,
-            )
-            for shadow_plan in shadow_exit_plans:
-                shadow_position = Position(**shadow_plan["position"])
-                shadow_trade, shadow_update = build_exit_shadow_records(
-                    alert=alert,
-                    position=shadow_position,
-                    quantity=shadow_plan["quantity"],
-                    exit_price=shadow_plan["exit_price"],
-                )
-                shadow_trade.sell_percentage = shadow_plan.get("percentage")
-                shadow_trade.exit_trigger = exit_trigger
-                shadow_trade.exit_reason = "Discord sell alert"
-                await db_obj.insert_trade(shadow_trade.model_dump(mode="json"))
-                await db_obj.update_position(shadow_position.id, shadow_update)
-                any_submitted = True
-                any_executed = True
-
         exit_plans = build_exit_plans(
             candidate_positions,
             parsed,
-            include_simulated=settings.simulation_mode,
+            include_simulated=True,
+            allow_missing_exit_price=True,
         )
     except ValueError as exc:
         logger.warning("[process_exit_alert] blocked exit alert: %s", exc)
         return False
 
     if not exit_plans:
-        if any_submitted:
-            logger.info("[process_exit_alert] recorded paper-shadow exit for %s", parsed)
-        else:
-            logger.info("[process_exit_alert] no matching open position for %s", parsed)
-        return any_executed
+        logger.info("[process_exit_alert] no matching open position for %s", parsed)
+        return False
 
     for plan in exit_plans:
+        plan = _cap_analyst_exit_plan(plan, parsed, settings_raw)
+        plan_updates = plan.get("position_updates") or {}
+        if plan_updates:
+            plan["position"].update(plan_updates)
+            await db_obj.update_position(
+                str(plan["position"].get("id") or ""),
+                {"$set": plan_updates},
+            )
+        if int(plan.get("quantity") or 0) <= 0:
+            parsed["_exit_skip_reason"] = str(
+                plan.get("skip_reason") or "analyst exit held to preserve runner contracts"
+            )
+            logger.info("[process_exit_alert] %s", parsed["_exit_skip_reason"])
+            continue
+        if bool(plan["position"].get("exit_order_pending")):
+            superseded = await _supersede_pending_exit_order(
+                db_obj,
+                plan["position"],
+                requested_quantity=int(plan.get("quantity") or 0),
+                requested_percentage=float(plan.get("percentage") or 100.0),
+                settings_raw=settings_raw,
+            )
+            if not superseded:
+                logger.warning(
+                    "[process_exit_alert] position %s still has an active broker exit order",
+                    plan["position"].get("id"),
+                )
+                continue
+            refreshed_position = await db_obj.get_position_by_id(plan["position"].get("id"))
+            refreshed_plans = build_exit_plans(
+                [refreshed_position] if refreshed_position else [],
+                parsed,
+                include_simulated=True,
+                allow_missing_exit_price=True,
+            )
+            if not refreshed_plans:
+                continue
+            plan = _cap_analyst_exit_plan(refreshed_plans[0], parsed, settings_raw)
+            if int(plan.get("quantity") or 0) <= 0:
+                continue
         position = Position(**plan["position"])
         sell_qty = plan["quantity"]
         exit_price = plan["exit_price"]
-        realized_pnl = (exit_price - position.entry_price) * sell_qty * 100
 
         trade = Trade(
             alert_id=alert.id,
@@ -915,72 +1155,44 @@ async def process_exit_alert(
             quantity=sell_qty,
             side="SELL",
             broker=settings.active_broker.value,
-            simulated=settings.simulation_mode,
-            realized_pnl=realized_pnl,
+            simulated=False,
+            realized_pnl=0.0,
             sell_percentage=plan.get("percentage"),
             exit_trigger=exit_trigger,
             exit_reason="Discord sell alert",
+            exit_allocation_target=plan.get("exit_allocation_target"),
+            target_remaining_quantity=plan.get("target_remaining_quantity"),
+            exit_runner_audit=plan.get("runner_audit") or {},
         )
 
-        if settings.simulation_mode:
-            trade.status = "simulated"
-            trade.executed_at = datetime.now(timezone.utc)
-            await db_obj.insert_trade(trade.model_dump())
-
-            new_remaining = max(0, position.remaining_quantity - sell_qty)
-            update_data = {
-                "$set": {
-                    "remaining_quantity": new_remaining,
-                    "realized_pnl": position.realized_pnl + realized_pnl,
-                    "current_price": exit_price,
-                    "status": "closed" if new_remaining <= 0 else "partial",
-                },
-                "$push": {"trade_ids": trade.id},
-            }
-            if new_remaining <= 0:
-                update_data["$set"]["closed_at"] = datetime.now(timezone.utc).isoformat()
-
-            await db_obj.update_position(position.id, update_data)
-            await check_and_trigger_shutdown(realized_pnl)
-            await notify_trade_filled(
-                trade.id,
-                trade.ticker,
-                trade.strike,
-                trade.option_type,
-                sell_qty,
-                exit_price,
-                "SELL (SIM)",
-                settings_raw,
-            )
-            any_submitted = True
-            any_executed = True
-            continue
-
-        if _requires_live_arming(settings, settings_raw):
-            try:
-                from live_arming import is_live_trading_armed
-                from live_readiness import live_execution_role_enabled
-
-                runtime_state = await db_obj.get_runtime_state()
-                if not is_live_trading_armed(runtime_state):
-                    logger.warning("[process_exit_alert] live SELL blocked because live trading is not armed")
-                    continue
-                if not live_execution_role_enabled():
-                    logger.warning("[process_exit_alert] live SELL blocked because Sentinel Echo is not in live_executioner role")
-                    continue
-            except Exception as exc:
-                logger.error("[process_exit_alert] live SELL blocked while checking arming state: %s", exc)
-                continue
-
+        order_client = None
+        reservation = {
+            "exit_order_pending": True,
+            "exit_order_id": None,
+            "exit_reservation_token": str(uuid.uuid4()),
+            "exit_reservation_trigger": exit_trigger,
+            "exit_reservation_created_at": datetime.now(timezone.utc).isoformat(),
+            "exit_target_remaining_quantity": plan.get("target_remaining_quantity"),
+            "exit_target_trigger": exit_trigger,
+            "exit_target_allocation_target": plan.get("exit_allocation_target"),
+            "exit_target_updated_at": datetime.now(timezone.utc).isoformat(),
+        }
         try:
             from order_execution import get_configured_broker_client
 
-            broker_client = get_configured_broker_client(
+            await db_obj.update_position(position.id, {"$set": reservation})
+            order_client = get_configured_broker_client(
                 settings_raw,
                 settings.active_broker.value,
                 require_order_status=True,
             )
-            order_result = await broker_client.place_order(
+            exit_price = await _resolve_alert_exit_price(
+                order_client,
+                plan["position"],
+                exit_price,
+            )
+            trade.exit_price = exit_price
+            order_result = await order_client.place_order(
                 ticker=position.ticker,
                 strike=position.strike,
                 option_type=position.option_type,
@@ -997,6 +1209,7 @@ async def process_exit_alert(
             trade.order_id = order_id
             trade.status = "pending"
             await db_obj.insert_trade(trade.model_dump())
+            await db_obj.update_position(position.id, {"$set": {"exit_order_id": order_id}})
             asyncio.create_task(
                 monitor_fill(
                     order_context=OrderContext(
@@ -1015,14 +1228,32 @@ async def process_exit_alert(
                         simulated=False,
                         sell_percentage=plan.get("percentage"),
                         exit_trigger=exit_trigger,
+                        exit_allocation_target=plan.get("exit_allocation_target"),
+                        target_remaining_quantity=plan.get("target_remaining_quantity"),
                     ),
-                    broker_client=broker_client,
+                    broker_client=order_client,
                     db=db_obj,
                     settings=settings_raw,
+                    close_broker_client_when_done=True,
                 )
             )
+            order_client = None
             any_submitted = True
         except Exception as exc:
+            await db_obj.update_position(
+                position.id,
+                {
+                    "$set": {
+                        "exit_order_pending": False,
+                        "exit_order_id": None,
+                        "exit_reservation_token": None,
+                    }
+                },
+            )
+            if order_client is not None:
+                from order_execution import close_broker_client
+
+                await close_broker_client(order_client)
             trade.status = "failed"
             trade.error_message = str(exc)
             await db_obj.insert_trade(trade.model_dump())
@@ -1036,7 +1267,258 @@ async def process_exit_alert(
                 settings_raw,
             )
 
-    return any_executed
+    return any_submitted
+
+
+def _cap_analyst_exit_plan(
+    plan: dict,
+    parsed: dict,
+    settings_raw: dict,
+) -> dict:
+    position = plan.get("position") if isinstance(plan.get("position"), dict) else {}
+    remaining = int(position.get("remaining_quantity") or position.get("quantity") or 0)
+    requested = min(remaining, max(0, int(plan.get("quantity") or 0)))
+    if not coerce_bool(settings_raw.get("core_runner_enabled"), default=False):
+        return {
+            **plan,
+            "exit_allocation_target": "entire_position",
+            "target_remaining_quantity": max(0, remaining - requested),
+            "runner_audit": {
+                "requested_quantity": requested,
+                "protected_quantity": 0,
+                "permitted_quantity": requested,
+                "target_remaining_quantity": max(0, remaining - requested),
+            },
+        }
+
+    from core_runner_policy import cap_exit_quantity, update_runner_state
+
+    bid = float(
+        position.get("option_bid")
+        or position.get("current_price")
+        or position.get("entry_price")
+        or 0.0
+    )
+    state = update_runner_state(position, settings_raw, bid=bid)
+    inferred_position_id = str(parsed.get("inferred_from_position_id") or "").strip()
+    explicit_contract = not inferred_position_id and all(
+        (
+            str(parsed.get("ticker") or "").strip(),
+            parsed.get("strike") is not None,
+            str(parsed.get("option_type") or "").strip(),
+        )
+    )
+    sell_percentage = float(parsed.get("sell_percentage") or plan.get("percentage") or 100.0)
+    override_threshold = max(
+        1.0,
+        min(100.0, float(settings_raw.get("core_runner_analyst_override_percent") or 80.0)),
+    )
+    explicit_override = (
+        explicit_contract
+        and sell_percentage >= override_threshold
+        and coerce_bool(settings_raw.get("core_runner_explicit_full_exit_overrides"), default=True)
+    )
+    contextual_full_override = (
+        not explicit_contract
+        and sell_percentage >= 100.0
+        and coerce_bool(settings_raw.get("core_runner_contextual_full_exit_overrides"), default=False)
+    )
+    trigger = str(parsed.get("exit_trigger") or "trim_alert").strip() or "trim_alert"
+    decision = {
+        "triggered": requested > 0,
+        "action": "triggered",
+        "exit_trigger": trigger,
+        "quantity": requested,
+        "position_updates": state.updates,
+    }
+    if explicit_override or contextual_full_override:
+        decision["exit_allocation_target"] = "entire_position"
+    capped = cap_exit_quantity(decision, state, settings_raw)
+    permitted = int(capped.get("quantity") or 0) if capped.get("triggered") else 0
+    raw_target = capped.get("target_remaining_quantity")
+    target = remaining if raw_target is None else int(raw_target)
+    protected = max(0, requested - permitted)
+    return {
+        **plan,
+        "quantity": permitted,
+        "exit_allocation_target": capped.get("exit_allocation_target") or "core_only",
+        "target_remaining_quantity": target,
+        "position_updates": capped.get("position_updates") or {},
+        "skip_reason": capped.get("reason") if not capped.get("triggered") else None,
+        "runner_audit": {
+            "requested_quantity": requested,
+            "protected_quantity": protected,
+            "permitted_quantity": permitted,
+            "target_remaining_quantity": target,
+            "explicit_override": explicit_override,
+            "contextual_full_override": contextual_full_override,
+        },
+    }
+
+
+def _contextual_exit_is_trailing_protected(
+    position: dict,
+    parsed: dict,
+    settings_raw: dict,
+    source_config: dict,
+) -> bool:
+    if not coerce_bool(
+        source_config.get("protect_trailing_armed_from_contextual_exits"),
+        default=True,
+    ):
+        return False
+
+    explicit_contract_core = (
+        not str(parsed.get("inferred_from_position_id") or "").strip()
+        and bool(str(parsed.get("ticker") or "").strip())
+        and parsed.get("strike") is not None
+        and bool(str(parsed.get("option_type") or "").strip())
+    )
+    try:
+        sell_percentage = float(parsed.get("sell_percentage") or 0.0)
+        override_percentage = float(
+            source_config.get("trailing_context_exit_override_percent", 80.0) or 80.0
+        )
+    except (TypeError, ValueError):
+        sell_percentage = 0.0
+        override_percentage = 80.0
+    if (
+        explicit_contract_core
+        and coerce_bool(
+            source_config.get("trailing_context_exit_override_enabled"),
+            default=True,
+        )
+        and sell_percentage >= max(1.0, min(100.0, override_percentage))
+    ):
+        return False
+
+    inferred_position_id = str(parsed.get("inferred_from_position_id") or "").strip()
+    position_id = str(position.get("id") or "").strip()
+    if inferred_position_id:
+        contextual = not position_id or inferred_position_id == position_id
+    else:
+        contextual = not all(
+            (
+                str(parsed.get("ticker") or "").strip(),
+                parsed.get("strike") is not None,
+                str(parsed.get("option_type") or "").strip(),
+                str(parsed.get("expiration") or "").strip(),
+            )
+        )
+    if not contextual:
+        return False
+
+    from options_exit_policy import is_trailing_protection_eligible
+
+    return is_trailing_protection_eligible(position, settings_raw)
+
+
+async def _supersede_pending_exit_order(
+    db_obj,
+    position: dict,
+    *,
+    requested_quantity: int,
+    requested_percentage: float,
+    settings_raw: dict,
+) -> bool:
+    """Cancel a smaller resting exit and reconcile its final broker state before replacement."""
+    position_id = str(position.get("id") or "").strip()
+    order_id = str(position.get("exit_order_id") or "").strip()
+    if not position_id or not order_id:
+        return False
+
+    trades = await db_obj.get_trades(limit=500)
+    pending_statuses = {"pending", "partial", "unconfirmed", "pending_broker", "submitted"}
+    pending_trade = next(
+        (
+            trade
+            for trade in trades or []
+            if str(trade.get("position_id") or "").strip() == position_id
+            and str(trade.get("order_id") or "").strip() == order_id
+            and str(trade.get("side") or "").upper() == "SELL"
+            and str(trade.get("status") or "").lower() in pending_statuses
+        ),
+        None,
+    )
+    if not pending_trade:
+        return False
+
+    pending_quantity = max(1, int(pending_trade.get("quantity") or 1))
+    if requested_percentage < 100.0 and requested_quantity <= pending_quantity:
+        return False
+
+    from order_execution import close_broker_client, get_configured_broker_client
+
+    broker_name = str(settings_raw.get("active_broker") or position.get("broker") or "").lower()
+    client = get_configured_broker_client(settings_raw, broker_name, require_order_status=True)
+    context = _pending_trade_order_context(pending_trade)
+    if context is None:
+        await close_broker_client(client)
+        return False
+
+    try:
+        cancel_result = await client.cancel_order(order_id)
+        logger.info(
+            "[process_exit_alert] superseding exit %s for %s: %s",
+            order_id,
+            position_id,
+            cancel_result,
+        )
+        for _ in range(8):
+            status_data = await client.get_order_status(order_id)
+            status = str(status_data.get("status") or "unknown").lower()
+            filled_qty = max(0, int(status_data.get("filled_qty") or 0))
+            fill_price = float(status_data.get("avg_fill_price") or 0.0)
+            if status == "filled":
+                await reconcile_order_update(
+                    db_obj,
+                    context,
+                    BrokerOrderUpdate(status="filled", filled_qty=filled_qty, avg_fill_price=fill_price),
+                    settings=settings_raw,
+                )
+                return True
+            if status in {"cancelled", "canceled", "expired", "rejected"}:
+                await reconcile_order_update(
+                    db_obj,
+                    context,
+                    BrokerOrderUpdate(
+                        status="cancelled",
+                        filled_qty=filled_qty,
+                        avg_fill_price=fill_price,
+                        reason="superseded by newer analyst exit",
+                    ),
+                    settings=settings_raw,
+                )
+                return True
+            await asyncio.sleep(0.25)
+    except Exception as exc:
+        logger.warning("[process_exit_alert] unable to supersede exit %s: %s", order_id, exc)
+    finally:
+        await close_broker_client(client)
+    return False
+
+
+def _has_active_broker_option_positions(positions: list[dict], settings: dict) -> bool:
+    active_broker = str(settings.get("active_broker") or "").strip().lower()
+    for position in positions or []:
+        if not isinstance(position, dict):
+            continue
+        broker = str(position.get("broker") or "").strip().lower()
+        if active_broker and broker and broker != active_broker:
+            continue
+        option_type = str(position.get("option_type") or "").strip().upper()
+        try:
+            strike = float(position.get("strike") or 0.0)
+        except (TypeError, ValueError):
+            strike = 0.0
+        if (
+            str(position.get("ticker") or "").strip()
+            and strike > 0
+            and option_type in {"CALL", "PUT"}
+            and str(position.get("expiration") or "").strip()
+        ):
+            return True
+    return False
 
 
 def _default_schedule_fill_monitor(**kwargs):
@@ -1064,6 +1546,12 @@ def _pending_trade_order_context(trade: dict) -> OrderContext | None:
         simulated=bool(trade.get("simulated")),
         sell_percentage=trade.get("sell_percentage"),
         exit_trigger=trade.get("exit_trigger"),
+        exit_allocation_target=trade.get("exit_allocation_target"),
+        target_remaining_quantity=trade.get("target_remaining_quantity"),
+        entry_risk_profile=str(trade.get("entry_risk_profile") or "normal"),
+        max_loss_budget=trade.get("max_loss_budget"),
+        estimated_stop_loss_percent=trade.get("estimated_stop_loss_percent"),
+        update_alert_status=trade_owns_alert_status(trade),
     )
 
 
@@ -1080,7 +1568,8 @@ async def resume_pending_fill_monitors(
     trades = await db.get_trades(limit=limit)
     pending_trades = [
         trade for trade in trades
-        if str(trade.get("status") or "").lower() == "pending" and trade.get("order_id")
+        if str(trade.get("status") or "").lower() in {"pending", "partial", "unconfirmed", "pending_broker"}
+        and trade.get("order_id")
     ]
     if not pending_trades:
         return 0
@@ -1210,6 +1699,26 @@ async def lifespan(app: FastAPI):
     except Exception as exc:
         logger.error("Failed to resume pending fill monitors on startup: %s", exc)
 
+    bot_managed_exit_task = None
+    try:
+        from bot_managed_exits import reconcile_broker_positions, start_bot_managed_exit_worker
+        from order_execution import get_configured_broker_client
+
+        active_broker = str(settings.get("active_broker") or "").lower()
+        broker_client = get_configured_broker_client(
+            settings,
+            active_broker,
+            require_order_status=True,
+        )
+        await reconcile_broker_positions(db, broker_client, settings)
+        bot_managed_exit_task = await start_bot_managed_exit_worker(
+            db,
+            settings,
+            broker_client=broker_client,
+        )
+    except Exception as exc:
+        logger.error("Failed to initialize bot-managed exits on startup: %s", exc)
+
     discord_config = resolve_saved_or_runtime_discord_config(settings, os.environ)
     if discord_config.token and discord_config.channel_ids:
         logger.info(
@@ -1227,6 +1736,12 @@ async def lifespan(app: FastAPI):
     yield
     
     # Cleanup
+    if bot_managed_exit_task:
+        bot_managed_exit_task.cancel()
+        try:
+            await bot_managed_exit_task
+        except asyncio.CancelledError:
+            pass
     await shutdown_bot()
     if mongo_client:
         mongo_client.close()
@@ -1356,7 +1871,6 @@ api_router.include_router(discord_router)
 api_router.include_router(profiles_router)
 api_router.include_router(trading_router)
 api_router.include_router(operator_router)
-api_router.include_router(sentinel_archive_router)
 api_router.include_router(analytics_router)
 api_router.include_router(bot_bus_router)
 api_router.include_router(pairing_router)

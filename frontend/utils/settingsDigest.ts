@@ -50,7 +50,7 @@ export interface SettingsDigest {
   notificationLabel: string;
 }
 
-const TOTAL_GUARDRAILS = 6;
+const TOTAL_GUARDRAILS = 5;
 
 function hasText(value: string | null | undefined): boolean {
   return String(value || '').trim().length > 0;
@@ -86,7 +86,6 @@ export function summarizeSettings(
     ? settings.discord_channel_ids.filter((channel) => hasText(channel)).length
     : 0;
   const parserPatterns = patternCount(patterns);
-  const hasIgnorePatterns = Boolean(patterns?.ignore_patterns?.length);
   const autoTradingEnabled = parseBooleanFlag(settings.auto_trading_enabled);
   const simulationMode = parseBooleanFlag(settings.simulation_mode);
   const stopLossEnabled = parseBooleanFlag(settings.stop_loss_enabled);
@@ -94,31 +93,6 @@ export function summarizeSettings(
   const autoShutdownEnabled = parseBooleanFlag(settings.auto_shutdown_enabled);
   const premiumBufferEnabled = parseBooleanFlag(settings.premium_buffer_enabled);
   const smsEnabled = parseBooleanFlag(settings.sms_enabled);
-
-  const discordWarnings: SettingsDigestWarning[] = [];
-  if (!hasText(settings.discord_token)) {
-    discordWarnings.push({
-      title: 'Discord token missing',
-      detail: 'Add a bot token before the listener can connect.',
-    });
-  }
-  if (channelCount === 0) {
-    discordWarnings.push({
-      title: 'Discord channels empty',
-      detail: 'Add at least one channel ID for alert ingestion.',
-    });
-  }
-
-  const patternWarnings: SettingsDigestWarning[] = [];
-  if (!patterns?.buy_patterns?.length) {
-    patternWarnings.push({ title: 'Buy patterns empty', detail: 'Entry alerts need buy-side keywords.' });
-  }
-  if (!patterns?.sell_patterns?.length) {
-    patternWarnings.push({ title: 'Sell patterns empty', detail: 'Exit alerts need sell-side keywords.' });
-  }
-  if (!hasIgnorePatterns) {
-    patternWarnings.push({ title: 'Ignore patterns empty', detail: 'Watchlist and paper-only alerts will not be filtered.' });
-  }
 
   const guardrailWarnings: SettingsDigestWarning[] = [];
   if (!stopLossEnabled) {
@@ -145,28 +119,15 @@ export function summarizeSettings(
     takeProfitEnabled,
     autoShutdownEnabled,
     premiumBufferEnabled,
-    hasIgnorePatterns,
   ];
   const guardrailCount = guardrailChecks.filter(Boolean).length;
   const guardrailCoveragePercent = Math.round((guardrailCount / TOTAL_GUARDRAILS) * 100);
 
   let primaryStatus: SettingsDigestStatus;
-  if (discordWarnings.length > 0) {
-    primaryStatus = {
-      title: 'Discord Setup',
-      detail: `${discordWarnings.length} Discord field${discordWarnings.length === 1 ? '' : 's'} need attention.`,
-      tone: 'attention',
-    };
-  } else if (liveWarnings.length > 0) {
+  if (liveWarnings.length > 0) {
     primaryStatus = {
       title: 'Live Auto Review',
       detail: 'Automation can reach the broker without simulation.',
-      tone: 'attention',
-    };
-  } else if (patternWarnings.length > 0) {
-    primaryStatus = {
-      title: 'Pattern Review',
-      detail: `${patternWarnings.length} parser safeguard${patternWarnings.length === 1 ? '' : 's'} need coverage.`,
       tone: 'attention',
     };
   } else if (guardrailWarnings.length > 0) {
@@ -179,7 +140,7 @@ export function summarizeSettings(
     primaryStatus = {
       title: autoTradingEnabled ? 'Simulation Guarded' : 'Manual Guarded',
       detail: autoTradingEnabled
-        ? 'Discord alerts route to simulated execution with core safeguards on.'
+        ? 'Signals route to simulated execution with core safeguards on.'
         : 'Alerts require operator approval with core safeguards on.',
       tone: autoTradingEnabled ? 'live' : 'idle',
     };
@@ -187,7 +148,7 @@ export function summarizeSettings(
 
   return {
     primaryStatus,
-    warningItems: [...discordWarnings, ...patternWarnings, ...guardrailWarnings, ...liveWarnings],
+    warningItems: [...guardrailWarnings, ...liveWarnings],
     guardrailCount,
     guardrailCoveragePercent,
     channelLabel: countLabel(channelCount, 'channel', 'channels'),

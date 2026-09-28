@@ -354,7 +354,7 @@ class SetupDiagnosticsTests(unittest.TestCase):
 
         self.assertFalse(result["readiness"]["ready_for_live"])
         self.assertFalse(result["ready_for_live"])
-        self.assertIn("credential_key_missing", result["readiness"]["blocking_codes"])
+        self.assertNotIn("credential_key_missing", result["readiness"]["blocking_codes"])
 
     def test_setup_diagnostics_blocks_live_ready_with_malformed_credential_key(self):
         from routes import health as health_route
@@ -547,10 +547,6 @@ class SetupDiagnosticsTests(unittest.TestCase):
 
         result = asyncio.run(health_route.setup_diagnostics())
 
-        self.assertIn(
-            "CREDENTIAL_KEY is required so broker secrets are encrypted.",
-            result["warnings"],
-        )
         self.assertIn("Broker connection is not healthy.", result["warnings"])
 
     def test_setup_diagnostics_parses_serialized_false_broker_status(self):
@@ -980,7 +976,6 @@ class SetupDiagnosticsTests(unittest.TestCase):
         self.assertTrue(result["broker"]["configured"])
         self.assertTrue(result["broker"]["order_status_supported"])
         self.assertEqual(result["source_policy"]["override_count"], 1)
-        self.assertEqual(result["source_policy"]["paper_shadow_sources"], 1)
         self.assertNotIn("broker-secret", str(result))
         self.assertNotIn("discord-secret", str(result))
 
@@ -1015,7 +1010,7 @@ class SetupDiagnosticsTests(unittest.TestCase):
         self.assertIn("Simulation mode is enabled.", result["warnings"])
         self.assertIn("Runtime shutdown is active.", result["warnings"])
 
-    def test_setup_diagnostics_warns_when_no_source_can_auto_live_trade(self):
+    def test_setup_diagnostics_warns_when_no_source_is_enabled(self):
         from routes import health as health_route
 
         health_route.set_db(
@@ -1030,11 +1025,7 @@ class SetupDiagnosticsTests(unittest.TestCase):
                             "api_secret": "broker-secret-secret",
                         }
                     },
-                    "source_overrides": {
-                        "paper": {"paper_only": True},
-                        "manual": {"require_manual_confirm": True},
-                        "disabled": {"enabled": False},
-                    },
+                    "source_overrides": {"disabled": {"enabled": False}},
                     "auto_trading_enabled": True,
                     "simulation_mode": False,
                     "shutdown_triggered": False,
@@ -1046,16 +1037,10 @@ class SetupDiagnosticsTests(unittest.TestCase):
 
         self.assertFalse(result["ready_for_live"])
         self.assertEqual(result["source_policy"]["auto_live_sources"], 0)
-        self.assertEqual(result["source_policy"]["paper_only_sources"], 1)
-        self.assertEqual(result["source_policy"]["manual_confirm_sources"], 1)
         self.assertEqual(result["source_policy"]["disabled_sources"], 1)
         self.assertEqual(
             {item["key"]: item["reasons"] for item in result["source_policy"]["blocked_sources"]},
-            {
-                "paper": ["paper_only"],
-                "manual": ["manual_confirm_required"],
-                "disabled": ["disabled"],
-            },
+            {"disabled": ["disabled"]},
         )
         self.assertIn(
             "No source override can submit live orders automatically.",

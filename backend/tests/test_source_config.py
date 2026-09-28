@@ -8,7 +8,7 @@ sys.path.insert(0, str(BACKEND_DIR))
 
 
 class SourceConfigTests(unittest.TestCase):
-    def test_channel_id_override_forces_paper_and_caps_premium(self):
+    def test_channel_id_override_ignores_legacy_mode_keys_and_caps_premium(self):
         from source_config import resolve_source_config, source_skip_reason
 
         settings = {
@@ -17,6 +17,8 @@ class SourceConfigTests(unittest.TestCase):
                     "name": "Wizard",
                     "enabled": True,
                     "paper_only": True,
+                    "paper_shadow": True,
+                    "require_manual_confirm": True,
                     "max_premium": 2.0,
                     "parser_format": "wizard",
                 }
@@ -25,7 +27,9 @@ class SourceConfigTests(unittest.TestCase):
 
         config = resolve_source_config(settings, channel_id="123", channel_name="alerts")
 
-        self.assertTrue(config["paper_only"])
+        self.assertNotIn("paper_only", config)
+        self.assertNotIn("paper_shadow", config)
+        self.assertNotIn("require_manual_confirm", config)
         self.assertEqual(config["name"], "Wizard")
         self.assertEqual(config["parser_format"], "wizard")
         self.assertEqual(
@@ -39,7 +43,16 @@ class SourceConfigTests(unittest.TestCase):
         config = resolve_source_config({}, channel_id="999", channel_name="unknown")
 
         self.assertTrue(config["enabled"])
-        self.assertFalse(config["paper_only"])
+        self.assertTrue(config["process_followup_updates"])
+        self.assertTrue(config["process_actionable_edits"])
+        self.assertTrue(config["allow_single_position_inferred_sell"])
+        self.assertTrue(config["allow_broad_exit_matching"])
+        self.assertTrue(config["trailing_context_exit_override_enabled"])
+        self.assertEqual(config["trailing_context_exit_override_percent"], 80.0)
+        self.assertFalse(config["dedupe_by_channel_url"])
+        self.assertFalse(config["ignore_followup_messages"])
+        self.assertFalse(config["allow_fresh_entry_after_close"])
+        self.assertNotIn("paper_only", config)
         self.assertIsNone(source_skip_reason({"alert_type": "buy", "entry_price": 1.0}, config))
 
     def test_malformed_falsey_source_value_disables_resolved_source(self):
@@ -94,24 +107,24 @@ class SourceConfigTests(unittest.TestCase):
             "source disabled",
         )
 
-    def test_manual_confirmation_source_allows_insert_but_blocks_auto_request(self):
+    def test_manual_confirmation_source_key_is_ignored(self):
         from source_config import resolve_source_config, source_skip_reason
 
         settings = {"source_overrides": {"alerts": {"require_manual_confirm": True}}}
         config = resolve_source_config(settings, channel_id="999", channel_name="alerts")
 
-        self.assertTrue(config["require_manual_confirm"])
+        self.assertNotIn("require_manual_confirm", config)
         self.assertIsNone(
             source_skip_reason({"alert_type": "buy", "ticker": "SPY", "entry_price": 1.0}, config)
         )
 
-    def test_paper_shadow_source_normalizes_without_blocking_alerts(self):
+    def test_paper_shadow_source_key_is_ignored(self):
         from source_config import resolve_source_config, source_skip_reason
 
         settings = {"source_overrides": {"alerts": {"paper_shadow": True}}}
         config = resolve_source_config(settings, channel_id="999", channel_name="alerts")
 
-        self.assertTrue(config["paper_shadow"])
+        self.assertNotIn("paper_shadow", config)
         self.assertIsNone(
             source_skip_reason({"alert_type": "buy", "ticker": "SPY", "entry_price": 1.0}, config)
         )
@@ -132,16 +145,13 @@ class SourceConfigTests(unittest.TestCase):
         self.assertEqual(summary["override_count"], 4)
         self.assertEqual(summary["enabled_sources"], 3)
         self.assertEqual(summary["disabled_sources"], 1)
-        self.assertEqual(summary["paper_only_sources"], 1)
-        self.assertEqual(summary["paper_shadow_sources"], 2)
-        self.assertEqual(summary["manual_confirm_sources"], 1)
-        self.assertEqual(summary["auto_live_sources"], 1)
-        self.assertEqual(summary["auto_live_source_keys"], ["live"])
+        self.assertNotIn("paper_only_sources", summary)
+        self.assertNotIn("paper_shadow_sources", summary)
+        self.assertNotIn("manual_confirm_sources", summary)
+        self.assertEqual(summary["auto_live_sources"], 3)
+        self.assertEqual(summary["auto_live_source_keys"], ["paper", "manual", "live"])
 
         blocked = {item["key"]: item for item in summary["blocked_sources"]}
-        self.assertEqual(blocked["paper"]["name"], "Paper Alerts")
-        self.assertEqual(blocked["paper"]["reasons"], ["paper_only"])
-        self.assertEqual(blocked["manual"]["reasons"], ["manual_confirm_required"])
         self.assertEqual(blocked["disabled"]["reasons"], ["disabled"])
 
     def test_source_policy_summary_reports_invalid_overrides_without_crashing(self):
@@ -187,15 +197,33 @@ class SourceConfigTests(unittest.TestCase):
                     "paper_only": "true",
                     "paper_shadow": "0",
                     "require_manual_confirm": 1,
+                    "process_followup_updates": "false",
+                    "process_actionable_edits": "0",
+                    "allow_single_position_inferred_sell": "true",
+                    "allow_broad_exit_matching": "1",
+                    "dedupe_by_channel_url": "yes",
+                    "ignore_followup_messages": "no",
+                    "allow_fresh_entry_after_close": "yes",
+                    "trailing_context_exit_override_enabled": "true",
+                    "trailing_context_exit_override_percent": "85",
                 }
             }
         )
 
         config = normalized["alerts"]
         self.assertFalse(config["enabled"])
-        self.assertTrue(config["paper_only"])
-        self.assertFalse(config["paper_shadow"])
-        self.assertTrue(config["require_manual_confirm"])
+        self.assertFalse(config["process_followup_updates"])
+        self.assertFalse(config["process_actionable_edits"])
+        self.assertTrue(config["allow_single_position_inferred_sell"])
+        self.assertTrue(config["allow_broad_exit_matching"])
+        self.assertTrue(config["dedupe_by_channel_url"])
+        self.assertFalse(config["ignore_followup_messages"])
+        self.assertTrue(config["allow_fresh_entry_after_close"])
+        self.assertTrue(config["trailing_context_exit_override_enabled"])
+        self.assertEqual(config["trailing_context_exit_override_percent"], 85.0)
+        self.assertNotIn("paper_only", config)
+        self.assertNotIn("paper_shadow", config)
+        self.assertNotIn("require_manual_confirm", config)
 
     def test_normalize_source_overrides_rejects_ambiguous_boolean_text(self):
         from source_config import normalize_source_overrides

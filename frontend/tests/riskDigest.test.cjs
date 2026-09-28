@@ -45,7 +45,7 @@ test('flags configured guards that are not confirmed for active execution', () =
   assert.equal(digest.riskPerTradeLabel, '1%');
   assert.deepEqual(
     digest.warningItems.map((item) => item.title),
-    ['Broker-side exits not staged', 'Sector cap advisory']
+    ['Bot-managed exits not confirmed', 'Sector cap advisory']
   );
 });
 

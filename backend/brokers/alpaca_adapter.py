@@ -15,8 +15,7 @@ class AlpacaAdapter(BrokerAdapter):
         }
 
     def _base_url(self):
-        is_paper = str(self.config.get("paper", "true")).lower() in ("true", "1", "yes")
-        return "https://paper-api.alpaca.markets" if is_paper else "https://api.alpaca.markets"
+        return str(self.config.get("base_url") or self.config.get("endpoint") or "https://paper-api.alpaca.markets").rstrip("/")
 
     async def check_connection(self) -> bool:
         try:

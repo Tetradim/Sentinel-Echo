@@ -6,13 +6,10 @@ from typing import Any, Dict, Iterable, Optional
 DEFAULT_SOURCE_CONFIG = {
     "name": "",
     "enabled": True,
-    "paper_only": False,
-    "paper_shadow": False,
     "parser_format": "default",
     "max_premium": None,
     "risk_multiplier": 1.0,
     "max_contracts": None,
-    "require_manual_confirm": False,
     "notes": "",
     "allowed_actions": [],
     "ticker_allowlist": [],
@@ -20,6 +17,16 @@ DEFAULT_SOURCE_CONFIG = {
     "allowed_channel_urls": [],
     "allowed_author_ids": [],
     "min_parser_confidence": "medium",
+    "process_followup_updates": True,
+    "process_actionable_edits": True,
+    "allow_single_position_inferred_sell": True,
+    "allow_broad_exit_matching": True,
+    "protect_trailing_armed_from_contextual_exits": True,
+    "trailing_context_exit_override_enabled": True,
+    "trailing_context_exit_override_percent": 80.0,
+    "dedupe_by_channel_url": False,
+    "ignore_followup_messages": False,
+    "allow_fresh_entry_after_close": False,
 }
 
 ALLOWED_ALERT_ACTIONS = {"buy", "sell", "trim", "close", "average_down"}
@@ -65,28 +72,15 @@ def summarize_source_policy(source_overrides: Dict[str, Dict[str, Any]]) -> Dict
     for key, config in normalized_sources.items():
         key_text = str(key)
         enabled = bool(config.get("enabled", True))
-        paper_only = bool(config.get("paper_only", False))
-        paper_shadow = bool(config.get("paper_shadow", False))
-        require_manual_confirm = bool(config.get("require_manual_confirm", False))
 
         if enabled:
             summary["enabled_sources"] += 1
         else:
             summary["disabled_sources"] += 1
-        if paper_only:
-            summary["paper_only_sources"] += 1
-        if paper_shadow:
-            summary["paper_shadow_sources"] += 1
-        if require_manual_confirm:
-            summary["manual_confirm_sources"] += 1
 
         reasons = []
         if not enabled:
             reasons.append("disabled")
-        if paper_only:
-            reasons.append("paper_only")
-        if require_manual_confirm:
-            reasons.append("manual_confirm_required")
 
         if reasons:
             summary["blocked_sources"].append(
@@ -112,12 +106,6 @@ def normalize_source_config(source_config: Dict[str, Any]) -> Dict[str, Any]:
     )
     config["name"] = str(config.get("name") or "").strip()
     config["enabled"] = _bool_field(config.get("enabled", True), "enabled", default=True)
-    config["paper_only"] = _bool_field(config.get("paper_only", False), "paper_only")
-    config["paper_shadow"] = _bool_field(config.get("paper_shadow", False), "paper_shadow")
-    config["require_manual_confirm"] = _bool_field(
-        config.get("require_manual_confirm", False),
-        "require_manual_confirm",
-    )
     config["parser_format"] = str(config.get("parser_format") or "default").strip() or "default"
     config["max_premium"] = _optional_positive_float_field(
         config.get("max_premium"),
@@ -147,6 +135,42 @@ def normalize_source_config(source_config: Dict[str, Any]) -> Dict[str, Any]:
     config["min_parser_confidence"] = _normalize_parser_confidence(
         config.get("min_parser_confidence")
     )
+    for behavior_key in (
+        "process_followup_updates",
+        "process_actionable_edits",
+        "allow_single_position_inferred_sell",
+        "allow_broad_exit_matching",
+        "protect_trailing_armed_from_contextual_exits",
+        "trailing_context_exit_override_enabled",
+        "dedupe_by_channel_url",
+        "ignore_followup_messages",
+        "allow_fresh_entry_after_close",
+    ):
+        config[behavior_key] = _bool_field(
+            config.get(behavior_key),
+            behavior_key,
+            default=bool(DEFAULT_SOURCE_CONFIG[behavior_key]),
+        )
+    config["trailing_context_exit_override_percent"] = _positive_float_field(
+        config.get("trailing_context_exit_override_percent"),
+        "trailing_context_exit_override_percent",
+        default=80.0,
+    )
+    if config["trailing_context_exit_override_percent"] > 100:
+        raise ValueError("trailing_context_exit_override_percent cannot exceed 100")
+    if "managed_by" in source_config:
+        config["managed_by"] = str(source_config.get("managed_by") or "").strip()
+    if "enrollment_mode" in source_config:
+        enrollment_mode = str(source_config.get("enrollment_mode") or "").strip().lower()
+        if enrollment_mode not in {"listen", "listen-only"}:
+            raise ValueError("enrollment_mode must be listen or listen-only")
+        config["enrollment_mode"] = enrollment_mode
+    if "auto_enrolled" in source_config:
+        config["auto_enrolled"] = _bool_field(
+            source_config.get("auto_enrolled"),
+            "auto_enrolled",
+            default=False,
+        )
     return config
 
 
@@ -157,9 +181,6 @@ def _empty_source_policy_summary() -> Dict[str, Any]:
         "override_count": 0,
         "enabled_sources": 0,
         "disabled_sources": 0,
-        "paper_only_sources": 0,
-        "paper_shadow_sources": 0,
-        "manual_confirm_sources": 0,
         "auto_live_sources": 0,
         "auto_live_source_keys": [],
         "blocked_sources": [],

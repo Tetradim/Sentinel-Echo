@@ -6,6 +6,7 @@ from pydantic import BaseModel, Field
 from models import Settings, DiscordAlertPatterns, DiscordAlertPatternsUpdate
 from discord_ingestion import DiscordIngestionDeps, handle_discord_message
 from discord_alert_text import build_discord_alert_text
+from structured_alert_cards import parse_card
 from alert_capture_recorder import record_alert_capture
 from bridge_contract import CHROME_BRIDGE_CONTRACT_VERSION
 from bot_event_bus import publish_event
@@ -13,8 +14,10 @@ from bridge_health import evaluate_bridge_health, record_bridge_heartbeat
 from operator_audit import record_operator_event
 from risk import is_duplicate_alert
 from risk import calculate_position_size
+from entry_controls import alert_risk_size_cap
 from source_config import (
     apply_source_quantity_limits,
+    normalize_source_config,
     resolve_source_config,
     source_metadata_policy_report,
     source_metadata_skip_reason,
@@ -23,9 +26,16 @@ from source_config import (
 from settings_flags import coerce_bool
 from types import SimpleNamespace
 from typing import Any, Dict, Mapping
-from utils import AVG_DOWN_KEYWORDS, BUY_KEYWORDS, SELL_KEYWORDS, parse_alert
+from utils import (
+    AVG_DOWN_KEYWORDS,
+    BUY_KEYWORDS,
+    SELL_KEYWORDS,
+    is_actionable_average_down_alert,
+    normalize_parsed_alert,
+    parse_alert,
+)
 from openclaw_discord_config import DiscordRuntimeConfig, resolve_saved_or_runtime_discord_config
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 import asyncio
 import hashlib
 import threading
@@ -87,11 +97,19 @@ class ChromeBridgeMessage(BaseModel):
     channel_url: str | None = Field(default=None, max_length=2048)
     author_id: str | None = Field(default=None, max_length=120)
     author_name: str = Field(default="Discord Chrome", max_length=120)
+    author_raw: str | None = Field(default=None, max_length=240)
     content: str = Field(default="", max_length=12000)
     embeds: list[ChromeBridgeEmbed] = Field(default_factory=list)
     url: str | None = Field(default=None, max_length=2048)
+    timestampIso: str | None = Field(default=None, max_length=80)
+    revision_hash: str | None = Field(default=None, max_length=80)
+    event_type: str = Field(default="created", pattern=r"^(created|updated)$")
+    attachment_urls: list[str] = Field(default_factory=list, max_length=20)
+    ocr_text: str | None = Field(default=None, max_length=12000)
+    ocr_confidence: float | None = Field(default=None, ge=0, le=1)
     observed_at: str | None = Field(default=None, max_length=80)
     source: str = Field(default="chrome-discord-bridge", max_length=80)
+    source_mode: str = Field(default="", pattern=r"^(|listen|listen-only)$")
     bridge_target_id: str | None = Field(default=None, max_length=120)
     bridge_target_name: str | None = Field(default=None, max_length=120)
 
@@ -148,6 +166,10 @@ def get_discord_bot():
 
 def _dict_or_empty(value: Any) -> dict[str, Any]:
     return value if isinstance(value, dict) else {}
+
+
+def _source_behavior_enabled(source_config: Dict[str, Any] | None, key: str, *, default: bool) -> bool:
+    return coerce_bool((source_config or {}).get(key), default=default)
 
 
 def resolve_discord_start_config(
@@ -348,6 +370,7 @@ async def preview_discord_alert(request: Dict[str, Any] = Body(...)):
         source_config,
         skip_reason,
         parser_metadata,
+        raw_text,
     )
     warnings = _build_preview_warnings(
         settings,
@@ -390,6 +413,49 @@ async def ingest_chrome_bridge_message(
 
 
 async def _ingest_chrome_bridge_message_locked(payload: ChromeBridgeMessage):
+    freshness_skip_reason = _chrome_bridge_freshness_skip_reason(payload)
+    if freshness_skip_reason:
+        return _chrome_bridge_skipped_response(payload, skip_reason=freshness_skip_reason)
+
+    synthetic_message = _chrome_bridge_to_message(payload)
+    alert_text = build_discord_alert_text(synthetic_message).strip()
+    if not alert_text:
+        raise HTTPException(status_code=400, detail="message content or embed text is required")
+
+    settings = _dict_or_empty(await db.get_settings() if db else {})
+    settings = await _ensure_sentinel_link_source_enrollment(settings, payload)
+    stored_patterns = await db.get_discord_patterns() if hasattr(db, "get_discord_patterns") else {}
+    patterns = _merge_pattern_overrides(stored_patterns or {}, {})
+    source_config = resolve_source_config(
+        settings,
+        channel_id=payload.channel_id,
+        channel_name=payload.channel_name,
+    )
+    source_override_matched = _source_override_matched(
+        settings,
+        payload.channel_id,
+        payload.channel_name,
+    )
+
+    existing_alert = await _find_existing_chrome_bridge_alert_record(
+        payload,
+        alert_text,
+        source_config,
+        patterns=patterns,
+    )
+    if existing_alert:
+        if existing_alert.get("raw_text") != alert_text:
+            return await _chrome_bridge_updated_response(
+                payload,
+                alert_text,
+                existing_alert,
+                settings=settings,
+                patterns=patterns,
+                source_config=source_config,
+                source_override_matched=source_override_matched,
+            )
+        return _chrome_bridge_duplicate_response(payload)
+
     if await _chrome_bridge_event_already_recorded(payload.event_id):
         return _chrome_bridge_duplicate_response(payload)
 
@@ -411,30 +477,134 @@ async def _ingest_chrome_bridge_message_locked(payload: ChromeBridgeMessage):
         )
         return _chrome_bridge_duplicate_response(payload)
 
-    synthetic_message = _chrome_bridge_to_message(payload)
-    alert_text = build_discord_alert_text(synthetic_message).strip()
-    if not alert_text:
-        raise HTTPException(status_code=400, detail="message content or embed text is required")
     alert_fingerprint = _chrome_bridge_alert_fingerprint(payload, alert_text)
     if await _chrome_bridge_alert_already_recorded(alert_fingerprint):
         return _chrome_bridge_duplicate_response(payload, skip_reason="duplicate bridge alert")
     if _mark_chrome_bridge_alert_seen(alert_fingerprint):
         return _chrome_bridge_duplicate_response(payload, skip_reason="duplicate bridge alert")
 
-    settings = _dict_or_empty(await db.get_settings() if db else {})
-    stored_patterns = await db.get_discord_patterns() if hasattr(db, "get_discord_patterns") else {}
-    patterns = _merge_pattern_overrides(stored_patterns or {}, {})
     parsed_preview, parser_metadata = _parse_alert_for_preview(alert_text, patterns)
-    source_config = resolve_source_config(
-        settings,
-        channel_id=payload.channel_id,
-        channel_name=payload.channel_name,
-    )
-    source_override_matched = _source_override_matched(
-        settings,
-        payload.channel_id,
-        payload.channel_name,
-    )
+    if _exit_alert_uses_context_word_as_ticker(parsed_preview, alert_text):
+        parsed_preview = None
+    if parsed_preview is None and not parser_metadata.get("card_recognized"):
+        inferred_sell = await _infer_single_channel_position_sell(
+            payload,
+            alert_text,
+            source_config,
+        )
+        if inferred_sell:
+            parsed_preview = inferred_sell
+            parser_metadata.update(
+                {
+                    "matched_pattern": "SINGLE CHANNEL POSITION",
+                    "matched_pattern_type": "single_position_inferred_sell",
+                    "pattern_source": "builtin",
+                    "ignored": False,
+                    "explicit_action": True,
+                    "assumed_action": "sell",
+                    "confidence": "high",
+                }
+            )
+    if parsed_preview is None and not parser_metadata.get("ignored"):
+        inferred_buy = await _infer_recent_channel_contract_buy(
+            payload,
+            alert_text,
+            source_config,
+        )
+        if inferred_buy:
+            parsed_preview = inferred_buy
+            parser_metadata.update(
+                {
+                    "matched_pattern": "RECENT CHANNEL CONTRACT",
+                    "matched_pattern_type": "recent_channel_contract_inferred_buy",
+                    "pattern_source": "builtin",
+                    "ignored": False,
+                    "explicit_action": True,
+                    "assumed_action": "buy",
+                    "confidence": "high",
+                }
+            )
+    mark_update = {"updated": False}
+    if (
+        not parser_metadata.get("card_recognized")
+        and _source_behavior_enabled(source_config, "process_followup_updates", default=True)
+        and not _source_behavior_enabled(source_config, "ignore_followup_messages", default=False)
+    ):
+        mark_update = await _apply_chrome_bridge_position_mark_update(payload, alert_text)
+    if mark_update.get("updated") and not (
+        coerce_bool(settings.get("chrome_bridge_require_source_override"), default=True)
+        and not source_override_matched
+    ):
+        ingestion_result = {
+            "status": "updated",
+            "alert_inserted": False,
+            "alert_id": "",
+            "trade_requested": False,
+            "trade_request_reason": "",
+            "skip_reason": "position mark update",
+            "position_mark_update": mark_update,
+        }
+        capture_path = record_alert_capture(
+            event_id=payload.event_id,
+            channel_id=payload.channel_id,
+            channel_name=payload.channel_name,
+            author_name=payload.author_name,
+            raw_text=alert_text,
+            observed_at=payload.observed_at,
+            parsed=None,
+            ingestion_result=ingestion_result,
+            revision_hash=payload.revision_hash,
+            event_type=payload.event_type,
+            author_raw=payload.author_raw,
+            attachment_urls=payload.attachment_urls,
+            ocr_confidence=payload.ocr_confidence,
+        )
+        bus_event = _publish_chrome_bridge_signal(
+            payload=payload,
+            alert_text=alert_text,
+            parsed=None,
+            parser_metadata=parser_metadata,
+            ingestion_result=ingestion_result,
+            capture_path=capture_path,
+        )
+        audit_event = await _record_chrome_bridge_alert_audit(
+            payload=payload,
+            raw_text=alert_text,
+            capture_path=capture_path,
+            parsed=None,
+            parser_metadata=parser_metadata,
+            source_config=source_config,
+            source_override_matched=source_override_matched,
+            ingestion_result=ingestion_result,
+        )
+        return {
+            "status": "updated",
+            "event_id": payload.event_id,
+            "revision_hash": payload.revision_hash,
+            "event_type": payload.event_type,
+            "source": payload.source,
+            "channel_id": payload.channel_id,
+            "channel_name": payload.channel_name,
+            "channel_url": payload.channel_url,
+            "bridge_target_id": payload.bridge_target_id,
+            "bridge_target_name": payload.bridge_target_name,
+            "url": payload.url,
+            "author_name": payload.author_name,
+            "author_raw": payload.author_raw,
+            "raw_text": alert_text,
+            "parsed": None,
+            "parser_metadata": parser_metadata,
+            "source_config": source_config,
+            "alert_inserted": False,
+            "alert_id": "",
+            "trade_requested": False,
+            "trade_request_reason": "",
+            "skip_reason": "position mark update",
+            "position_mark_update": mark_update,
+            "capture_path": str(capture_path),
+            "bus_event_id": bus_event.event_id,
+            "audit_event_id": audit_event.get("id"),
+        }
     preflight_skip_reason = _chrome_bridge_preflight_skip_reason(
         settings=settings,
         parsed=parsed_preview,
@@ -461,6 +631,11 @@ async def _ingest_chrome_bridge_message_locked(payload: ChromeBridgeMessage):
             observed_at=payload.observed_at,
             parsed=parsed_preview,
             ingestion_result=ingestion_result,
+            revision_hash=payload.revision_hash,
+            event_type=payload.event_type,
+            author_raw=payload.author_raw,
+            attachment_urls=payload.attachment_urls,
+            ocr_confidence=payload.ocr_confidence,
         )
         bus_event = _publish_chrome_bridge_signal(
             payload=payload,
@@ -483,6 +658,8 @@ async def _ingest_chrome_bridge_message_locked(payload: ChromeBridgeMessage):
         return {
             "status": "skipped",
             "event_id": payload.event_id,
+            "revision_hash": payload.revision_hash,
+            "event_type": payload.event_type,
             "source": payload.source,
             "channel_id": payload.channel_id,
             "channel_name": payload.channel_name,
@@ -530,8 +707,10 @@ async def _ingest_chrome_bridge_message_locked(payload: ChromeBridgeMessage):
             update_status=update_status_adapter,
             is_duplicate_alert=is_duplicate_alert,
             increment_alerts_processed=_increment_chrome_bridge_alert_count,
+            card_database=db,
         ),
         bot_user=None,
+        parsed_override=parsed_preview,
     )
     ingestion_result = {
         "status": "accepted" if result.alert_inserted else "skipped",
@@ -550,6 +729,11 @@ async def _ingest_chrome_bridge_message_locked(payload: ChromeBridgeMessage):
         observed_at=payload.observed_at,
         parsed=result.parsed,
         ingestion_result=ingestion_result,
+        revision_hash=payload.revision_hash,
+        event_type=payload.event_type,
+        author_raw=payload.author_raw,
+        attachment_urls=payload.attachment_urls,
+        ocr_confidence=payload.ocr_confidence,
     )
     bus_event = _publish_chrome_bridge_signal(
         payload=payload,
@@ -632,7 +816,7 @@ def _chrome_bridge_preflight_skip_reason(
     if coerce_bool(settings.get("chrome_bridge_require_source_override"), default=True) and not source_override_matched:
         return "source override required for chrome bridge"
     if parser_metadata.get("ignored"):
-        return "ignored by alert pattern"
+        return parser_metadata.get("card_reason") or "ignored by alert pattern"
     if not parsed:
         return "unparsed"
     return source_skip_reason(parsed, source_config) or source_metadata_skip_reason(
@@ -641,6 +825,53 @@ def _chrome_bridge_preflight_skip_reason(
         author_id=_chrome_bridge_author_id(payload),
         parser_confidence=parser_metadata.get("confidence"),
     )
+
+
+async def _ensure_sentinel_link_source_enrollment(
+    settings: Dict[str, Any],
+    payload: ChromeBridgeMessage,
+) -> Dict[str, Any]:
+    if _source_override_matched(settings, payload.channel_id, payload.channel_name):
+        return settings
+
+    source_config = _sentinel_link_auto_source_config(payload)
+    if source_config is None or not db or not hasattr(db, "update_settings"):
+        return settings
+
+    overrides = settings.get("source_overrides")
+    updated_overrides = dict(overrides) if isinstance(overrides, dict) else {}
+    updated_overrides[str(payload.channel_id)] = normalize_source_config(source_config)
+    await db.update_settings({"source_overrides": updated_overrides})
+
+    updated_settings = dict(settings)
+    updated_settings["source_overrides"] = updated_overrides
+    return updated_settings
+
+
+def _sentinel_link_auto_source_config(payload: ChromeBridgeMessage) -> Dict[str, Any] | None:
+    if str(payload.source or "").strip().lower() != "sentinel-link":
+        return None
+    mode = str(payload.source_mode or "").strip().lower()
+    if mode not in {"listen", "listen-only"}:
+        return None
+    channel_id = str(payload.channel_id or "").strip()
+    if not channel_id.isdigit():
+        return None
+    channel_url = _normalize_bridge_url(str(payload.channel_url or ""))
+    match = re.fullmatch(r"https://discord\.com/channels/(?:\d+|@me)/(\d+)", channel_url)
+    if not match or match.group(1) != channel_id:
+        return None
+    return {
+        "name": str(payload.channel_name or channel_id).strip(),
+        "enabled": True,
+        "parser_format": "default",
+        "allowed_channel_urls": [channel_url],
+        "min_parser_confidence": "medium",
+        "managed_by": "sentinel-link",
+        "enrollment_mode": mode,
+        "auto_enrolled": True,
+        "allow_fresh_entry_after_close": True,
+    }
 
 
 def _chrome_bridge_author_id(payload: ChromeBridgeMessage) -> str:
@@ -668,6 +899,8 @@ def _publish_chrome_bridge_signal(
         payload={
             "contract_version": CHROME_BRIDGE_CONTRACT_VERSION,
             "event_id": payload.event_id,
+            "revision_hash": payload.revision_hash,
+            "event_type": payload.event_type,
             "source": payload.source,
             "channel_id": payload.channel_id,
             "channel_name": payload.channel_name,
@@ -678,6 +911,9 @@ def _publish_chrome_bridge_signal(
             "bridge_target_name": payload.bridge_target_name,
             "author_id": _chrome_bridge_author_id(payload),
             "author_name": payload.author_name,
+            "author_raw": payload.author_raw or payload.author_name,
+            "attachment_urls": payload.attachment_urls,
+            "ocr_confidence": payload.ocr_confidence,
             "raw_text": alert_text,
             "parsed": parsed,
             "parser_metadata": parser_metadata,
@@ -718,6 +954,8 @@ async def _record_chrome_bridge_alert_audit(
         details={
             "contract_version": CHROME_BRIDGE_CONTRACT_VERSION,
             "event_id": payload.event_id,
+            "revision_hash": payload.revision_hash,
+            "event_type": payload.event_type,
             "channel": {
                 "id": payload.channel_id,
                 "name": payload.channel_name,
@@ -727,12 +965,15 @@ async def _record_chrome_bridge_alert_audit(
             "author": {
                 "id": _chrome_bridge_author_id(payload),
                 "name": payload.author_name,
+                "raw_name": payload.author_raw or payload.author_name,
             },
             "bridge_target": {
                 "id": payload.bridge_target_id,
                 "name": payload.bridge_target_name,
             },
             "raw_text": raw_text,
+            "attachment_urls": payload.attachment_urls,
+            "ocr_confidence": payload.ocr_confidence,
             "capture_path": str(capture_path),
             "parsed": parsed,
             "parser": parser_metadata,
@@ -740,8 +981,9 @@ async def _record_chrome_bridge_alert_audit(
                 "key": source_config.get("key"),
                 "name": source_config.get("name"),
                 "override_matched": source_override_matched,
-                "paper_only": source_config.get("paper_only"),
-                "require_manual_confirm": source_config.get("require_manual_confirm"),
+                "managed_by": source_config.get("managed_by"),
+                "enrollment_mode": source_config.get("enrollment_mode"),
+                "auto_enrolled": source_config.get("auto_enrolled", False),
                 "min_parser_confidence": source_config.get("min_parser_confidence"),
                 **source_metadata_policy_report(
                     source_config,
@@ -753,6 +995,759 @@ async def _record_chrome_bridge_alert_audit(
             "decision": ingestion_result,
         },
     )
+
+
+async def _find_existing_chrome_bridge_alert_record(
+    payload: ChromeBridgeMessage,
+    raw_text: str,
+    source_config: Dict[str, Any] | None = None,
+    *,
+    patterns: Dict[str, Any] | None = None,
+) -> Dict[str, Any] | None:
+    if not db or not hasattr(db, "get_operator_events"):
+        return None
+    identity = _chrome_bridge_message_identity(payload, source_config)
+    try:
+        events = await db.get_operator_events(500)
+    except Exception as exc:
+        logger.warning("Unable to check persisted chrome bridge message identity: %s", exc)
+        return None
+    if identity:
+        for event in events:
+            if event.get("action") not in {"bridge_alert_decision", "bridge_alert_update"}:
+                continue
+            details = event.get("details") if isinstance(event.get("details"), dict) else {}
+            if _chrome_bridge_record_identity(details, source_config) != identity:
+                continue
+            existing = _existing_bridge_alert_from_details(details)
+            if existing:
+                return existing
+
+    updated_signal_key = _entry_signal_key(raw_text, patterns or {})
+    if updated_signal_key:
+        for event in events:
+            if event.get("action") not in {"bridge_alert_decision", "bridge_alert_update"}:
+                continue
+            details = event.get("details") if isinstance(event.get("details"), dict) else {}
+            channel = details.get("channel") if isinstance(details.get("channel"), dict) else {}
+            same_channel = (
+                str(channel.get("id") or "").strip()
+                == str(payload.channel_id or "").strip()
+            )
+            previous_raw_text = str(details.get("raw_text") or "")
+            if not same_channel and not _same_entry_headline(previous_raw_text, raw_text):
+                continue
+            if _entry_signal_key(previous_raw_text, patterns or {}) != updated_signal_key:
+                continue
+            if not _is_appended_entry_update(previous_raw_text, raw_text):
+                continue
+            existing = _existing_bridge_alert_from_details(details)
+            if existing:
+                return existing
+    return None
+
+
+def _existing_bridge_alert_from_details(details: Dict[str, Any]) -> Dict[str, Any] | None:
+    decision = details.get("decision") if isinstance(details.get("decision"), dict) else {}
+    alert_id = str(decision.get("alert_id") or details.get("alert_id") or "").strip()
+    if not alert_id:
+        return None
+    return {
+        "alert_id": alert_id,
+        "raw_text": str(details.get("raw_text") or ""),
+    }
+
+
+def _is_appended_entry_update(previous_raw_text: str, raw_text: str) -> bool:
+    previous = re.sub(r"\s+", " ", str(previous_raw_text or "")).strip().lower()
+    current = re.sub(r"\s+", " ", str(raw_text or "")).strip().lower()
+    if not previous or previous == current:
+        return False
+    return (
+        "(edited)" in current
+        or current.startswith(f"{previous} ")
+        or _same_entry_headline(previous_raw_text, raw_text)
+    )
+
+
+def _same_entry_headline(previous_raw_text: str, raw_text: str) -> bool:
+    def lines(value: str) -> list[str]:
+        return [
+            normalized
+            for line in str(value or "").splitlines()
+            if (normalized := re.sub(r"\s+", " ", line).strip().lower())
+        ]
+
+    previous_lines = lines(previous_raw_text)
+    current_lines = lines(raw_text)
+    if len(current_lines) < 2:
+        return False
+    previous_headline = previous_lines[0] if previous_lines else ""
+    current_headline = current_lines[0]
+    return bool(previous_headline and previous_headline == current_headline)
+
+
+def _entry_signal_key(raw_text: str, patterns: Dict[str, Any]) -> tuple | None:
+    parsed, _ = _parse_alert_for_preview(raw_text, patterns)
+    if str((parsed or {}).get("alert_type") or "").strip().lower() != "buy":
+        return None
+    try:
+        strike = round(float(parsed.get("strike") or 0.0), 4)
+        entry_price = round(float(parsed.get("entry_price") or 0.0), 4)
+    except (TypeError, ValueError):
+        return None
+    if strike <= 0 or entry_price <= 0:
+        return None
+    return (
+        str(parsed.get("ticker") or "").strip().upper(),
+        strike,
+        str(parsed.get("option_type") or "").strip().upper(),
+        str(parsed.get("expiration") or "").strip().upper().replace("-", "/"),
+        entry_price,
+    )
+
+
+def _chrome_bridge_message_identity(payload: ChromeBridgeMessage, source_config: Dict[str, Any] | None = None) -> str:
+    url = str(payload.url or "").strip()
+    if url:
+        match = re.search(r"/channels/([^/]+)/([^/]+)/([^/?#]+)", url)
+        if match:
+            return f"discord-message-url:{match.group(1)}:{match.group(2)}:{match.group(3)}"
+        if _source_behavior_enabled(source_config or {}, "dedupe_by_channel_url", default=False):
+            return f"discord-channel-url:{_normalize_bridge_url(url)}"
+    event_id = _canonical_chrome_bridge_event_id(payload.event_id)
+    return f"discord-event:{event_id}" if event_id else ""
+
+
+def _chrome_bridge_record_identity(details: Dict[str, Any], source_config: Dict[str, Any] | None = None) -> str:
+    channel = details.get("channel") if isinstance(details.get("channel"), dict) else {}
+    message_url = str(channel.get("message_url") or details.get("url") or "").strip()
+    if message_url:
+        match = re.search(r"/channels/([^/]+)/([^/]+)/([^/?#]+)", message_url)
+        if match:
+            return f"discord-message-url:{match.group(1)}:{match.group(2)}:{match.group(3)}"
+        if _source_behavior_enabled(source_config or {}, "dedupe_by_channel_url", default=False):
+            return f"discord-channel-url:{_normalize_bridge_url(message_url)}"
+    channel_url = str(channel.get("url") or "").strip()
+    if channel_url and _source_behavior_enabled(source_config or {}, "dedupe_by_channel_url", default=False):
+        return f"discord-channel-url:{_normalize_bridge_url(channel_url)}"
+    event_id = _canonical_chrome_bridge_event_id(str(details.get("event_id") or ""))
+    return f"discord-event:{event_id}" if event_id else ""
+
+
+def _normalize_bridge_url(url: str) -> str:
+    return re.sub(r"[?#].*$", "", str(url or "").strip()).rstrip("/")
+
+
+async def _chrome_bridge_updated_response(
+    payload: ChromeBridgeMessage,
+    raw_text: str,
+    existing_alert: Dict[str, Any],
+    *,
+    settings: Dict[str, Any],
+    patterns: Dict[str, Any],
+    source_config: Dict[str, Any],
+    source_override_matched: bool,
+) -> dict:
+    alert_id = str(existing_alert.get("alert_id") or "").strip()
+    if hasattr(db, "update_alert"):
+        await db.update_alert(
+            alert_id,
+            {
+                "raw_message": raw_text,
+                "bridge_updated_at": datetime.now(timezone.utc).isoformat(),
+                "bridge_update_event_id": payload.event_id,
+            },
+        )
+    mark_update = {"updated": False}
+    if (
+        not parse_card(raw_text).recognized
+        and _source_behavior_enabled(source_config, "process_followup_updates", default=True)
+        and not _source_behavior_enabled(source_config, "ignore_followup_messages", default=False)
+    ):
+        mark_update = await _apply_chrome_bridge_position_mark_update(payload, raw_text)
+    actionable_result = None
+    if _source_behavior_enabled(source_config, "process_actionable_edits", default=True):
+        actionable_result = await _process_chrome_bridge_actionable_edit(
+            payload,
+            raw_text,
+            previous_raw_text=str(existing_alert.get("raw_text") or ""),
+            settings=settings,
+            patterns=patterns,
+            source_config=source_config,
+            source_override_matched=source_override_matched,
+        )
+        if actionable_result:
+            return actionable_result
+    audit_event = await record_operator_event(
+        db,
+        "alert_ingestion",
+        "bridge_alert_update",
+        "Chrome bridge alert updated from Discord edit.",
+        severity="info",
+        details={
+            "event_id": payload.event_id,
+            "revision_hash": payload.revision_hash,
+            "event_type": payload.event_type,
+            "channel": {
+                "id": payload.channel_id,
+                "name": payload.channel_name,
+                "url": payload.channel_url,
+                "message_url": payload.url,
+            },
+            "author": {
+                "id": _chrome_bridge_author_id(payload),
+                "name": payload.author_name,
+                "raw_name": payload.author_raw or payload.author_name,
+            },
+            "raw_text": raw_text,
+            "alert_id": alert_id,
+            "decision": {
+                "status": "updated",
+                "alert_inserted": False,
+                "alert_id": alert_id,
+                "trade_requested": False,
+                "trade_request_reason": "discord message edit updated existing alert",
+                "skip_reason": "position mark update" if mark_update.get("updated") else "",
+                "position_mark_update": mark_update if mark_update.get("updated") else None,
+            },
+        },
+    )
+    return {
+        "status": "updated",
+        "event_id": payload.event_id,
+        "source": payload.source,
+        "channel_id": payload.channel_id,
+        "channel_name": payload.channel_name,
+        "channel_url": payload.channel_url,
+        "bridge_target_id": payload.bridge_target_id,
+        "bridge_target_name": payload.bridge_target_name,
+        "url": payload.url,
+        "author_name": payload.author_name,
+        "raw_text": raw_text,
+        "alert_inserted": False,
+        "alert_id": alert_id,
+        "trade_requested": False,
+        "trade_request_reason": "discord message edit updated existing alert",
+        "skip_reason": "position mark update" if mark_update.get("updated") else "",
+        "position_mark_update": mark_update if mark_update.get("updated") else None,
+        "audit_event_id": audit_event.get("id"),
+    }
+
+
+async def _process_chrome_bridge_actionable_edit(
+    payload: ChromeBridgeMessage,
+    raw_text: str,
+    *,
+    previous_raw_text: str,
+    settings: Dict[str, Any],
+    patterns: Dict[str, Any],
+    source_config: Dict[str, Any],
+    source_override_matched: bool,
+) -> dict | None:
+    parsed_preview, parser_metadata = _parse_alert_for_preview(raw_text, patterns)
+    if not _is_actionable_edit_alert(parsed_preview):
+        return None
+    previous_parsed, _ = _parse_alert_for_preview(previous_raw_text, patterns)
+    if _actionable_alert_key(previous_parsed) == _actionable_alert_key(parsed_preview):
+        return None
+
+    preflight_skip_reason = _chrome_bridge_preflight_skip_reason(
+        settings=settings,
+        parsed=parsed_preview,
+        parser_metadata=parser_metadata,
+        source_config=source_config,
+        source_override_matched=source_override_matched,
+        payload=payload,
+    )
+    if preflight_skip_reason:
+        return None
+
+    synthetic_message = _chrome_bridge_to_message(payload)
+    channel_ids = _chrome_bridge_channel_ids(settings, payload.channel_id)
+
+    async def process_trade_adapter(alert, parsed):
+        from server import process_trade
+
+        await process_trade(alert, parsed)
+
+    async def insert_alert_adapter(alert):
+        await db.insert_alert(alert.model_dump(mode="json"))
+
+    def update_status_adapter(key: str, value: Any):
+        from routes.health import update_bot_status
+
+        update_bot_status(key, value)
+
+    result = await handle_discord_message(
+        synthetic_message,
+        channel_ids=channel_ids,
+        deps=DiscordIngestionDeps(
+            load_settings=lambda: settings,
+            insert_alert=insert_alert_adapter,
+            process_trade=process_trade_adapter,
+            update_status=update_status_adapter,
+            is_duplicate_alert=is_duplicate_alert,
+            increment_alerts_processed=_increment_chrome_bridge_alert_count,
+            card_database=db,
+        ),
+        bot_user=None,
+        parsed_override=parsed_preview,
+    )
+    ingestion_result = {
+        "status": "accepted" if result.alert_inserted else "skipped",
+        "alert_inserted": result.alert_inserted,
+        "alert_id": result.alert_id,
+        "trade_requested": result.trade_requested,
+        "trade_request_reason": result.trade_request_reason or "discord message edit became actionable",
+        "skip_reason": result.skip_reason,
+    }
+    capture_path = record_alert_capture(
+        event_id=payload.event_id,
+        channel_id=payload.channel_id,
+        channel_name=payload.channel_name,
+        author_name=payload.author_name,
+        raw_text=raw_text,
+        observed_at=payload.observed_at,
+        parsed=result.parsed,
+        ingestion_result=ingestion_result,
+        revision_hash=payload.revision_hash,
+        event_type=payload.event_type,
+        author_raw=payload.author_raw,
+        attachment_urls=payload.attachment_urls,
+        ocr_confidence=payload.ocr_confidence,
+    )
+    bus_event = _publish_chrome_bridge_signal(
+        payload=payload,
+        alert_text=raw_text,
+        parsed=result.parsed,
+        parser_metadata=parser_metadata,
+        ingestion_result=ingestion_result,
+        capture_path=capture_path,
+    )
+    audit_event = await _record_chrome_bridge_alert_audit(
+        payload=payload,
+        raw_text=raw_text,
+        capture_path=capture_path,
+        parsed=result.parsed,
+        parser_metadata=parser_metadata,
+        source_config=source_config,
+        source_override_matched=source_override_matched,
+        ingestion_result=ingestion_result,
+    )
+    return {
+        "status": "accepted" if result.alert_inserted else "skipped",
+        "event_id": payload.event_id,
+        "source": payload.source,
+        "channel_id": payload.channel_id,
+        "channel_name": payload.channel_name,
+        "channel_url": payload.channel_url,
+        "bridge_target_id": payload.bridge_target_id,
+        "bridge_target_name": payload.bridge_target_name,
+        "url": payload.url,
+        "author_name": payload.author_name,
+        "raw_text": raw_text,
+        "parsed": result.parsed,
+        "parser_metadata": parser_metadata,
+        "source_config": source_config,
+        "alert_inserted": result.alert_inserted,
+        "alert_id": result.alert_id,
+        "trade_requested": result.trade_requested,
+        "trade_request_reason": ingestion_result["trade_request_reason"],
+        "skip_reason": result.skip_reason,
+        "capture_path": str(capture_path),
+        "bus_event_id": bus_event.event_id,
+        "audit_event_id": audit_event.get("id"),
+    }
+
+
+def _is_actionable_edit_alert(parsed: Dict[str, Any] | None) -> bool:
+    alert_type = str((parsed or {}).get("alert_type") or "").strip().lower()
+    return alert_type in {"sell", "trim", "close", "average_down"}
+
+
+def _actionable_alert_key(parsed: Dict[str, Any] | None) -> tuple | None:
+    if not _is_actionable_edit_alert(parsed):
+        return None
+    normalized = normalize_parsed_alert(dict(parsed or {}))
+    try:
+        strike = round(float(normalized.get("strike") or 0.0), 4)
+        entry_price = round(float(normalized.get("entry_price") or 0.0), 4)
+        sell_percentage = round(float(normalized.get("sell_percentage") or 0.0), 4)
+    except (TypeError, ValueError):
+        return None
+    return (
+        str(normalized.get("alert_type") or "").strip().lower(),
+        str(normalized.get("ticker") or "").strip().upper(),
+        strike,
+        str(normalized.get("option_type") or "").strip().upper(),
+        str(normalized.get("expiration") or "").strip().upper().replace("-", "/"),
+        entry_price,
+        sell_percentage,
+    )
+
+
+async def _apply_chrome_bridge_position_mark_update(
+    payload: ChromeBridgeMessage,
+    raw_text: str,
+) -> dict[str, Any]:
+    mark = _parse_position_mark_update(raw_text)
+    if not mark or not db or not hasattr(db, "get_positions") or not hasattr(db, "update_position"):
+        return {"updated": False}
+
+    open_positions = await db.get_positions("open")
+    partial_positions = await db.get_positions("partial")
+    positions = list(open_positions or []) + list(partial_positions or [])
+    matched = [
+        position for position in positions
+        if _position_matches_mark_update(position, mark)
+    ]
+    if len(matched) != 1:
+        return {
+            "updated": False,
+            "reason": "no matching position" if not matched else "ambiguous position mark update",
+            "match_count": len(matched),
+            "mark": mark,
+        }
+
+    position = matched[0]
+    position_id = str(position.get("id") or "").strip()
+    current_price = round(float(mark["current_price"]), 4)
+    highest_price = max(
+        _safe_float(position.get("highest_price")),
+        _safe_float(position.get("current_price")),
+        current_price,
+    )
+    remaining_quantity = _safe_int(position.get("remaining_quantity") or position.get("quantity"))
+    entry_price = _safe_float(position.get("entry_price"))
+    updates = {
+        "current_price": current_price,
+        "highest_price": highest_price,
+        "unrealized_pnl": round((current_price - entry_price) * remaining_quantity * 100, 2),
+        "mark_updated_from_discord_at": datetime.now(timezone.utc).isoformat(),
+        "mark_update_event_id": payload.event_id,
+    }
+    await db.update_position(position_id, {"$set": updates})
+    await record_operator_event(
+        db,
+        "alert_ingestion",
+        "bridge_position_mark_update",
+        "Chrome bridge profit update refreshed a local position mark.",
+        severity="info",
+        details={
+            "event_id": payload.event_id,
+            "raw_text": raw_text,
+            "position_id": position_id,
+            "mark": mark,
+            "updates": updates,
+        },
+    )
+    return {
+        "updated": True,
+        "position_id": position_id,
+        "current_price": current_price,
+        "highest_price": highest_price,
+        "mark": mark,
+    }
+
+
+async def _infer_single_channel_position_sell(
+    payload: ChromeBridgeMessage,
+    raw_text: str,
+    source_config: dict[str, Any],
+) -> dict[str, Any] | None:
+    if not _source_behavior_enabled(source_config, "allow_single_position_inferred_sell", default=True):
+        return None
+    if not re.search(
+        r"^\s*(?:(?:I['\u2019]?M|I\s+AM)\s+(?:GOING\s+TO\s+)?)?"
+        r"(?:SOLD|SELL|STC|TRIM|TRIMMING|CLOSE|CLOSING|EXIT|EXITING|OUT|FULLY\s+OUT|STOPPED\s+OUT)\b",
+        str(raw_text or ""),
+        re.IGNORECASE,
+    ):
+        return None
+    if not db or not hasattr(db, "get_positions") or not hasattr(db, "get_alerts"):
+        return None
+
+    open_positions = await db.get_positions("open")
+    partial_positions = await db.get_positions("partial")
+    positions = list(open_positions or []) + list(partial_positions or [])
+    alerts = await db.get_alerts(max(200, len(positions) * 4))
+    alert_channel_by_id = {
+        str(alert.get("id") or ""): str(alert.get("channel_id") or "")
+        for alert in alerts or []
+        if isinstance(alert, dict)
+    }
+    channel_id = str(payload.channel_id or "").strip()
+    matched = [
+        position
+        for position in positions
+        if alert_channel_by_id.get(str(position.get("alert_id") or "")) == channel_id
+    ]
+    if len(matched) != 1:
+        return None
+
+    position = matched[0]
+    if _newer_channel_contract_conflicts(alerts or [], channel_id, position):
+        return None
+    try:
+        strike = f"{float(position.get('strike')):g}"
+    except (TypeError, ValueError):
+        return None
+    ticker = str(position.get("ticker") or "").strip().upper()
+    option_type = str(position.get("option_type") or "").strip().upper()
+    expiration = str(position.get("expiration") or "").strip()
+    if not ticker or option_type not in {"CALL", "PUT"} or not expiration:
+        return None
+
+    canonical = (
+        f"{raw_text} ${ticker} ${strike} {option_type}S "
+        f"{expiration} @ MARKET"
+    )
+    parsed = normalize_parsed_alert(parse_alert(canonical))
+    if not parsed or str(parsed.get("alert_type") or "").lower() not in {"sell", "trim", "close"}:
+        return None
+    parsed = dict(parsed)
+    parsed.update(
+        {
+            "ticker": ticker,
+            "strike": float(position["strike"]),
+            "option_type": option_type,
+            "expiration": expiration,
+            "entry_price": None,
+            "market_price": True,
+        }
+    )
+    parsed["inferred_from_position_id"] = str(position.get("id") or "")
+    return parsed
+
+
+def _newer_channel_contract_conflicts(
+    alerts: list[dict[str, Any]],
+    channel_id: str,
+    position: dict[str, Any],
+) -> bool:
+    """Do not bind contextual exits across a newer explicit contract conversation."""
+    entry_alert_id = str(position.get("alert_id") or "").strip()
+    position_ticker = str(position.get("ticker") or "").strip().upper()
+    position_type = str(position.get("option_type") or "").strip().upper()
+    try:
+        position_strike = float(position.get("strike"))
+    except (TypeError, ValueError):
+        return True
+
+    for alert in alerts:
+        if not isinstance(alert, dict) or str(alert.get("channel_id") or "").strip() != channel_id:
+            continue
+        if entry_alert_id and str(alert.get("id") or "").strip() == entry_alert_id:
+            return False
+        ticker = str(alert.get("ticker") or "").strip().upper()
+        option_type = str(alert.get("option_type") or "").strip().upper()
+        try:
+            strike = float(alert.get("strike"))
+        except (TypeError, ValueError):
+            continue
+        if not ticker or option_type not in {"CALL", "PUT"} or strike <= 0:
+            continue
+        if ticker != position_ticker or option_type != position_type or strike != position_strike:
+            return True
+    return False
+
+
+_EXIT_CONTEXT_WORDS = {
+    "ALL",
+    "HALF",
+    "FOR",
+    "MAJORITY",
+    "PART",
+    "POSITION",
+    "REMAINDER",
+    "REST",
+    "SOME",
+    "SLOWLY",
+    "NOW",
+}
+
+
+def _exit_alert_uses_context_word_as_ticker(
+    parsed: dict[str, Any] | None,
+    raw_text: str,
+) -> bool:
+    if not parsed or str(parsed.get("alert_type") or "").lower() not in {"sell", "trim", "close"}:
+        return False
+    ticker = str(parsed.get("ticker") or "").strip().upper()
+    if ticker not in _EXIT_CONTEXT_WORDS:
+        return False
+    return re.search(rf"\${re.escape(ticker)}\b", str(raw_text or ""), re.IGNORECASE) is None
+
+
+_CONVERSATIONAL_ENTRY_RE = re.compile(
+    r"^\s*(?:IN|BOUGHT|BUYING|ENTERED|RE-?ENTER(?:ED|ING)?)\s+"
+    r"\$?(?P<ticker>[A-Z]{1,6})\s+"
+    r"(?P<option_type>CALLS?|PUTS?)\s+"
+    r"(?:AT|@)\s*\$?\s*(?P<price>\d*\.?\d+)\s*"
+    r"(?:FILL(?:ED)?)?\b",
+    re.IGNORECASE,
+)
+
+
+async def _infer_recent_channel_contract_buy(
+    payload: ChromeBridgeMessage,
+    raw_text: str,
+    source_config: dict[str, Any],
+) -> dict[str, Any] | None:
+    if not _source_behavior_enabled(source_config, "process_followup_updates", default=True):
+        return None
+    if _source_behavior_enabled(source_config, "ignore_followup_messages", default=False):
+        return None
+    text = str(raw_text or "").strip()
+    if len([line for line in text.splitlines() if line.strip()]) != 1:
+        return None
+    match = _CONVERSATIONAL_ENTRY_RE.search(text)
+    if not match or not db or not hasattr(db, "get_alerts"):
+        return None
+
+    try:
+        price = float(match.group("price"))
+    except (TypeError, ValueError):
+        return None
+    if price <= 0:
+        return None
+
+    ticker = match.group("ticker").upper()
+    option_type = "CALL" if match.group("option_type").upper().startswith("CALL") else "PUT"
+    channel_id = str(payload.channel_id or "").strip()
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=6)
+    alerts = await db.get_alerts(200)
+    for alert in alerts or []:
+        if str(alert.get("channel_id") or "").strip() != channel_id:
+            continue
+        if str(alert.get("alert_type") or "").strip().lower() not in {"buy", "average_down"}:
+            continue
+        if str(alert.get("ticker") or "").strip().upper() != ticker:
+            continue
+        if str(alert.get("option_type") or "").strip().upper() != option_type:
+            continue
+        if alert.get("strike") is None or not alert.get("expiration"):
+            continue
+        try:
+            observed = datetime.fromisoformat(str(alert.get("timestamp") or "").replace("Z", "+00:00"))
+            if observed.tzinfo is None:
+                observed = observed.replace(tzinfo=timezone.utc)
+            if observed.astimezone(timezone.utc) < cutoff:
+                continue
+        except (TypeError, ValueError):
+            continue
+        return {
+            "alert_type": "buy",
+            "ticker": ticker,
+            "strike": float(alert["strike"]),
+            "option_type": option_type,
+            "expiration": str(alert["expiration"]),
+            "entry_price": price,
+            "sell_percentage": None,
+            "market_price": False,
+        }
+    return None
+
+
+def _parse_position_mark_update(raw_text: str) -> dict[str, Any] | None:
+    text = str(raw_text or "").strip()
+    if not text or _has_builtin_action_keyword(text):
+        return None
+    if not re.search(r"\b(?:up|here|calls?|puts?)\b", text, re.IGNORECASE):
+        return None
+
+    prices = re.findall(r"(?<![A-Z0-9])\$?\s*(\d*\.\d+)(?![A-Z0-9])", text, re.IGNORECASE)
+    if not prices:
+        return None
+    try:
+        current_price = float(prices[-1])
+    except ValueError:
+        return None
+    if current_price <= 0:
+        return None
+
+    ticker = _extract_mark_update_ticker(text)
+    if not ticker:
+        return None
+    option_type = None
+    if re.search(r"\bCALLS?\b", text, re.IGNORECASE):
+        option_type = "CALL"
+    elif re.search(r"\bPUTS?\b", text, re.IGNORECASE):
+        option_type = "PUT"
+
+    strike = None
+    strike_match = re.search(r"\$[A-Z]{1,6}\s+\$(\d+(?:\.\d+)?)", text, re.IGNORECASE)
+    if not strike_match:
+        strike_match = re.search(r"\b[A-Z]{1,6}\s+(\d+(?:\.\d+)?)\s*[CP]\b", text, re.IGNORECASE)
+    if strike_match:
+        try:
+            strike = float(strike_match.group(1))
+        except ValueError:
+            strike = None
+
+    profit_pct = None
+    profit_match = re.search(r"\bUP\s*\+\s*(\d+(?:\.\d+)?)\s*%", text, re.IGNORECASE)
+    if profit_match:
+        try:
+            profit_pct = float(profit_match.group(1))
+        except ValueError:
+            profit_pct = None
+
+    return {
+        "ticker": ticker,
+        "strike": strike,
+        "option_type": option_type,
+        "current_price": current_price,
+        "profit_percentage": profit_pct,
+    }
+
+
+def _extract_mark_update_ticker(text: str) -> str:
+    for pattern in (
+        r"\bON\s+\$?([A-Z]{1,6})\b",
+        r"\bFOR\s+\$?([A-Z]{1,6})\b",
+        r"\$([A-Z]{1,6})\b",
+        r"\b([A-Z]{1,6})\s+(?:CALLS?|PUTS?)\b",
+    ):
+        match = re.search(pattern, text, re.IGNORECASE)
+        if match:
+            ticker = str(match.group(1) or "").strip().upper()
+            if ticker not in {"UP", "HERE", "CALL", "CALLS", "PUT", "PUTS"}:
+                return ticker
+    return ""
+
+
+def _position_matches_mark_update(position: dict[str, Any], mark: dict[str, Any]) -> bool:
+    if str(position.get("status") or "open").strip().lower() not in {"open", "partial"}:
+        return False
+    if str(position.get("ticker") or "").strip().upper() != str(mark.get("ticker") or "").strip().upper():
+        return False
+    mark_type = str(mark.get("option_type") or "").strip().upper()
+    if mark_type and str(position.get("option_type") or "").strip().upper() != mark_type:
+        return False
+    mark_strike = mark.get("strike")
+    if mark_strike is not None and abs(_safe_float(position.get("strike")) - _safe_float(mark_strike)) >= 0.001:
+        return False
+    return True
+
+
+def _safe_float(value: Any) -> float:
+    if isinstance(value, bool):
+        return 0.0
+    try:
+        return float(value or 0.0)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _safe_int(value: Any) -> int:
+    if isinstance(value, bool):
+        return 0
+    try:
+        return max(int(float(value or 0)), 0)
+    except (TypeError, ValueError):
+        return 0
 
 
 def _canonical_chrome_bridge_event_id(event_id: str) -> str:
@@ -837,6 +1832,53 @@ def _chrome_bridge_duplicate_response(
         "trade_request_reason": "",
         "skip_reason": skip_reason,
     }
+
+
+def _chrome_bridge_skipped_response(payload: ChromeBridgeMessage, *, skip_reason: str) -> dict:
+    return {
+        "status": "skipped",
+        "event_id": payload.event_id,
+        "source": payload.source,
+        "channel_id": payload.channel_id,
+        "channel_name": payload.channel_name,
+        "channel_url": payload.channel_url,
+        "bridge_target_id": payload.bridge_target_id,
+        "bridge_target_name": payload.bridge_target_name,
+        "url": payload.url,
+        "author_name": payload.author_name,
+        "alert_inserted": False,
+        "alert_id": "",
+        "trade_requested": False,
+        "trade_request_reason": "",
+        "skip_reason": skip_reason,
+    }
+
+
+def _chrome_bridge_freshness_skip_reason(payload: ChromeBridgeMessage) -> str | None:
+    max_age_minutes = _chrome_bridge_max_message_age_minutes()
+    if max_age_minutes <= 0:
+        return None
+    raw_timestamp = str(payload.timestampIso or "").strip()
+    if not raw_timestamp:
+        return None
+    try:
+        source_timestamp = datetime.fromisoformat(raw_timestamp.replace("Z", "+00:00"))
+    except ValueError:
+        return "invalid chrome bridge source timestamp"
+    if source_timestamp.tzinfo is None:
+        source_timestamp = source_timestamp.replace(tzinfo=timezone.utc)
+    age_seconds = (datetime.now(timezone.utc) - source_timestamp).total_seconds()
+    if age_seconds > max_age_minutes * 60:
+        return "stale chrome bridge source timestamp"
+    return None
+
+
+def _chrome_bridge_max_message_age_minutes() -> float:
+    raw_value = str(os.environ.get("CHROME_BRIDGE_MAX_MESSAGE_AGE_MINUTES", "10")).strip()
+    try:
+        return max(0.0, float(raw_value))
+    except ValueError:
+        return 10.0
 
 
 def _mark_chrome_bridge_seen(event_id: str) -> bool:
@@ -936,9 +1978,17 @@ def _chrome_bridge_to_message(payload: ChromeBridgeMessage):
             )
         )
 
+    content = payload.content
+    if not content.strip() and not embeds and payload.attachment_urls:
+        if payload.ocr_text and (payload.ocr_confidence or 0.0) >= 0.8:
+            content = payload.ocr_text
+        else:
+            confidence = f"{payload.ocr_confidence:.0%}" if payload.ocr_confidence is not None else "unavailable"
+            content = f"[Image-only Discord alert; OCR confidence {confidence}; context only]"
+
     return SimpleNamespace(
         id=payload.event_id,
-        content=payload.content,
+        content=content,
         embeds=embeds,
         author=SimpleNamespace(
             id=_chrome_bridge_author_id(payload),
@@ -981,14 +2031,82 @@ def _parse_alert_for_preview(
         "confidence": "none",
     }
     case_sensitive = bool(patterns.get("case_sensitive", False))
+    card = parse_card(raw_text)
+    if card.recognized:
+        metadata.update({
+            "card_recognized": True, "card_reason": card.reason,
+            "pattern_source": "structured_card", "matched_pattern_type": "labelled_options",
+            "ignored": card.parsed is None, "explicit_action": card.parsed is not None,
+            "confidence": "high" if card.parsed else "none",
+        })
+        return card.parsed, metadata
     explicit_action = _has_builtin_action_keyword(raw_text)
     metadata["explicit_action"] = explicit_action
 
+    followup_exit_pattern = _discord_followup_exit_pattern(raw_text)
+    if followup_exit_pattern:
+        parsed = normalize_parsed_alert(parse_alert(raw_text))
+        if parsed:
+            parsed = dict(parsed)
+            parsed["alert_type"] = "sell"
+            parsed["entry_price"] = None
+            parsed["sell_percentage"] = 100.0
+            parsed["market_price"] = False
+            metadata.update(
+                {
+                    "matched_pattern": followup_exit_pattern,
+                    "matched_pattern_type": "followup_exit",
+                    "pattern_source": "builtin",
+                    "explicit_action": True,
+                    "confidence": "high",
+                }
+            )
+            return parsed, metadata
+
+    followup_average_down = _discord_followup_average_down(raw_text)
+    if followup_average_down:
+        parsed = normalize_parsed_alert(parse_alert(raw_text))
+        if parsed:
+            parsed = dict(parsed)
+            parsed["alert_type"] = "average_down"
+            parsed["entry_price"] = followup_average_down["price"]
+            metadata.update(
+                {
+                    "matched_pattern": followup_average_down["label"],
+                    "matched_pattern_type": "followup_average_down",
+                    "pattern_source": "builtin",
+                    "explicit_action": True,
+                    "confidence": "high",
+                }
+            )
+            return parsed, metadata
+
+    followup_pattern = _discord_followup_update_pattern(raw_text)
+    if followup_pattern:
+        metadata.update(
+            {
+                "matched_pattern": followup_pattern,
+                "matched_pattern_type": "followup_update",
+                "pattern_source": "builtin",
+                "ignored": True,
+                "confidence": "high",
+            }
+        )
+        return None, metadata
+
+    raw_parsed = normalize_parsed_alert(parse_alert(raw_text))
     ignore_match = _first_matching_pattern(
         raw_text,
         patterns.get("ignore_patterns", []),
         case_sensitive=case_sensitive,
     )
+    if (
+        ignore_match
+        and raw_parsed
+        and explicit_action
+        and _explicit_action_precedes_pattern(raw_text, ignore_match, case_sensitive=case_sensitive)
+    ):
+        ignore_match = None
     if ignore_match:
         metadata.update(
             {
@@ -1001,7 +2119,6 @@ def _parse_alert_for_preview(
         )
         return None, metadata
 
-    raw_parsed = parse_alert(raw_text)
     canonical_text = raw_text
     for pattern_type, canonical_action in (
         ("average_down_patterns", "AVERAGE DOWN"),
@@ -1014,13 +2131,23 @@ def _parse_alert_for_preview(
             patterns.get(pattern_type, []),
             case_sensitive=case_sensitive,
         )
+        if (
+            match
+            and raw_parsed
+            and explicit_action
+            and not _parsed_alert_already_matches_pattern(raw_parsed, pattern_type)
+            and _explicit_action_precedes_pattern(raw_text, match, case_sensitive=case_sensitive)
+        ):
+            continue
         if match:
             metadata["matched_pattern"] = match
             metadata["matched_pattern_type"] = pattern_type
             metadata["pattern_source"] = _pattern_source(patterns, pattern_type, match)
             metadata["explicit_action"] = True
             metadata["confidence"] = "high"
-            if pattern_type != "buy_patterns" or raw_parsed is None:
+            if raw_parsed and _parsed_alert_already_matches_pattern(raw_parsed, pattern_type):
+                canonical_text = raw_text
+            elif pattern_type != "buy_patterns" or raw_parsed is None:
                 canonical_text = _canonicalize_pattern_action(
                     raw_text,
                     match,
@@ -1029,7 +2156,7 @@ def _parse_alert_for_preview(
                 )
             break
 
-    parsed = raw_parsed if canonical_text == raw_text else parse_alert(canonical_text)
+    parsed = raw_parsed if canonical_text == raw_text else normalize_parsed_alert(parse_alert(canonical_text))
     ticker_pattern = patterns.get("ticker_pattern")
     ticker_override = _extract_ticker_with_pattern(
         raw_text,
@@ -1054,11 +2181,119 @@ def _parse_alert_for_preview(
     return parsed, metadata
 
 
+def _parsed_alert_already_matches_pattern(parsed: Dict[str, Any], pattern_type: str) -> bool:
+    alert_type = str((parsed or {}).get("alert_type") or "").strip().lower()
+    if pattern_type == "buy_patterns":
+        return alert_type == "buy"
+    if pattern_type == "average_down_patterns":
+        return alert_type == "average_down"
+    if pattern_type in {"sell_patterns", "partial_sell_patterns"}:
+        return alert_type in {"sell", "trim", "close"}
+    return False
+
+
 def _has_builtin_action_keyword(raw_text: str) -> bool:
     return any(
         _contains_preview_keyword(raw_text, keyword)
         for keyword in BUY_KEYWORDS + SELL_KEYWORDS + AVG_DOWN_KEYWORDS
     )
+
+
+def _discord_followup_update_pattern(raw_text: str) -> str | None:
+    lines = [line.strip() for line in str(raw_text or "").splitlines() if line.strip()]
+    if len(lines) < 2:
+        return None
+
+    prior_text = " ".join(lines[:-1])
+    latest_line = lines[-1]
+    if not re.search(r"\bentry\b", prior_text, re.IGNORECASE):
+        return None
+
+    actionable_latest = (
+        _contains_preview_keyword(latest_line, "entry")
+        or any(_contains_preview_keyword(latest_line, keyword) for keyword in BUY_KEYWORDS + SELL_KEYWORDS)
+        or is_actionable_average_down_alert(latest_line)
+    )
+    if actionable_latest:
+        return None
+
+    followup_patterns = (
+        (r"\bjust\s+filled\b", "JUST FILLED"),
+        (r"\bavg(?:erage)?\s+fill\b", "AVG FILL"),
+        (r"\bhere\s+on\b.*\bup\s*\+\s*\d+(?:\.\d+)?\s*%", "HERE ON ... UP +%"),
+        (r"\bup\s*\+\s*\d+(?:\.\d+)?\s*%", "UP +%"),
+        (r"\bon\s+watch\b", "ON WATCH"),
+        (r"\bhands\s+off\b", "HANDS OFF"),
+        (r"\bwill\s+re-?enter\b", "WILL RE-ENTER"),
+        (r"\b(?:looking|waiting)\b.*\b(?:dca|add)\b", "FUTURE DCA"),
+        (r"\bdca\s+room\b", "DCA ROOM"),
+        (r"\badd\s+on\s+pullbacks?\b", "ADD ON PULLBACKS"),
+    )
+    for pattern, label in followup_patterns:
+        if re.search(pattern, latest_line, re.IGNORECASE):
+            return label
+    return None
+
+
+def _discord_followup_exit_pattern(raw_text: str) -> str | None:
+    lines = [line.strip() for line in str(raw_text or "").splitlines() if line.strip()]
+    if len(lines) < 2 or not re.search(r"\bentry\b", " ".join(lines[:-1]), re.IGNORECASE):
+        return None
+
+    latest_line = lines[-1]
+    stop_reference = re.search(
+        r"(?:\bb\s*/?\s*e\b|\bbreak[\s-]*even\b|\bsl\b|\bstop\s*loss\b)",
+        latest_line,
+        re.IGNORECASE,
+    )
+    exit_action = re.search(
+        r"\b(?:hit|hits|triggered|stopped|stopped\s+out|sold|sell|closed|out)\b",
+        latest_line,
+        re.IGNORECASE,
+    )
+    if stop_reference and exit_action:
+        return "FOLLOWUP STOP EXIT"
+    if re.search(r"\bin\s+cash\b", latest_line, re.IGNORECASE) and re.search(
+        r"\b(?:staying|stay|now|hands\s+off|out)\b",
+        latest_line,
+        re.IGNORECASE,
+    ):
+        return "FOLLOWUP FLAT EXIT"
+    return None
+
+
+def _discord_followup_average_down(raw_text: str) -> dict[str, Any] | None:
+    lines = [line.strip() for line in str(raw_text or "").splitlines() if line.strip()]
+    if len(lines) < 2 or not re.search(r"\bentry\b", " ".join(lines[:-1]), re.IGNORECASE):
+        return None
+
+    latest_line = lines[-1]
+    if not is_actionable_average_down_alert(latest_line):
+        return None
+    fill_price = _discord_followup_fill_price(latest_line)
+    if fill_price is None:
+        prices = re.findall(r"(?<![A-Z0-9])\$?\s*(\d*\.\d+)(?![A-Z0-9])", latest_line)
+        if not prices:
+            return None
+        fill_price = prices[-1]
+    try:
+        price = float(fill_price)
+    except ValueError:
+        return None
+    if price <= 0:
+        return None
+    return {"label": "FOLLOWUP DCA FILL", "price": price}
+
+
+def _discord_followup_fill_price(latest_line: str) -> str | None:
+    for pattern in (
+        r"\bfill(?:ed)?(?:\s+adds?)?\s*(?:at|@)?\s*\$?\s*(\d*\.\d+)",
+        r"\bre-?add(?:ing|ed)?\b.*?\$?\s*(\d*\.\d+)\s+fill(?:ed)?\b",
+    ):
+        match = re.search(pattern, latest_line, re.IGNORECASE)
+        if match:
+            return match.group(1)
+    return None
 
 
 def _contains_preview_keyword(raw_text: str, keyword: str) -> bool:
@@ -1067,6 +2302,34 @@ def _contains_preview_keyword(raw_text: str, keyword: str) -> bool:
         return False
     body = r"\s+".join(parts)
     return re.search(rf"(?<![A-Z0-9]){body}(?![A-Z0-9])", raw_text, re.IGNORECASE) is not None
+
+
+def _explicit_action_precedes_pattern(
+    raw_text: str,
+    pattern: str,
+    *,
+    case_sensitive: bool,
+) -> bool:
+    flags = 0 if case_sensitive else re.IGNORECASE
+    action_starts = []
+    for keyword in BUY_KEYWORDS + SELL_KEYWORDS + AVG_DOWN_KEYWORDS:
+        parts = [re.escape(part) for part in str(keyword).strip().split()]
+        if not parts:
+            continue
+        action_pattern = r"\s+".join(parts)
+        match = re.search(rf"(?<![A-Z0-9]){action_pattern}(?![A-Z0-9])", raw_text, flags)
+        if match:
+            action_starts.append(match.start())
+    pattern_parts = [re.escape(part) for part in str(pattern or "").strip().split()]
+    if not action_starts or not pattern_parts:
+        return False
+    ignore_pattern = r"\s+".join(pattern_parts)
+    pattern_match = re.search(
+        rf"(?<![A-Z0-9]){ignore_pattern}(?![A-Z0-9])",
+        raw_text,
+        flags,
+    )
+    return pattern_match is None or min(action_starts) < pattern_match.start()
 
 
 def _canonicalize_pattern_action(
@@ -1254,12 +2517,6 @@ def _build_preview_warnings(
         warnings.append(f"Source config is invalid: {invalid_reason}.")
     if not source_config.get("enabled", True):
         warnings.append("Source is disabled; preview will not request a trade.")
-    if source_config.get("paper_only"):
-        warnings.append("Source is paper-only; live order would be simulated.")
-    if source_config.get("paper_shadow"):
-        warnings.append("Paper-shadow recording is enabled for this source.")
-    if source_config.get("require_manual_confirm"):
-        warnings.append("Source requires manual confirmation before trade execution.")
     if not coerce_bool(settings.get("auto_trading_enabled"), default=True):
         warnings.append("Auto trading is disabled; preview will not request a trade.")
     if coerce_bool(settings.get("shutdown_triggered"), default=False):
@@ -1285,43 +2542,58 @@ def _build_execution_preview(
     source_config: Dict[str, Any],
     skip_reason: str | None,
     parser_metadata: Dict[str, Any] | None = None,
+    raw_text: str = "",
 ) -> Dict[str, Any]:
     auto_trading_enabled = coerce_bool(settings.get("auto_trading_enabled"), default=True)
     shutdown_triggered = coerce_bool(settings.get("shutdown_triggered"), default=False)
-    simulation_mode = coerce_bool(settings.get("simulation_mode"), default=True) or bool(
-        source_config.get("paper_only", False)
-    )
 
     reason = skip_reason
     if reason is None and not auto_trading_enabled:
         reason = "auto trading disabled"
     if reason is None and shutdown_triggered:
         reason = "shutdown triggered"
-    if reason is None and source_config.get("require_manual_confirm"):
-        reason = "manual confirmation required"
-
-    would_create_paper_shadow = bool(
-        parsed
-        and reason is None
-        and source_config.get("paper_shadow")
-        and not simulation_mode
-    )
 
     quantity = None
     uncapped_quantity = None
     estimated_premium_cost = None
     uncapped_premium_cost = None
+    entry_risk_profile = "normal"
     if parsed and str(parsed.get("alert_type", "")).lower() in {"buy", "average_down"}:
         entry_price = parsed.get("entry_price")
         if entry_price:
             entry_price = float(entry_price)
+            risk_language_cap, risk_language_reasons = alert_risk_size_cap(
+                raw_text,
+                cap_percent=float(settings.get("coordinated_high_risk_size_percent", 25.0)),
+            )
+            entry_risk_profile = "high_risk" if risk_language_reasons else "normal"
+            stop_loss_percent = float(
+                settings.get(
+                    "coordinated_high_risk_stop_loss_percent"
+                    if entry_risk_profile == "high_risk"
+                    else "coordinated_normal_stop_loss_percent",
+                    50.0 if entry_risk_profile == "high_risk" else 35.0,
+                )
+            )
             uncapped_quantity = calculate_position_size(
                 entry_price=entry_price,
                 default_quantity=int(settings.get("default_quantity", 1)),
                 max_position_size=float(settings.get("max_position_size", 1000.0)),
                 risk_multiplier=source_config.get("risk_multiplier", 1.0),
+                max_loss_per_trade=(
+                    float(settings.get("max_loss_per_trade", 500.0))
+                    if coerce_bool(settings.get("risk_budget_sizing_enabled"), default=True)
+                    else None
+                ),
+                stop_loss_percent=(
+                    stop_loss_percent
+                    if coerce_bool(settings.get("risk_budget_sizing_enabled"), default=True)
+                    else None
+                ),
             )
             quantity = apply_source_quantity_limits(uncapped_quantity, source_config)
+            if risk_language_cap is not None and quantity > 0:
+                quantity = max(1, int(quantity * risk_language_cap / 100.0))
             estimated_premium_cost = round(entry_price * quantity * 100, 2)
             uncapped_premium_cost = round(entry_price * uncapped_quantity * 100, 2)
             if quantity <= 0 and reason is None:
@@ -1330,10 +2602,8 @@ def _build_execution_preview(
     return {
         "would_insert_alert": bool(parsed and skip_reason is None),
         "would_request_trade": bool(parsed and reason is None),
-        "would_create_paper_shadow": would_create_paper_shadow,
         "reason": reason,
         "auto_trading_enabled": auto_trading_enabled,
-        "simulation_mode": simulation_mode,
         "quantity": quantity,
         "uncapped_quantity": uncapped_quantity,
         "estimated_premium_cost": estimated_premium_cost,
@@ -1344,6 +2614,7 @@ def _build_execution_preview(
         "matched_pattern": (parser_metadata or {}).get("matched_pattern"),
         "matched_pattern_type": (parser_metadata or {}).get("matched_pattern_type"),
         "pattern_source": (parser_metadata or {}).get("pattern_source"),
+        "entry_risk_profile": entry_risk_profile,
     }
 
 

@@ -25,7 +25,6 @@ type BrokerId = 'IBKR' | 'ALPACA' | 'TRADIER' | 'TD';
 type OrderType = 'LIMIT' | 'MARKET';
 
 type TradingSettings = {
-  simulationMode: boolean;
   autoTradingEnabled: boolean;
   priceBufferEnabled: boolean;
   priceBufferPercentage: number;
@@ -39,7 +38,6 @@ type TradingSettings = {
 };
 
 const DEFAULT_TRADING_SETTINGS: TradingSettings = {
-  simulationMode: true,
   autoTradingEnabled: true,
   priceBufferEnabled: true,
   priceBufferPercentage: 3,
@@ -195,15 +193,9 @@ export function TradingSettingsPage() {
             <Text style={styles.eyebrow}>AUTOMATION</Text>
             <Text style={styles.title}>Trading Settings</Text>
           </View>
-          <View style={[styles.modeBadge, settings.simulationMode ? styles.modeBadgeSim : styles.modeBadgeLive]}>
-            <Ionicons
-              name={settings.simulationMode ? 'flask-outline' : 'flash-outline'}
-              size={14}
-              color={settings.simulationMode ? '#fb7185' : '#fbbf24'}
-            />
-            <Text style={[styles.modeBadgeText, !settings.simulationMode && styles.modeBadgeTextLive]}>
-              {settings.simulationMode ? 'SIM' : 'LIVE'}
-            </Text>
+          <View style={[styles.modeBadge, styles.modeBadgeLive]}>
+            <Ionicons name="flash-outline" size={14} color="#fbbf24" />
+            <Text style={[styles.modeBadgeText, styles.modeBadgeTextLive]}>LIVE</Text>
           </View>
         </View>
 
@@ -211,12 +203,6 @@ export function TradingSettingsPage() {
 
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Trading Mode</Text>
-          <ToggleRow
-            title="Simulation Mode"
-            detail="Route alerts to paper execution instead of live broker orders."
-            value={settings.simulationMode}
-            onValueChange={(value) => updateSetting('simulationMode', value)}
-          />
           <ToggleRow
             title="Auto Trading"
             detail="Allow parsed alerts to create orders without manual confirmation."
@@ -376,7 +362,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 6,
   },
-  modeBadgeSim: { backgroundColor: 'rgba(244, 63, 94, 0.18)', borderColor: '#164766' },
   modeBadgeLive: { backgroundColor: '#2a2109', borderColor: '#7c4a03' },
   modeBadgeText: { color: '#fb7185', fontSize: 11, fontWeight: '900' },
   modeBadgeTextLive: { color: '#fbbf24' },

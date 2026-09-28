@@ -7,7 +7,7 @@ from bridge_contract import CHROME_BRIDGE_CONTRACT_VERSION
 from settings_flags import coerce_bool
 
 
-PENDING_TRADE_STATUSES = {"pending", "submitted", "unconfirmed"}
+PENDING_TRADE_STATUSES = {"pending", "submitted", "unconfirmed", "pending_broker"}
 TERMINAL_NO_FILL_STATUSES = {"failed", "rejected", "cancelled", "canceled", "expired"}
 STRUCTURAL_PROOF_PREFIX = "accepted bridge alert missing "
 

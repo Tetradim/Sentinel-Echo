@@ -31,6 +31,10 @@ def evaluate_trailing_stop(
         "current_price": current_price,
         "trailing_stop_type": str(settings.get("trailing_stop_type") or "percent").strip().lower(),
         "trailing_stop_level": 0.0,
+        "trailing_stop_activation_percent": _positive_float(
+            settings.get("trailing_stop_activation_percent")
+        ),
+        "trailing_stop_activation_price": entry_price,
         "exit_price": None,
     }
     if not decision["enabled"]:
@@ -63,9 +67,18 @@ def evaluate_trailing_stop(
         return decision
 
     decision["trailing_stop_level"] = round(level, 4)
+    activation_percent = decision["trailing_stop_activation_percent"]
+    decision["trailing_stop_activation_price"] = round(
+        entry_price * (1 + activation_percent / 100),
+        4,
+    )
     if peak > previous_peak:
         decision["action"] = "peak_updated"
         decision["reason"] = "new highest price recorded"
+        return decision
+    if activation_percent > 0 and peak < decision["trailing_stop_activation_price"]:
+        decision["action"] = "held"
+        decision["reason"] = "trailing stop has not reached activation profit"
         return decision
     if peak <= entry_price:
         decision["action"] = "held"

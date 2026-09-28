@@ -175,7 +175,7 @@ class DiscordListenerConfig:
         
         # Auto-trading
         self.auto_trade_enabled: bool = False
-        self.simulation_mode: bool = True
+        self.simulation_mode: bool = False
         
         # Broker config for this community
         self.broker_type: str = "IBKR"

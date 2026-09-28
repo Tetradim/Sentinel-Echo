@@ -1,9 +1,16 @@
 import aiohttp
+import asyncio
+import json
 import logging
 import re
 from abc import ABC, abstractmethod
+from datetime import datetime, timedelta, timezone
 from typing import Any, Tuple, Optional
+from urllib.parse import quote
+from urllib.request import Request, urlopen
 from models import BrokerConfig, BrokerType
+from position_identity import parse_alpaca_option_symbol
+from utils import normalize_expiration_for_order
 
 logger = logging.getLogger(__name__)
 
@@ -29,6 +36,46 @@ def _float_price(value) -> float:
         return float(value or 0.0)
     except (TypeError, ValueError):
         return 0.0
+
+
+def _request_json_via_stdlib_sync(url: str, headers: dict[str, str], timeout: float) -> Any:
+    request = Request(url, headers=headers, method="GET")
+    with urlopen(request, timeout=timeout) as response:
+        return json.load(response)
+
+
+async def _request_json_via_stdlib(
+    url: str,
+    *,
+    headers: dict[str, str],
+    timeout: float = 10.0,
+    attempts: int = 3,
+) -> Any:
+    last_error: Exception | None = None
+    for attempt in range(max(1, int(attempts))):
+        try:
+            return await asyncio.to_thread(_request_json_via_stdlib_sync, url, headers, timeout)
+        except Exception as exc:
+            last_error = exc
+            if attempt + 1 < attempts:
+                await asyncio.sleep(0.5 * (attempt + 1))
+    if last_error is not None:
+        raise last_error
+    raise RuntimeError("isolated HTTP request failed without an error")
+
+
+def _alpaca_option_symbol(ticker: str, expiration: str, option_type: str, strike: float) -> str:
+    normalized_expiration = str(normalize_expiration_for_order(expiration) or expiration or "").strip()
+    if "/" in normalized_expiration:
+        month, day, year = normalized_expiration.split("/")
+        year = year[-2:]
+        expiration_key = f"{year.zfill(2)}{month.zfill(2)}{day.zfill(2)}"
+    else:
+        expiration_key = normalized_expiration.replace("-", "")
+        if len(expiration_key) == 8:
+            expiration_key = expiration_key[2:]
+    option_key = "C" if str(option_type).upper() == "CALL" else "P"
+    return f"{str(ticker).upper()}{expiration_key}{option_key}{int(float(strike) * 1000):08d}"
 
 
 def _tradier_error_reason(data, fallback: str) -> str:
@@ -68,6 +115,31 @@ def _normalize_open_order_list(orders: Any) -> list[dict]:
         return []
     normalized = [_normalize_open_order_payload(order) for order in orders]
     return [order for order in normalized if order is not None]
+
+
+def _normalize_alpaca_position_payload(position: Any) -> dict | None:
+    if not isinstance(position, dict):
+        return None
+    parsed_symbol = parse_alpaca_option_symbol(position.get('symbol')) or {}
+    ticker = str(position.get('ticker') or parsed_symbol.get('ticker') or '').strip().upper()
+    option_type = str(position.get('option_type') or parsed_symbol.get('option_type') or '').strip().upper()
+    strike = _float_price(position.get('strike') or parsed_symbol.get('strike'))
+    expiration = str(position.get('expiration') or parsed_symbol.get('expiration') or '').strip()
+    quantity = _int_quantity(position.get('qty') or position.get('quantity'))
+    if not ticker or option_type not in {'CALL', 'PUT'} or strike <= 0 or not expiration or quantity <= 0:
+        return None
+    return {
+        'broker': 'alpaca',
+        'symbol': position.get('symbol'),
+        'ticker': ticker,
+        'strike': strike,
+        'option_type': option_type,
+        'expiration': expiration,
+        'quantity': quantity,
+        'avg_entry_price': _float_price(position.get('avg_entry_price')),
+        'current_price': _float_price(position.get('current_price')),
+        'market_value': _float_price(position.get('market_value')),
+    }
 
 
 def _tradier_order_list(data: Any) -> list[dict]:
@@ -218,7 +290,16 @@ class BaseBrokerClient(ABC):
         Raises OrderValidationError if validation fails.
         Returns normalized parameters dict.
         """
-        is_valid, error = self.validate_order(ticker, strike, option_type, expiration, side, quantity, price)
+        normalized_expiration = normalize_expiration_for_order(expiration)
+        is_valid, error = self.validate_order(
+            ticker,
+            strike,
+            option_type,
+            normalized_expiration,
+            side,
+            quantity,
+            price,
+        )
         if not is_valid:
             logger.error(f"Order validation failed: {error}")
             raise OrderValidationError(error)
@@ -227,7 +308,7 @@ class BaseBrokerClient(ABC):
             'ticker': ticker.upper().strip(),
             'strike': float(strike),
             'option_type': option_type.upper().strip(),
-            'expiration': expiration.strip(),
+            'expiration': str(normalized_expiration or "").strip(),
             'side': side.upper().strip(),
             'quantity': int(quantity),
             'price': round(float(price), 2)
@@ -395,17 +476,104 @@ class AlpacaClient(BaseBrokerClient):
         }
     
     async def check_connection(self) -> bool:
+        last_error = ""
+        for attempt in range(3):
+            try:
+                session = await self._get_session()
+                async with session.get(
+                    f"{self.config.base_url}/v2/account",
+                    headers=self._get_headers()
+                ) as resp:
+                    self.connected = resp.status == 200
+                    return self.connected
+            except Exception as e:
+                last_error = str(e) or e.__class__.__name__
+                logger.warning("Alpaca connection attempt %s/3 failed: %s", attempt + 1, last_error)
+                if attempt < 2:
+                    await asyncio.sleep(0.5 * (attempt + 1))
+        if last_error:
+            logger.error(f"Alpaca connection error: {last_error}")
+        self.connected = False
+        return False
+
+    async def get_option_market_context(
+        self,
+        *,
+        ticker: str,
+        strike: float,
+        option_type: str,
+        expiration: str,
+    ) -> dict:
+        """Return recent underlying bars and the current exact-contract option quote."""
+        option_symbol = _alpaca_option_symbol(ticker, expiration, option_type, strike)
+        context = {
+            "bars": [],
+            "option_bid": None,
+            "option_ask": None,
+            "option_quote_observed_at": None,
+            "option_symbol": option_symbol,
+            "source": "alpaca",
+        }
         try:
             session = await self._get_session()
+        except Exception as exc:
+            logger.warning("Alpaca market-data session unavailable for %s: %s", ticker, exc)
+            return context
+
+        now = datetime.now(timezone.utc)
+        try:
             async with session.get(
-                f"{self.config.base_url}/v2/account",
-                headers=self._get_headers()
-            ) as resp:
-                self.connected = resp.status == 200
-                return self.connected
-        except Exception as e:
-            logger.error(f"Alpaca connection error: {e}")
-        return False
+                f"https://data.alpaca.markets/v2/stocks/{str(ticker).upper()}/bars",
+                headers=self._get_headers(),
+                params={
+                    "timeframe": "1Min",
+                    "start": (now - timedelta(minutes=35)).isoformat(),
+                    "end": now.isoformat(),
+                    "limit": 30,
+                    "feed": "iex",
+                },
+            ) as response:
+                if response.status == 200:
+                    payload = await response.json()
+                    bars = payload.get("bars") if isinstance(payload, dict) else None
+                    if isinstance(bars, list):
+                        context["bars"] = bars
+        except Exception as exc:
+            logger.warning("Alpaca underlying bars unavailable for %s: %s", ticker, exc)
+
+        try:
+            async with session.get(
+                "https://data.alpaca.markets/v1beta1/options/quotes/latest",
+                headers=self._get_headers(),
+                params={"symbols": option_symbol},
+            ) as response:
+                if response.status == 200:
+                    payload = await response.json()
+                    quotes = payload.get("quotes") if isinstance(payload, dict) else None
+                    quote_payload = quotes.get(option_symbol) if isinstance(quotes, dict) else None
+                    if isinstance(quote_payload, dict):
+                        context["option_bid"] = _float_price(quote_payload.get("bp")) or None
+                        context["option_ask"] = _float_price(quote_payload.get("ap")) or None
+                        context["option_quote_observed_at"] = quote_payload.get("t")
+        except Exception as exc:
+            logger.warning("Alpaca option quote unavailable for %s: %s", ticker, exc)
+        return context
+
+    async def get_entry_market_context(
+        self,
+        *,
+        ticker: str,
+        strike: float,
+        option_type: str,
+        expiration: str,
+    ) -> dict:
+        """Compatibility alias for Phase 1 entry sizing."""
+        return await self.get_option_market_context(
+            ticker=ticker,
+            strike=strike,
+            option_type=option_type,
+            expiration=expiration,
+        )
     
     async def place_order(
         self,
@@ -430,24 +598,18 @@ class AlpacaClient(BaseBrokerClient):
             if not self.connected:
                 return {'error': 'Not connected to Alpaca'}
             
-            exp_parts = params['expiration'].split('/')
-            if len(exp_parts) == 3:
-                year = exp_parts[2]
-                if len(year) == 4:
-                    year = year[2:]
-                exp_formatted = f"{year.zfill(2)}{exp_parts[0].zfill(2)}{exp_parts[1].zfill(2)}"
-            else:
-                exp_formatted = params['expiration'].replace('-', '')
-                if len(exp_formatted) == 8 and exp_formatted[:2] in {"19", "20"}:
-                    exp_formatted = exp_formatted[2:]
-            
-            opt_type = 'C' if params['option_type'] == 'CALL' else 'P'
-            symbol = f"{params['ticker']}{exp_formatted}{opt_type}{int(params['strike'] * 1000):08d}"
+            symbol = _alpaca_option_symbol(
+                params['ticker'],
+                params['expiration'],
+                params['option_type'],
+                params['strike'],
+            )
             
             order_data = {
                 'symbol': symbol,
                 'qty': params['quantity'],
                 'side': params['side'].lower(),
+                'position_intent': 'buy_to_open' if params['side'] == 'BUY' else 'sell_to_close',
                 'type': 'limit',
                 'limit_price': str(params['price']),
                 'time_in_force': 'day'
@@ -467,7 +629,35 @@ class AlpacaClient(BaseBrokerClient):
                 return {'error': data.get('message', 'Order failed')}
         except Exception as e:
             logger.error(f"Alpaca order failed: {e}")
+            recovered = await self._recover_submitted_order_by_client_order_id(client_order_id)
+            if recovered:
+                return recovered
             return {'error': str(e)}
+
+    async def _recover_submitted_order_by_client_order_id(self, client_order_id: Optional[str]) -> dict | None:
+        if not client_order_id:
+            return None
+        try:
+            session = await self._get_session()
+            encoded_client_order_id = quote(str(client_order_id), safe="")
+            async with session.get(
+                f"{self.config.base_url}/v2/orders:by_client_order_id?client_order_id={encoded_client_order_id}",
+                headers=self._get_headers(),
+            ) as resp:
+                if resp.status != 200:
+                    return None
+                data = await resp.json()
+                order_id = str(data.get('id') or '').strip()
+                if not order_id:
+                    return None
+                return {
+                    'order_id': order_id,
+                    'status': 'submitted',
+                    'recovered': True,
+                }
+        except Exception as recovery_error:
+            logger.warning("Alpaca order recovery by client_order_id failed: %s", recovery_error)
+            return None
 
     async def get_order_status(self, order_id: str) -> dict:
         try:
@@ -544,6 +734,56 @@ class AlpacaClient(BaseBrokerClient):
         except Exception as e:
             logger.error(f"Alpaca open order listing failed: {e}")
             return []
+
+    async def list_positions(self) -> list[dict]:
+        self.last_positions_error = ""
+        for attempt in range(3):
+            try:
+                session = await self._get_session()
+                async with session.get(
+                    f"{self.config.base_url}/v2/positions",
+                    headers=self._get_headers(),
+                ) as resp:
+                    if resp.status != 200:
+                        self.last_positions_error = f"Alpaca position listing failed: {resp.status}"
+                        return []
+                    positions = await resp.json()
+                    if isinstance(positions, dict):
+                        positions = [positions]
+                    normalized = [_normalize_alpaca_position_payload(position) for position in positions or []]
+                    self.last_positions_error = ""
+                    return [position for position in normalized if position is not None]
+            except Exception as e:
+                self.last_positions_error = str(e) or e.__class__.__name__
+                if attempt < 2:
+                    logger.warning(
+                        "Alpaca position listing transport failed; resetting session and retrying: %s",
+                        self.last_positions_error,
+                    )
+                    await self.close()
+                    await asyncio.sleep(0.2 * (attempt + 1))
+                    continue
+                logger.error("Alpaca position listing failed after retries: %s", self.last_positions_error)
+        aiohttp_error = self.last_positions_error
+        await self.close()
+        try:
+            positions = await _request_json_via_stdlib(
+                f"{self.config.base_url}/v2/positions",
+                headers=self._get_headers(),
+            )
+            if isinstance(positions, dict):
+                positions = [positions]
+            normalized = [_normalize_alpaca_position_payload(position) for position in positions or []]
+            self.last_positions_error = ""
+            logger.warning("Alpaca position listing recovered through isolated transport fallback")
+            return [position for position in normalized if position is not None]
+        except Exception as fallback_error:
+            fallback_reason = str(fallback_error) or fallback_error.__class__.__name__
+            self.last_positions_error = (
+                f"{aiohttp_error}; isolated transport fallback failed: {fallback_reason}"
+            )
+            logger.error("Alpaca position listing fallback failed: %s", fallback_reason)
+        return []
 
 
 class TDAmeritadeClient(BaseBrokerClient):

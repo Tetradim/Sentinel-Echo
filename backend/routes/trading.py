@@ -1,6 +1,7 @@
 """
 Trading endpoints - alerts, trades, positions, portfolio
 """
+import asyncio
 import inspect
 from typing import Any, Optional
 
@@ -8,9 +9,10 @@ from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from models import Trade, Position
-from order_execution import build_oco_exit_plan
+from fill_monitor import monitor_fill
+from fill_reconciliation import OrderContext
+from order_execution import build_client_order_id, get_configured_broker_client
 from operator_audit import record_operator_event
-from settings_flags import coerce_bool
 from datetime import datetime, timezone
 
 router = APIRouter(tags=["Trading"])
@@ -76,16 +78,6 @@ def _dict_or_empty(value: Any) -> dict[str, Any]:
     return value if isinstance(value, dict) else {}
 
 
-def _position_is_simulated(position_doc: dict[str, Any]) -> bool:
-    broker = str(position_doc.get("broker") or "").lower()
-    return coerce_bool(position_doc.get("simulated"), default=False) or broker.endswith(":paper_shadow")
-
-
-def _trade_is_simulated(trade_doc: dict[str, Any]) -> bool:
-    broker = str(trade_doc.get("broker") or "").lower()
-    return coerce_bool(trade_doc.get("simulated"), default=True) or broker.endswith(":paper_shadow")
-
-
 def _exit_reason_label(exit_trigger: str) -> str:
     labels = {
         "sell_alert": "Discord sell alert",
@@ -104,8 +96,6 @@ async def _sell_position_at_price(
     exit_trigger: str = "operator_sell",
 ):
     """Sell a position at a known exit price, shared by legacy and operator routes."""
-    from routes.settings import check_and_trigger_shutdown
-
     resolved_exit_trigger = exit_trigger if isinstance(exit_trigger, str) and exit_trigger.strip() else "operator_sell"
     if percentage <= 0 or percentage > 100:
         raise HTTPException(status_code=400, detail="Sell percentage must be between 1 and 100")
@@ -136,15 +126,6 @@ async def _sell_position_at_price(
 
     settings = _dict_or_empty(await db.get_settings())
     active_broker = _enum_value(settings.get("active_broker", "ibkr"))
-    simulation_mode = coerce_bool(settings.get("simulation_mode"), default=True)
-    if not simulation_mode and not _position_is_simulated(position_doc):
-        raise HTTPException(
-            status_code=409,
-            detail=(
-                "Live positions require the live broker exit path and fill reconciliation; "
-                "this local sell endpoint only updates simulated positions."
-            ),
-        )
 
     trade = Trade(
         ticker=position.ticker,
@@ -156,10 +137,9 @@ async def _sell_position_at_price(
         current_price=resolved_exit_price,
         quantity=sell_qty,
         side="SELL",
-        status="simulated" if simulation_mode else "executed",
+        status="pending",
         broker=str(active_broker),
-        simulated=simulation_mode,
-        executed_at=datetime.now(timezone.utc),
+        simulated=False,
         sell_percentage=percentage,
         exit_trigger=resolved_exit_trigger,
         exit_reason=_exit_reason_label(resolved_exit_trigger),
@@ -168,47 +148,68 @@ async def _sell_position_at_price(
     realized_pnl = calculate_pnl(position.entry_price, resolved_exit_price, sell_qty)
     trade.realized_pnl = realized_pnl
 
-    await db.insert_trade(trade.model_dump(mode="json"))
-
-    new_remaining = position.remaining_quantity - sell_qty
-    remaining_unrealized = (
-        calculate_pnl(position.entry_price, resolved_exit_price, new_remaining)
-        if new_remaining > 0
-        else 0.0
-    )
-    update_data = {
-        "$set": {
-            "remaining_quantity": new_remaining,
-            "current_price": resolved_exit_price,
-            "realized_pnl": position.realized_pnl + realized_pnl,
-            "unrealized_pnl": remaining_unrealized,
-            "status": "closed" if new_remaining <= 0 else "partial",
-        },
-        "$push": {"trade_ids": trade.id},
-    }
-    if new_remaining <= 0:
-        update_data["$set"]["closed_at"] = datetime.now(timezone.utc).isoformat()
-
-    await db.update_position(position_id, update_data)
-
-    shutdown_reason = await check_and_trigger_shutdown(realized_pnl)
+    try:
+        broker_client = get_configured_broker_client(settings, str(active_broker), require_order_status=True)
+        order_result = await broker_client.place_order(
+            ticker=position.ticker,
+            strike=position.strike,
+            option_type=position.option_type,
+            expiration=position.expiration,
+            side="SELL",
+            quantity=sell_qty,
+            price=resolved_exit_price,
+            client_order_id=build_client_order_id(position_id, "SELL", resolved_exit_trigger),
+        )
+        order_id = order_result.get("order_id")
+        if not order_id:
+            raise ValueError(order_result.get("error", "Broker did not return an order id"))
+        trade.order_id = order_id
+        await db.insert_trade(trade.model_dump(mode="json"))
+        asyncio.create_task(
+            monitor_fill(
+                order_context=OrderContext(
+                    trade_id=trade.id,
+                    order_id=order_id,
+                    side="SELL",
+                    ticker=position.ticker,
+                    strike=position.strike,
+                    option_type=position.option_type,
+                    expiration=position.expiration,
+                    requested_quantity=sell_qty,
+                    broker=str(active_broker),
+                    position_id=position.id,
+                    alert_price=resolved_exit_price,
+                    simulated=False,
+                    sell_percentage=percentage,
+                    exit_trigger=resolved_exit_trigger,
+                ),
+                broker_client=broker_client,
+                db=db,
+                settings=settings,
+            )
+        )
+    except Exception as exc:
+        trade.status = "failed"
+        trade.error_message = str(exc)
+        await db.insert_trade(trade.model_dump(mode="json"))
+        raise HTTPException(status_code=502, detail=f"Broker SELL order failed: {exc}") from exc
 
     result = {
         "position_id": position_id,
-        "sold_quantity": sell_qty,
-        "message": f"Sold {sell_qty} contracts",
+        "submitted_quantity": sell_qty,
+        "order_id": trade.order_id,
+        "trade_id": trade.id,
+        "status": trade.status,
+        "message": f"Submitted SELL for {sell_qty} contracts",
         "realized_pnl": realized_pnl,
         "exit_trigger": resolved_exit_trigger,
     }
-    if shutdown_reason:
-        result["shutdown_triggered"] = True
-        result["shutdown_reason"] = shutdown_reason
 
     await record_operator_event(
         db,
         "position",
-        "position_sold",
-        f"Sold {sell_qty} contract(s) from position {position_id}.",
+        "position_sell_submitted",
+        f"Submitted SELL for {sell_qty} contract(s) from position {position_id}.",
         severity="warning",
         details={
             "position_id": position_id,
@@ -232,83 +233,8 @@ async def get_alerts(limit: int = 50):
 
 @router.post("/test-alert")
 async def create_test_alert():
-    """Create a safe simulated alert/trade/position for local UI testing."""
-    return await create_test_alert_records(db, message="Test alert created")
-
-
-async def create_test_alert_records(database, *, message: str = "Test alert created"):
-    """Create a safe simulated alert/trade/position set for local UI testing."""
-    settings = _dict_or_empty(await database.get_settings())
-    active_broker = str(_enum_value(settings.get("active_broker", "ibkr")))
-    now = datetime.now(timezone.utc)
-
-    from models import Alert
-
-    test_alert = Alert(
-        ticker="SPY",
-        strike=500.0,
-        option_type="CALL",
-        expiration="2026-06-26",
-        entry_price=1.25,
-        raw_message="TEST ALERT: BTO SPY 500C 2026-06-26 @ 1.25",
-        processed=True,
-        trade_executed=True,
-        trade_result="filled",
-    )
-    trade = Trade(
-        alert_id=test_alert.id,
-        ticker=test_alert.ticker,
-        strike=test_alert.strike,
-        option_type=test_alert.option_type,
-        expiration=test_alert.expiration,
-        entry_price=test_alert.entry_price,
-        current_price=test_alert.entry_price,
-        quantity=1,
-        side="BUY",
-        status="simulated",
-        broker=active_broker,
-        executed_at=now,
-        simulated=True,
-    )
-    position = Position(
-        ticker=test_alert.ticker,
-        strike=test_alert.strike,
-        option_type=test_alert.option_type,
-        expiration=test_alert.expiration,
-        entry_price=test_alert.entry_price,
-        current_price=test_alert.entry_price,
-        original_quantity=1,
-        remaining_quantity=1,
-        total_cost=test_alert.entry_price * 100,
-        broker=active_broker,
-        status="open",
-        opened_at=now,
-        simulated=True,
-        trade_ids=[trade.id],
-        highest_price=test_alert.entry_price,
-    )
-    position_data = position.model_dump(mode="json")
-    oco_exit_plan = build_oco_exit_plan(
-        settings,
-        alert_id=test_alert.id,
-        position_id=position.id,
-        entry_price=test_alert.entry_price,
-        quantity=1,
-    )
-    if oco_exit_plan:
-        position_data["oco_exit_plan"] = oco_exit_plan
-        position_data["oco_exit_protected"] = True
-
-    await database.insert_alert(test_alert.model_dump(mode="json"))
-    await database.insert_trade(trade.model_dump(mode="json"))
-    await database.insert_position(position_data)
-
-    return {
-        "message": message,
-        "alert_id": test_alert.id,
-        "trade_id": trade.id,
-        "position_id": position.id,
-    }
+    """Reject removed local synthetic alert creation."""
+    raise HTTPException(status_code=410, detail="Local test alerts have been removed; broker-routed alerts are required.")
 
 
 # Trades
@@ -338,13 +264,10 @@ async def close_trade(trade_id: str, request: CloseTradeRequest):
             exit_trigger="operator_trade_close",
         )
         realized_pnl = float(position_close.get("realized_pnl", realized_pnl))
-    elif not _trade_is_simulated(trade):
+    else:
         raise HTTPException(
             status_code=409,
-            detail=(
-                "Live trades require the live broker exit path and fill reconciliation; "
-                "this local close endpoint only updates simulated trades."
-            ),
+            detail="Trade close requires a linked open position so Echo can submit a broker SELL order.",
         )
 
     updates = {

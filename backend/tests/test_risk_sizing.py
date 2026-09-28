@@ -9,6 +9,45 @@ sys.path.insert(0, str(BACKEND_DIR))
 
 
 class RiskSizingTests(unittest.TestCase):
+    def test_loss_budget_caps_expensive_contracts(self):
+        from risk import calculate_position_size
+
+        quantity = calculate_position_size(
+            entry_price=4.50,
+            default_quantity=10,
+            max_position_size=5000.0,
+            max_loss_per_trade=500.0,
+            stop_loss_percent=35.0,
+        )
+
+        self.assertEqual(quantity, 3)
+
+    def test_high_risk_stop_distance_reduces_loss_budget_quantity(self):
+        from risk import calculate_position_size
+
+        quantity = calculate_position_size(
+            entry_price=2.00,
+            default_quantity=10,
+            max_position_size=5000.0,
+            max_loss_per_trade=500.0,
+            stop_loss_percent=50.0,
+        )
+
+        self.assertEqual(quantity, 5)
+
+    def test_loss_budget_keeps_one_contract_for_valid_entry(self):
+        from risk import calculate_position_size
+
+        quantity = calculate_position_size(
+            entry_price=10.00,
+            default_quantity=10,
+            max_position_size=5000.0,
+            max_loss_per_trade=100.0,
+            stop_loss_percent=35.0,
+        )
+
+        self.assertEqual(quantity, 1)
+
     def test_source_risk_multiplier_reduces_contract_quantity(self):
         from risk import calculate_position_size
 

@@ -82,7 +82,7 @@ class SourceOverrideRouteTests(unittest.TestCase):
 
         self.assertIsInstance(response, dict)
         self.assertTrue(response["auto_trading_enabled"])
-        self.assertTrue(response["simulation_mode"])
+        self.assertFalse(response["simulation_mode"])
 
     def test_get_settings_coerces_known_string_flags_for_clients(self):
         from routes import settings as settings_route
@@ -108,6 +108,144 @@ class SourceOverrideRouteTests(unittest.TestCase):
         for flag_name in string_flags:
             self.assertIs(response[flag_name], False)
 
+    def test_get_settings_backfills_exit_intelligence_defaults(self):
+        from routes import settings as settings_route
+
+        settings_route.set_db(FakeSettingsDb({"active_broker": "alpaca"}))
+
+        response = asyncio.run(settings_route.get_settings())
+
+        self.assertTrue(response["reversal_exit_enabled"])
+        self.assertEqual(response["reversal_warning_confirmations"], 3)
+        self.assertEqual(response["reversal_confirmed_confirmations"], 5)
+        self.assertEqual(response["entry_slippage_mode"], "tiered")
+        self.assertEqual(response["coordinated_trailing_mode"], "tightening")
+        self.assertTrue(response["coordinated_loss_ladder_enabled"])
+        self.assertEqual(response["exit_reprice_interval_seconds"], 5)
+        self.assertEqual(response["profit_exit_reprice_interval_seconds"], 3)
+        self.assertTrue(response["adaptive_trailing_enabled"])
+        self.assertEqual(response["adaptive_trailing_max_percent"], 35.0)
+        self.assertTrue(response["zero_dte_liquidation_enabled"])
+        self.assertEqual(response["zero_dte_liquidation_time"], "15:40")
+        self.assertFalse(response["core_runner_enabled"])
+        self.assertEqual(response["core_runner_allocation_mode"], "greater_of")
+        self.assertEqual(response["core_runner_catastrophic_stop_percent"], 65.0)
+
+    def test_update_settings_normalizes_runner_tiers_and_loss_targets(self):
+        from models import SettingsUpdate
+        from routes import settings as settings_route
+
+        fake_db = FakeSettingsDb()
+        settings_route.set_db(fake_db)
+
+        asyncio.run(
+            settings_route.update_settings(
+                SettingsUpdate(
+                    core_runner_trailing_tiers=[
+                        {"mfe_percent": 100, "trail_percent": 35},
+                        {"mfe_percent": 300, "trail_percent": 30},
+                    ],
+                    coordinated_loss_ladder=[
+                        {
+                            "loss_percent": 20,
+                            "quantity_mode": "percent_remaining",
+                            "quantity": 100,
+                            "confirmations": 1,
+                            "allocation_target": "entire_position",
+                        }
+                    ],
+                )
+            )
+        )
+
+        self.assertEqual(
+            fake_db.updated[0]["core_runner_trailing_tiers"],
+            [
+                {"mfe_percent": 100.0, "trail_percent": 35.0},
+                {"mfe_percent": 300.0, "trail_percent": 30.0},
+            ],
+        )
+        self.assertEqual(
+            fake_db.updated[0]["coordinated_loss_ladder"][0]["allocation_target"],
+            "entire_position",
+        )
+
+    def test_update_settings_rejects_unordered_runner_tiers(self):
+        from fastapi import HTTPException
+        from models import SettingsUpdate
+        from routes import settings as settings_route
+
+        fake_db = FakeSettingsDb()
+        settings_route.set_db(fake_db)
+
+        with self.assertRaises(HTTPException) as error:
+            asyncio.run(
+                settings_route.update_settings(
+                    SettingsUpdate(
+                        core_runner_trailing_tiers=[
+                            {"mfe_percent": 300, "trail_percent": 30},
+                            {"mfe_percent": 100, "trail_percent": 35},
+                        ]
+                    )
+                )
+            )
+
+        self.assertEqual(error.exception.status_code, 400)
+        self.assertEqual(fake_db.updated, [])
+
+    def test_update_settings_rejects_invalid_exit_intelligence_relationships(self):
+        from fastapi import HTTPException
+        from models import SettingsUpdate
+        from routes import settings as settings_route
+
+        fake_db = FakeSettingsDb()
+        settings_route.set_db(fake_db)
+
+        with self.assertRaises(HTTPException) as reversal_error:
+            asyncio.run(
+                settings_route.update_settings(
+                    SettingsUpdate(
+                        reversal_warning_confirmations=4,
+                        reversal_confirmed_confirmations=4,
+                    )
+                )
+            )
+        self.assertEqual(reversal_error.exception.status_code, 400)
+
+        with self.assertRaises(HTTPException) as trailing_error:
+            asyncio.run(
+                settings_route.update_settings(
+                    SettingsUpdate(
+                        adaptive_trailing_min_percent=30,
+                        adaptive_trailing_max_percent=20,
+                    )
+                )
+            )
+        self.assertEqual(trailing_error.exception.status_code, 400)
+
+        with self.assertRaises(HTTPException) as slippage_error:
+            asyncio.run(
+                settings_route.update_settings(
+                    SettingsUpdate(
+                        entry_slippage_warning_percent=20,
+                        entry_slippage_severe_percent=10,
+                    )
+                )
+            )
+        self.assertEqual(slippage_error.exception.status_code, 400)
+
+        with self.assertRaises(HTTPException) as scalp_error:
+            asyncio.run(
+                settings_route.update_settings(
+                    SettingsUpdate(
+                        coordinated_fast_scalp_profit_stage_1_percent=20,
+                        coordinated_fast_scalp_profit_stage_2_percent=10,
+                    )
+                )
+            )
+        self.assertEqual(scalp_error.exception.status_code, 400)
+        self.assertEqual(fake_db.updated, [])
+
     def test_get_settings_masks_discord_token(self):
         from routes import settings as settings_route
 
@@ -119,6 +257,35 @@ class SourceOverrideRouteTests(unittest.TestCase):
         self.assertEqual(response["discord_token"], "********")
         self.assertTrue(response["discord_token_configured"])
         self.assertNotEqual(response["discord_token"], "discord-secret-token")
+
+    def test_update_settings_preserves_masked_existing_discord_token(self):
+        from models import SettingsUpdate
+        from routes import settings as settings_route
+
+        fake_db = FakeSettingsDb(
+            {
+                "discord_token": "discord-secret-token",
+                "discord_channel_ids": ["111"],
+            }
+        )
+        settings_route.set_db(fake_db)
+
+        response = asyncio.run(
+            settings_route.update_settings(
+                SettingsUpdate(
+                    discord_token="********",
+                    discord_channel_ids=["222"],
+                )
+            )
+        )
+
+        self.assertEqual(
+            fake_db.updated[0],
+            {"discord_channel_ids": ["222"]},
+        )
+        self.assertEqual(fake_db.settings["discord_token"], "discord-secret-token")
+        self.assertEqual(response["discord_token"], "********")
+        self.assertTrue(response["discord_token_configured"])
 
     def test_update_premium_buffer_settings_persists_enabled_flag_and_amount(self):
         from routes import settings as settings_route
@@ -179,13 +346,11 @@ class SourceOverrideRouteTests(unittest.TestCase):
                 },
             },
         )
-        self.assertEqual(
-            fake_db.updated[0]["broker_configs"],
-            {
-                "ibkr": {"gateway_url": "https://localhost:5000", "account_id": "DU123"},
-                "alpaca": {"api_key": "new-key", "account_id": "paper-2"},
-            },
-        )
+        stored_alpaca = fake_db.updated[0]["broker_configs"]["alpaca"]
+        self.assertEqual(fake_db.updated[0]["broker_configs"]["ibkr"], {"gateway_url": "https://localhost:5000", "account_id": "DU123"})
+        self.assertEqual(stored_alpaca["account_id"], "paper-2")
+        self.assertNotEqual(stored_alpaca["api_key"], "new-key")
+        self.assertTrue(str(stored_alpaca["api_key"]).startswith("enc:"))
 
     def test_update_settings_preserves_masked_existing_broker_secret(self):
         from models import SettingsUpdate
@@ -210,10 +375,12 @@ class SourceOverrideRouteTests(unittest.TestCase):
             )
         )
 
-        self.assertEqual(
-            fake_db.updated[0]["broker_configs"]["alpaca"],
-            {"api_key": "old-key", "api_secret": "old-secret", "account_id": "paper-2"},
-        )
+        stored_alpaca = fake_db.updated[0]["broker_configs"]["alpaca"]
+        self.assertEqual(stored_alpaca["account_id"], "paper-2")
+        self.assertNotEqual(stored_alpaca["api_key"], "old-key")
+        self.assertNotEqual(stored_alpaca["api_secret"], "old-secret")
+        self.assertTrue(str(stored_alpaca["api_key"]).startswith("enc:"))
+        self.assertTrue(str(stored_alpaca["api_secret"]).startswith("enc:"))
         self.assertEqual(
             response["broker_configs"]["alpaca"],
             {
@@ -245,16 +412,12 @@ class SourceOverrideRouteTests(unittest.TestCase):
             )
         )
 
-        self.assertEqual(
-            fake_db.updated[0]["broker_configs"],
-            {
-                "alpaca": {
-                    "api_key": "new-key",
-                    "api_secret": "new-secret",
-                    "account_id": "paper-1",
-                }
-            },
-        )
+        stored_alpaca = fake_db.updated[0]["broker_configs"]["alpaca"]
+        self.assertEqual(stored_alpaca["account_id"], "paper-1")
+        self.assertNotEqual(stored_alpaca["api_key"], "new-key")
+        self.assertNotEqual(stored_alpaca["api_secret"], "new-secret")
+        self.assertTrue(str(stored_alpaca["api_key"]).startswith("enc:"))
+        self.assertTrue(str(stored_alpaca["api_secret"]).startswith("enc:"))
         self.assertEqual(
             response["broker_configs"]["alpaca"],
             {
@@ -314,7 +477,12 @@ class SourceOverrideRouteTests(unittest.TestCase):
             {
                 "take_profit_enabled": False,
                 "take_profit_percentage": 50.0,
+                "take_profit_sell_percentage": 100.0,
                 "bracket_order_enabled": False,
+                "break_even_enabled": False,
+                "break_even_activation_type": "percent",
+                "break_even_activation_percentage": 10.0,
+                "break_even_activation_cents": 10.0,
                 "stop_loss_enabled": False,
                 "stop_loss_percentage": 25.0,
                 "stop_loss_order_type": "market",
@@ -438,6 +606,7 @@ class SourceOverrideRouteTests(unittest.TestCase):
                 "trailing_stop_enabled": False,
                 "trailing_stop_type": "percent",
                 "trailing_stop_percent": 10.0,
+                "trailing_stop_activation_percent": 10.0,
                 "trailing_stop_cents": 50.0,
             },
         )
@@ -508,7 +677,12 @@ class SourceOverrideRouteTests(unittest.TestCase):
             {
                 "take_profit_enabled": True,
                 "take_profit_percentage": 50.0,
+                "take_profit_sell_percentage": 100.0,
                 "bracket_order_enabled": False,
+                "break_even_enabled": False,
+                "break_even_activation_type": "percent",
+                "break_even_activation_percentage": 10.0,
+                "break_even_activation_cents": 10.0,
                 "stop_loss_enabled": False,
                 "stop_loss_percentage": 20.0,
                 "stop_loss_order_type": "market",
@@ -571,6 +745,7 @@ class SourceOverrideRouteTests(unittest.TestCase):
                 "trailing_stop_enabled": True,
                 "trailing_stop_type": "premium",
                 "trailing_stop_percent": 10.0,
+                "trailing_stop_activation_percent": 10.0,
                 "trailing_stop_cents": 50.0,
             },
         )
@@ -1192,8 +1367,6 @@ class SourceOverrideRouteTests(unittest.TestCase):
                         "ticker_blocklist": ["tsla"],
                         "risk_multiplier": "0.5",
                         "max_contracts": "3",
-                        "require_manual_confirm": True,
-                        "paper_shadow": True,
                         "allowed_channel_urls": ["https://discord.com/channels/1/2/"],
                         "allowed_author_ids": [" mike "],
                         "min_parser_confidence": "HIGH",
@@ -1208,7 +1381,6 @@ class SourceOverrideRouteTests(unittest.TestCase):
                 "Alerts": {
                     "name": "",
                     "enabled": True,
-                    "paper_only": False,
                     "parser_format": "default",
                     "max_premium": None,
                     "risk_multiplier": 0.5,
@@ -1220,8 +1392,16 @@ class SourceOverrideRouteTests(unittest.TestCase):
                     "allowed_author_ids": ["mike"],
                     "min_parser_confidence": "high",
                     "max_contracts": 3,
-                    "require_manual_confirm": True,
-                    "paper_shadow": True,
+                    "process_followup_updates": True,
+                    "process_actionable_edits": True,
+                    "allow_single_position_inferred_sell": True,
+                    "allow_broad_exit_matching": True,
+                    "protect_trailing_armed_from_contextual_exits": True,
+                    "trailing_context_exit_override_enabled": True,
+                    "trailing_context_exit_override_percent": 80.0,
+                    "dedupe_by_channel_url": False,
+                    "ignore_followup_messages": False,
+                    "allow_fresh_entry_after_close": False,
                 }
             },
         )

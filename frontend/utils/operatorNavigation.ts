@@ -7,6 +7,7 @@ export type OperatorRouteName =
   | 'strike-selection'
   | 'trading-settings'
   | 'risk-settings'
+  | 'runner-settings'
   | 'discord-settings'
   | 'broker-config'
   | 'profiles'
@@ -28,6 +29,7 @@ export const OPERATOR_TABS: OperatorTab[] = [
   { name: 'strike-selection', label: 'Strikes', icon: 'trending-up-outline', iconActive: 'trending-up' },
   { name: 'trading-settings', label: 'Trading', icon: 'options-outline', iconActive: 'options' },
   { name: 'risk-settings', label: 'Risk', icon: 'shield-outline', iconActive: 'shield' },
+  { name: 'runner-settings', label: 'Runners', icon: 'git-branch-outline', iconActive: 'git-branch' },
   { name: 'discord-settings', label: 'Discord', icon: 'chatbubbles-outline', iconActive: 'chatbubbles' },
   { name: 'broker-config', label: 'Broker', icon: 'key-outline', iconActive: 'key' },
   { name: 'profiles', label: 'Profiles', icon: 'people-outline', iconActive: 'people' },

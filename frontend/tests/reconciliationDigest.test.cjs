@@ -37,3 +37,12 @@ test('reconciliation digest reports clear state', () => {
   assert.equal(digest.title, 'Reconciliation Clear');
   assert.equal(digest.attentionCount, 0);
 });
+
+test('reconciliation digest keeps delayed broker orders pending', () => {
+  const digest = summarizeReconciliation([
+    { alert_id: 'a1', trade_status: 'pending_broker', simulated: false, attention_reason: '' },
+    { alert_id: 'a2', trade_status: 'unconfirmed', simulated: false, attention_reason: '' },
+  ]);
+
+  assert.equal(digest.pendingCount, 2);
+});

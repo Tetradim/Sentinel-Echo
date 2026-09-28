@@ -37,6 +37,21 @@ class StartupFillMonitoringTests(unittest.TestCase):
                     "entry_price": 1.25,
                     "simulated": False,
                 },
+                {
+                    "id": "trade-unconfirmed-exit",
+                    "order_id": "broker-order-3",
+                    "status": "unconfirmed",
+                    "side": "SELL",
+                    "ticker": "SPY",
+                    "strike": 500.0,
+                    "option_type": "CALL",
+                    "expiration": "2026-06-30",
+                    "quantity": 1,
+                    "broker": "alpaca",
+                    "position_id": "position-1",
+                    "exit_trigger": "profit_stage_1",
+                    "exit_price": 1.50,
+                },
                 {"id": "trade-done", "order_id": "broker-order-2", "status": "executed"},
             ]
         )
@@ -53,9 +68,10 @@ class StartupFillMonitoringTests(unittest.TestCase):
             )
         )
 
-        self.assertEqual(count, 1)
+        self.assertEqual(count, 2)
         self.assertEqual(scheduled[0]["order_context"].trade_id, "trade-pending")
         self.assertEqual(scheduled[0]["order_context"].order_id, "broker-order-1")
+        self.assertEqual(scheduled[1]["order_context"].trade_id, "trade-unconfirmed-exit")
 
 
 if __name__ == "__main__":

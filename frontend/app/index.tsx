@@ -438,6 +438,7 @@ const ROUTE_GROUPS = [
   { label: 'Strike Selection', route: '/strike-selection', icon: 'trending-up-outline' },
   { label: 'Trading', route: '/trading-settings', icon: 'options-outline' },
   { label: 'Risk', route: '/risk-settings', icon: 'shield-outline' },
+  { label: 'Runners', route: '/runner-settings', icon: 'git-branch-outline' },
   { label: 'Discord', route: '/settings', icon: 'chatbubbles-outline' },
   { label: 'Broker', route: '/broker-config', icon: 'key-outline' },
   { label: 'Profiles', route: '/profiles', icon: 'people-outline' },

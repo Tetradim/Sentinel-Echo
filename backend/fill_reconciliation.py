@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 from typing import Any, Literal, Optional
 
 from order_execution import build_oco_exit_plan
+from position_identity import contract_position_id
 
 
 OrderSide = Literal["BUY", "SELL"]
@@ -27,6 +28,13 @@ class OrderContext:
     simulated: bool = False
     sell_percentage: Optional[float] = None
     exit_trigger: Optional[str] = None
+    exit_allocation_target: Optional[str] = None
+    target_remaining_quantity: Optional[int] = None
+    entry_risk_profile: str = "normal"
+    entry_exit_profile: str = "standard"
+    max_loss_budget: Optional[float] = None
+    estimated_stop_loss_percent: Optional[float] = None
+    update_alert_status: bool = True
 
 
 @dataclass(frozen=True)
@@ -45,6 +53,16 @@ class ReconciliationResult:
     message: str = ""
 
 
+def trade_owns_alert_status(trade: dict[str, Any]) -> bool:
+    explicit = trade.get("alert_status_owned")
+    if explicit is not None:
+        return bool(explicit)
+    side = str(trade.get("side") or "").upper()
+    exit_trigger = str(trade.get("exit_trigger") or "").strip().lower()
+    analyst_triggers = {"sell_alert", "trim_alert", "close_alert", "discord_sell_alert"}
+    return not (side == "SELL" and exit_trigger and exit_trigger not in analyst_triggers)
+
+
 async def reconcile_order_update(
     db,
     context: OrderContext,
@@ -54,7 +72,13 @@ async def reconcile_order_update(
     """Apply broker fill truth to trade and position state."""
     status = str(update.status or "").lower()
 
-    if status in {"rejected", "cancelled", "expired"}:
+    if status in {"rejected", "cancelled", "canceled", "expired"} and update.filled_qty > 0:
+        result = await _apply_fill(db, context, update, trade_status="partial", settings=settings)
+        if context.side.upper() == "SELL" and context.position_id:
+            await _clear_exit_reservation(db, context.position_id)
+        return result
+
+    if status in {"rejected", "cancelled", "canceled", "expired"}:
         reason = update.reason or status
         await db.update_trade(
             context.trade_id,
@@ -69,7 +93,21 @@ async def reconcile_order_update(
             trade_executed=False,
             trade_result=f"failed: {reason}",
         )
+        if context.side.upper() == "SELL" and context.position_id:
+            await _clear_exit_reservation(db, context.position_id)
         return ReconciliationResult(trade_status="failed", message=reason)
+
+    if status == "pending_broker":
+        reason = update.reason or "Order remains active at broker after confirmation window"
+        await db.update_trade(
+            context.trade_id,
+            {
+                "status": "pending_broker",
+                "quantity": context.requested_quantity,
+                "error_message": reason,
+            },
+        )
+        return ReconciliationResult(trade_status="pending_broker", message=reason)
 
     if status in {"unknown", "error", "unconfirmed"}:
         reason = update.reason or "Fill unconfirmed"
@@ -120,12 +158,53 @@ async def _apply_fill(
                 "entry_price": fill_price,
                 "executed_at": executed_at,
                 "order_id": context.order_id,
+                "error_message": "",
             },
         )
         position_id = _entry_position_id(context)
         existing_position = await _get_position_by_id(db, position_id)
         if existing_position:
             if context.trade_id not in (existing_position.get("trade_ids") or []):
+                if str(existing_position.get("status") or "").strip().lower() == "closed":
+                    await _reopen_closed_position(
+                        db,
+                        position_id,
+                        context,
+                        filled_qty,
+                        fill_price,
+                        settings=settings,
+                    )
+                    await _update_alert_status(
+                        db,
+                        context,
+                        trade_executed=True,
+                        trade_result=_fill_trade_result(trade_status),
+                    )
+                    return ReconciliationResult(
+                        trade_status=trade_status,
+                        position_status="open",
+                        position_id=position_id,
+                    )
+                if _is_unlinked_broker_reconciled_position(existing_position):
+                    position_status = await _attach_trade_to_broker_reconciled_position(
+                        db,
+                        position_id,
+                        existing_position,
+                        context,
+                        filled_qty,
+                        fill_price,
+                    )
+                    await _update_alert_status(
+                        db,
+                        context,
+                        trade_executed=True,
+                        trade_result=_fill_trade_result(trade_status),
+                    )
+                    return ReconciliationResult(
+                        trade_status=trade_status,
+                        position_status=position_status,
+                        position_id=position_id,
+                    )
                 position_status = await _add_to_existing_position(
                     db,
                     position_id,
@@ -180,6 +259,10 @@ async def _apply_fill(
         raise ValueError(f"Position not found for sell fill: {context.position_id}")
 
     if context.trade_id in (position.get("trade_ids") or []):
+        if trade_status == "executed" and (
+            bool(position.get("exit_order_pending")) or position.get("exit_order_id")
+        ):
+            await _clear_exit_reservation(db, context.position_id)
         await _update_alert_status(
             db,
             context,
@@ -209,6 +292,7 @@ async def _apply_fill(
             "realized_pnl": realized_pnl,
             "executed_at": executed_at,
             "order_id": context.order_id,
+            "error_message": "",
         },
     )
 
@@ -219,8 +303,72 @@ async def _apply_fill(
         "current_price": fill_price,
         "status": position_status,
     }
+    set_update.update(
+        _runner_allocation_after_sell(
+            position,
+            exit_qty=exit_qty,
+            new_remaining=new_remaining,
+            allocation_target=(
+                context.exit_allocation_target
+                or position.get("exit_target_allocation_target")
+                or "entire_position"
+            ),
+        )
+    )
+    if trade_status == "executed":
+        set_update.update(
+            {
+                "exit_order_pending": False,
+                "exit_order_id": None,
+                "exit_reservation_token": None,
+            }
+        )
+        target_remaining = _optional_non_negative_int(
+            position.get("exit_target_remaining_quantity")
+        )
+        if target_remaining is not None and new_remaining <= target_remaining:
+            set_update.update(
+                {
+                    "exit_target_remaining_quantity": None,
+                    "exit_target_trigger": None,
+                    "exit_target_allocation_target": None,
+                    "exit_target_updated_at": None,
+                }
+            )
+    if trade_status == "executed" and context.exit_trigger == "take_profit":
+        set_update["take_profit_stage_completed"] = True
+        set_update["take_profit_stage_completed_at"] = executed_at
+    if trade_status == "executed" and context.exit_trigger == "profit_stage_1":
+        set_update["profit_stage_1_completed"] = True
+        set_update["profit_stage_1_completed_at"] = executed_at
+        set_update["profit_floor_armed"] = True
+        set_update["profit_floor_price"] = round(entry_price + 0.01, 2)
+        set_update["profit_floor_armed_at"] = executed_at
+    if trade_status == "executed" and context.exit_trigger == "profit_stage_2":
+        set_update["profit_stage_2_completed"] = True
+        set_update["profit_stage_2_completed_at"] = executed_at
+    if trade_status == "executed" and context.exit_trigger in {"reversal_warning", "reversal_reduce"}:
+        set_update["reversal_warning_completed"] = True
+        set_update["reversal_warning_completed_at"] = executed_at
+        set_update["reversal_reduce_completed"] = True
+        set_update["reversal_reduce_completed_at"] = executed_at
+    if trade_status == "executed" and str(context.exit_trigger or "").startswith("loss_ladder_"):
+        try:
+            completed_step = max(0, int(str(context.exit_trigger).rsplit("_", 1)[1]) - 1)
+        except (TypeError, ValueError):
+            completed_step = None
+        if completed_step is not None:
+            completed_steps = {
+                int(value)
+                for value in (position.get("coordinated_loss_ladder_completed_steps") or [])
+                if str(value).isdigit()
+            }
+            completed_steps.add(completed_step)
+            set_update["coordinated_loss_ladder_completed_steps"] = sorted(completed_steps)
+            set_update["coordinated_loss_ladder_pending_step"] = None
     if new_remaining <= 0:
         set_update["closed_at"] = executed_at
+        set_update["unrealized_pnl"] = 0.0
 
     await db.update_position(
         context.position_id,
@@ -243,7 +391,15 @@ async def _apply_fill(
 
 
 def _entry_position_id(context: OrderContext) -> str:
-    return context.position_id or f"position-{context.trade_id}"
+    if context.position_id:
+        return context.position_id
+    return contract_position_id(
+        context.broker,
+        context.ticker,
+        context.strike,
+        context.option_type,
+        context.expiration,
+    )
 
 
 async def _get_position_by_id(db, position_id: str) -> Optional[dict]:
@@ -280,13 +436,149 @@ def _entry_position(
         "simulated": context.simulated,
         "trade_ids": [context.trade_id],
         "highest_price": fill_price,
+        "highest_executable_bid": fill_price,
+        "entry_risk_profile": context.entry_risk_profile or "normal",
+        "entry_exit_profile": context.entry_exit_profile or "standard",
+        "max_loss_budget": context.max_loss_budget,
+        "estimated_stop_loss_percent": context.estimated_stop_loss_percent,
     }
+    position.update(fresh_position_lifecycle_state(fill_price))
     oco_exit_plan = _build_fill_oco_exit_plan(settings, context, quantity, fill_price, position_id)
     if oco_exit_plan:
         position["oco_exit_plan"] = oco_exit_plan
         position["oco_exit_status"] = "metadata_only"
         position["oco_exit_protected"] = False
     return position
+
+
+def fresh_position_lifecycle_state(fill_price: float) -> dict[str, Any]:
+    """Return a complete clean lifecycle for a newly opened contract."""
+    return {
+        "initial_entry_price": fill_price,
+        "average_down_count": 0,
+        "closed_at": None,
+        "exit_trigger": None,
+        "reconciled_from_broker_only": False,
+        "broker_reconciled_entry_attached": False,
+        "reversal_state": "",
+        "reversal_conflict_count": 0,
+        "reversal_alignment_score": 0.0,
+        "reversal_premium_drawdown_percent": 0.0,
+        "reversal_warning_completed": False,
+        "reversal_warning_completed_at": None,
+        "max_favorable_excursion_percent": 0.0,
+        "max_adverse_excursion_percent": 0.0,
+        "counterfactual_stop_hits": {},
+        "counterfactual_trailing_hits": {},
+        "premium_mark_history": [],
+        "adaptive_trailing_percent": None,
+        "profit_stage_1_completed": False,
+        "profit_stage_1_completed_at": None,
+        "profit_stage_2_completed": False,
+        "profit_stage_2_completed_at": None,
+        "profit_floor_armed": False,
+        "profit_floor_price": None,
+        "profit_floor_armed_at": None,
+        "coordinated_trailing_armed": False,
+        "coordinated_trailing_floor": None,
+        "coordinated_trailing_distance": None,
+        "coordinated_trailing_step": 0,
+        "coordinated_effective_trailing_percent": None,
+        "coordinated_premium_volatility_percent": 0.0,
+        "coordinated_break_even_armed": False,
+        "coordinated_break_even_floor": None,
+        "coordinated_break_even_confirmation_count": 0,
+        "coordinated_break_even_last_quote_observed_at": None,
+        "coordinated_break_even_last_confirmation_at": None,
+        "coordinated_break_even_runner_reserved": False,
+        "coordinated_break_even_runner_high": None,
+        "coordinated_stop_confirmation_count": 0,
+        "coordinated_stop_last_quote_observed_at": None,
+        "coordinated_stop_last_confirmation_at": None,
+        "coordinated_loss_ladder_completed_steps": [],
+        "coordinated_loss_ladder_pending_step": None,
+        "coordinated_loss_ladder_confirmation_count": 0,
+        "core_runner_allocation_initialized": False,
+        "core_runner_original_quantity": None,
+        "core_runner_candidate_quantity": 0,
+        "core_runner_dedicated_quantity": 0,
+        "core_runner_core_quantity": 0,
+        "core_runner_activated": False,
+        "core_runner_activated_at": None,
+        "core_runner_activation_mfe_percent": None,
+        "core_runner_activation_high": None,
+        "core_runner_mfe_percent": 0.0,
+        "core_runner_highest_executable_bid": None,
+        "core_runner_trailing_armed": False,
+        "core_runner_trailing_tier_mfe_percent": None,
+        "core_runner_trailing_percent": None,
+        "core_runner_trailing_distance": None,
+        "core_runner_trailing_floor": None,
+        "core_runner_trailing_confirmation_count": 0,
+        "core_runner_trailing_last_quote_observed_at": None,
+        "core_runner_trailing_last_confirmation_at": None,
+        "core_runner_catastrophic_confirmation_count": 0,
+        "core_runner_catastrophic_last_quote_observed_at": None,
+        "core_runner_catastrophic_last_confirmation_at": None,
+        "core_runner_suppressed_trigger": None,
+        "exit_order_pending": False,
+        "exit_order_id": None,
+        "exit_reservation_token": None,
+        "exit_reservation_trigger": None,
+        "exit_reservation_created_at": None,
+        "exit_target_remaining_quantity": None,
+        "exit_target_trigger": None,
+        "exit_target_allocation_target": None,
+        "exit_target_updated_at": None,
+        "oco_exit_plan": {},
+        "oco_exit_status": "",
+        "oco_exit_protected": False,
+    }
+
+
+def _runner_allocation_after_sell(
+    position: dict[str, Any],
+    *,
+    exit_qty: int,
+    new_remaining: int,
+    allocation_target: Any,
+) -> dict[str, Any]:
+    runner_keys_present = any(
+        key in position
+        for key in (
+            "core_runner_candidate_quantity",
+            "core_runner_dedicated_quantity",
+            "core_runner_core_quantity",
+            "core_runner_activated",
+        )
+    )
+    if not runner_keys_present:
+        return {}
+
+    candidate = max(0, int(position.get("core_runner_candidate_quantity") or 0))
+    dedicated = max(0, int(position.get("core_runner_dedicated_quantity") or 0))
+    activated = bool(position.get("core_runner_activated"))
+    target = str(allocation_target or "entire_position").strip().lower()
+
+    if target == "runners_only":
+        dedicated = max(0, dedicated - exit_qty)
+        candidate = max(0, candidate - exit_qty)
+    elif target in {"core_then_runners", "entire_position"}:
+        protected_before = dedicated if activated else candidate
+        remaining_before = new_remaining + exit_qty
+        core_before = max(0, remaining_before - protected_before)
+        runner_consumed = max(0, exit_qty - core_before)
+        dedicated = max(0, dedicated - runner_consumed)
+        candidate = max(0, candidate - runner_consumed)
+
+    candidate = min(candidate, new_remaining)
+    dedicated = min(dedicated, candidate, new_remaining)
+    protected = dedicated if activated else candidate
+    return {
+        "core_runner_candidate_quantity": candidate,
+        "core_runner_dedicated_quantity": dedicated,
+        "core_runner_core_quantity": max(0, new_remaining - protected),
+    }
 
 
 def _build_fill_oco_exit_plan(
@@ -347,8 +639,80 @@ async def _add_to_existing_position(
     return "open"
 
 
+async def _reopen_closed_position(
+    db,
+    position_id: str,
+    context: OrderContext,
+    quantity: int,
+    fill_price: float,
+    *,
+    settings: dict[str, Any] | None = None,
+) -> None:
+    reopened = _entry_position(context, quantity, fill_price, position_id, settings=settings)
+    reopened["highest_executable_bid"] = fill_price
+    reopened.setdefault("oco_exit_plan", {})
+    reopened.setdefault("oco_exit_status", "")
+    reopened.setdefault("oco_exit_protected", False)
+    await db.update_position(position_id, {"$set": reopened})
+
+
+def _is_unlinked_broker_reconciled_position(position: dict) -> bool:
+    return bool(position.get("reconciled_from_broker_only")) and not (position.get("trade_ids") or [])
+
+
+async def _attach_trade_to_broker_reconciled_position(
+    db,
+    position_id: str,
+    position: dict,
+    context: OrderContext,
+    quantity: int,
+    fill_price: float,
+) -> str:
+    broker_quantity = max(0, int(position.get("remaining_quantity") or position.get("quantity") or 0))
+    reconciled_quantity = broker_quantity if broker_quantity > 0 else quantity
+    lifecycle = fresh_position_lifecycle_state(fill_price)
+    lifecycle.update(
+        {
+            "alert_id": context.alert_id,
+            "entry_price": fill_price,
+            "current_price": fill_price,
+            "original_quantity": reconciled_quantity,
+            "remaining_quantity": reconciled_quantity,
+            "total_cost": round(fill_price * reconciled_quantity * 100, 2),
+            "highest_price": fill_price,
+            "highest_executable_bid": fill_price,
+            "opened_at": _now(),
+            "realized_pnl": 0.0,
+            "unrealized_pnl": 0.0,
+            "entry_risk_profile": context.entry_risk_profile or "normal",
+            "entry_exit_profile": context.entry_exit_profile or "standard",
+            "max_loss_budget": context.max_loss_budget,
+            "estimated_stop_loss_percent": context.estimated_stop_loss_percent,
+            "status": "open",
+            "broker_reconciled_entry_attached": True,
+        }
+    )
+    await db.update_position(
+        position_id,
+        {
+            "$set": lifecycle,
+            "$push": {"trade_ids": context.trade_id},
+        },
+    )
+    return "open"
+
+
 def _filled_quantity(update: BrokerOrderUpdate, context: OrderContext) -> int:
     return max(1, int(update.filled_qty or context.requested_quantity))
+
+
+def _optional_non_negative_int(value: Any) -> int | None:
+    if value is None or isinstance(value, bool):
+        return None
+    try:
+        return max(0, int(float(value)))
+    except (TypeError, ValueError):
+        return None
 
 
 def _fill_price(update: BrokerOrderUpdate, context: OrderContext) -> float:
@@ -365,7 +729,7 @@ async def _update_alert_status(
     trade_executed: bool,
     trade_result: str,
 ) -> None:
-    if not context.alert_id or not hasattr(db, "update_alert"):
+    if not context.update_alert_status or not context.alert_id or not hasattr(db, "update_alert"):
         return
     updates = {
         "processed": True,
@@ -381,6 +745,21 @@ async def _update_alert_status(
 
 def _fill_trade_result(trade_status: str) -> str:
     return "partial" if trade_status == "partial" else "filled"
+
+
+async def _clear_exit_reservation(db, position_id: str) -> None:
+    if not hasattr(db, "update_position"):
+        return
+    await db.update_position(
+        position_id,
+        {
+            "$set": {
+                "exit_order_pending": False,
+                "exit_order_id": None,
+                "exit_reservation_token": None,
+            }
+        },
+    )
 
 
 def _now() -> str:

@@ -46,7 +46,10 @@ function statusInfo(status: string, simulated: boolean) {
     case 'executed': return { color: '#4ade80', bg: '#14532d', label: 'OPEN' };
     case 'closed':   return { color: '#f43f5e', bg: 'rgba(244, 63, 94, 0.18)', label: 'CLOSED' };
     case 'failed':   return { color: '#f87171', bg: '#450a0a', label: 'FAILED' };
-    case 'pending':  return { color: '#fb923c', bg: '#422006', label: 'PEND' };
+    case 'pending':
+    case 'pending_broker':
+    case 'unconfirmed':
+      return { color: '#fb923c', bg: '#422006', label: 'PEND' };
     default:         return { color: '#68779b', bg: '#29213a', label: status.toUpperCase() };
   }
 }

@@ -1,0 +1,223 @@
+SENTINEL ECHO - MIKE'S DISCORD PROFITABILITY ANALYSIS
+Generated: 2026-09-01
+
+PURPOSE
+
+Analyze every retained Mike Discord capture available to Sentinel Echo and compare
+the alert opportunity with Echo's actual Alpaca executions. The goal is to improve
+realized profitability, not to reproduce the percentages written in Discord.
+
+DATA REVIEWED
+
+- 453 unique Mike-authored messages across 12 retained capture days:
+  2026-06-22 through 2026-06-26, 2026-08-11 through 2026-08-12,
+  and the live test sessions 2026-08-26, 08-27, 08-28, 08-31, and 09-01.
+- 60 messages were accepted at capture time.
+- 151 historical messages were parsed but blocked by the old Chrome-bridge source
+  policy. They are analyst-pattern evidence, not Echo execution evidence.
+- 179 messages were unparsed conversation, 61 matched ignore rules, and 2 were
+  duplicate mirrored alerts.
+- Retained SQLite databases, operator events, event-bus JSONL, tradebot logs,
+  alert-capture files, Alpaca order history, Alpaca account activities, option
+  expiration/exercise records, and current Alpaca positions were reconciled.
+- Alpaca endpoint was verified as https://paper-api.alpaca.markets/v2.
+
+IMPORTANT DATA LIMITS
+
+Mike's positive price updates are not an unbiased trade ledger. Winning setups are
+updated repeatedly, while losing setups do not always receive equivalent price
+updates. Therefore, the captures cannot establish Mike's true win rate, expectancy,
+or an optimal stop loss. They can establish alert grammar, demonstrated upside,
+execution timing, and specific ways Echo failed to participate or exit.
+
+The written percentage is not authoritative. It may use Mike's actual fill or DCA
+average rather than the original alert header, and at least one message contained a
+clear typo: SPY 766C from $0.16 to $0.25 was labeled +560%, while the premium-derived
+return was +56.25%. Echo must calculate returns from its own broker-confirmed basis.
+
+OBSERVED ALERT OPPORTUNITY
+
+There were 42 distinct day/contract/expiration conversation sequences with complete
+contract structure. Forty-one had a positive entry price; 26 had at least one
+captured contract-price update. Across 30 entry-price/positive-mark sequences:
+
+- Median observed maximum: +49.3%
+- Mean observed maximum: +76.3% (heavily skewed by a few large winners)
+- Reached +20%: 23 of 30
+- Reached +35%: 21 of 30
+- Reached +50%: 15 of 30
+- Reached +75%: 10 of 30
+- Reached +100%: 7 of 30
+
+These are conditional results only: "among sequences where a positive mark was
+captured." They are not hit rates over all calls.
+
+The largest captured premium moves included MSFT 370C +300%, SPY 770P +376.2%,
+SPY 740C +149.1%, SPY 765C +128.6%, SPY 742C +100%, ORCL 160C +100%, and
+SPY 738C +95%. This confirms that Mike's style intentionally leaves runners for
+convex 0DTE/short-dated moves. A full-position take profit sacrifices that upside.
+
+BROKER-RECONCILED ECHO RESULTS
+
+The broker record is materially worse than the local database summaries because
+some local positions were unconfirmed, unreconciled, exercised, or expired.
+
+2026-08-26
+- SPY 763P: 300 bought for $17,300 and sold for $5,700: -$11,600.
+- QQQ 716C: 400 bought for $19,600; repeated 399-contract sell orders canceled or
+  expired; all 400 contracts expired: -$19,600.
+- Gross option result: -$31,200 before $41.28 in posted fees.
+- Root cause: old quantity sizing/replay behavior allowed 100-contract entries and
+  repeated conversational updates to create additional buys.
+
+2026-08-27 through 2026-08-28
+- SPY 771C: bought 10 at $0.40; sold 9 at $0.21; the last contract was exercised.
+  Premium cash-flow loss was $211. Exercise bought 100 SPY shares at $771.
+- Those 100 SPY shares remain open. At the reviewed $761.80 price, the exercise
+  leg is approximately -$920 unrealized. Total current economic effect of this
+  alert is therefore approximately -$1,131 before fees.
+- SPY 775C: bought 10 at $0.45, sold 10 at $0.61: +$160.
+- TSLA 365C: -$210.
+- SPY 776C first cycle: +$10; second 10-contract cycle expired: -$400.
+- QQQ 726C: +$10. QQQ 727C: $0.
+- SPY 768P two cycles: -$40 and -$60.
+- SPY 766P: nine sold at $0.01 and one expired: -$311.
+- Gross option result for these positions: -$1,052. The open SPY exercise leg adds
+  approximately -$920 of current unrealized loss.
+- Posted fees for August 27-28: $7.95.
+
+2026-08-31
+- SPY 763P: bought 10 at $0.42 and stop-sold at $0.27: -$150 before $0.85 fees.
+- Echo did not act on the later $0.38 fill context or the $0.30 round-two re-entry.
+  Mike later posted $0.45 on the first sequence and $0.51 on round two.
+- TSLA 360C was not a valid executable header: it said "$0 Entry (no fill yet)."
+  Mike later posted a standalone "$0.60 FILL (1/2 SIZE)" and sold portions from
+  $0.96 through $3.50 while later marks reached $6.50. Echo lacked conversational
+  binding from the standalone fill back to the pending TSLA contract.
+
+2026-09-01
+- SPY 758P cycles: -$30 and -$20.
+- SPCX 150C: -$110.
+- SPY 766C cycles: -$60, -$40, and +$10.
+- SPY 760P: $0. NVDA 230C: -$10.
+- Gross realized result: -$260 before fees not yet posted in the reviewed activity
+  window.
+- Strong moves missed by exact limits included SPY 765C $0.35 to $0.80 (+128.6%),
+  SPY 760P $0.18 to $0.25 (+38.9%), and final SPY 758P $0.20 to $0.32 (+60%).
+
+TOTAL OBSERVED ECHO EFFECT
+
+- Closed/expired option premium result: approximately -$32,662 gross.
+- Exercise-created SPY shares: approximately -$920 unrealized at review time.
+- Echo-attributable gross economic result at review time: approximately -$33,582.
+- Posted Alpaca option fees through August 31: $50.08.
+- This total excludes unrelated fractional equity positions and any September 1
+  fees that had not yet posted.
+
+WHAT MIKE'S ALERTS ACTUALLY REPRESENT
+
+Mike's feed is a stateful analyst conversation, not a stream of independent order
+tickets. A typical lifecycle is:
+
+1. Watch/plan: contract and levels, but no action.
+2. Candidate: a full contract header may still say "$0 Entry (no fill yet)."
+3. Starter fill: often a standalone price such as "$0.60 FILL (1/2 SIZE)."
+4. DCA plan: "leave DCA room" or "plan to DCA" is future intent, not another buy.
+5. DCA execution: "filled adds at $0.20" or a revised average is actionable context.
+6. Profit updates: "HERE," "UP," and percentages are status, not new entries.
+7. Scale-out: "trimming," "sold majority," "sold 80%," and "sold 10%."
+8. Runner protection: "SL at B/E," "sold runners at B/E," "hands off," or "in cash."
+
+The parser loses money when it treats any one of these messages without the preceding
+same-channel contract state.
+
+PRIMARY PROFITABILITY FAILURES
+
+1. Quantity and replay failures dominated all other results. The August 26 loss was
+   caused by 100-contract sizing and repeated buys, not by stop-loss selection.
+2. Broker/local reconciliation failed around timeouts and delayed fills. Echo could
+   believe an order was unfilled while Alpaca held the option, leaving it unmanaged.
+3. No reliable forced 0DTE liquidation allowed 400 QQQ calls and 11 SPY contracts to
+   reach expiration; one SPY call exercised into 100 shares.
+4. A 10% trailing stop is only a few cents on these premiums. It repeatedly closed
+   positions inside normal spread/noise before Mike's later profit updates.
+5. Exact, stale entry limits missed fast winners. Orders that remained at the posted
+   price for roughly two minutes were canceled after the contract had moved away.
+6. Standalone fill, DCA, trim, break-even, and hands-off phrases lacked durable
+   conversation binding in the historical implementation.
+7. Full-position take profit conflicts with Mike's runner model. A 35% full exit
+   monetizes a gain but prevents participation in the observed 75%-plus tails.
+8. Malformed or edited alerts need a pending state. NOW used the wrong expiration
+   before an edit; SPY 567C was likely a typo; TSLA used $0 until a later fill.
+
+RECOMMENDED ECHO CONTROL MODEL
+
+Priority 1 - Never permit unmanaged expiration
+- Reconcile broker orders and positions continuously, with Alpaca as source of truth.
+- On timeout: request cancel, then re-query the order until terminal. If a late fill
+  exists, immediately adopt and manage the broker position.
+- Force-close every Echo-owned 0DTE option before the exercise cutoff. Verify the
+  broker position is zero. Escalate loudly if it is not.
+- Never let an options alert create an equity position through exercise.
+
+Priority 2 - Use a contract conversation state machine
+- Key state by source channel plus ticker, strike, side, and expiration.
+- Preserve pending candidates, confirmed fills, DCA intent, DCA fills, average basis,
+  trims, runners, break-even state, and closed state.
+- Bind short standalone messages only to a recent, unambiguous same-channel contract.
+- If two candidates are possible, do nothing and mark the message ambiguous.
+
+Priority 3 - Separate entry confirmation from commentary
+- "$0 Entry," "no fill yet," "on watch," and "would" must never buy.
+- "Plan to DCA" and "leave DCA room" change sizing intent only.
+- "Filled," "in these," and an explicit add price can confirm an entry/add.
+- Apply a hard per-contract quantity ceiling across starter, DCA, edits, restarts,
+  mirror channels, and replayed messages.
+
+Priority 4 - Improve entry execution without blind chasing
+- Keep limit orders, but use current option quotes to reprice within a configurable
+  maximum slippage band and short freshness window.
+- Do not use a market order merely because the posted limit missed.
+- Reject nonexistent contracts and quarantine implausible strikes/expirations until
+  Mike posts a correction.
+
+Priority 5 - Match the exit model to the alert style
+- Keep trailing stop disabled during the current controlled experiment.
+- Keep the current -50% stop as one test setting, not as a proven optimum.
+- Make Mike's explicit sell/trim message highest-priority when the contract match is
+  unambiguous.
+- Replace full-position TP with a configurable partial TP. A reasonable experiment is
+  70%-80% off at +35%, with the remainder protected at break-even and controlled by
+  Mike's runner exit or the mandatory time exit.
+- Break-even must use Echo's actual weighted broker fill basis, never Mike's text.
+
+Priority 6 - Collect the data required to tune stops
+- Record bid, ask, midpoint, last, spread, broker quantity, weighted basis, MFE, and
+  MAE every few seconds for every open contract.
+- Record the counterfactual outcome for stop thresholds -20%, -30%, -40%, and -50%,
+  plus trailing widths 10%, 15%, 20%, and disabled.
+- Compare the same fills under each policy. Do not tune from Mike's posted winners.
+- Evaluate results by realized dollars, drawdown, fill rate, and exercise incidents,
+  not by the analyst's displayed percentage.
+
+CHANNEL-SPECIFIC BEHAVIOR
+
+- Alerts: fast 0DTE lifecycle, strict time exit, conversational DCA enabled.
+- Mirror analysis: strongest need for pending-candidate and standalone-fill binding.
+- Mirror alerts: authoritative explicit scale-out messages; dedupe against mirrored
+  copies without suppressing a legitimate first exit.
+- Mirror swings/swing trades: multi-day lifecycle and separate time/stop profile.
+- Watchlists, macro commentary, results recaps, and marketing: context-only, no orders.
+
+CURRENT INTERPRETATION
+
+The retained logs do not show that Mike's ideas are inherently unprofitable. They do
+show that Echo's historical implementation converted a conversational, staged,
+partial-exit strategy into oversized entries, duplicated entries, premature automatic
+exits, missed fast fills, and unmanaged expiration. Execution mechanics overwhelmed
+signal quality.
+
+The highest-value next experiment is not another arbitrary stop adjustment. It is a
+clean run with capped quantities, broker-confirmed state, no 0DTE expiration, improved
+standalone-fill/DCA binding, quote-aware limit handling, explicit Mike exits, and full
+MFE/MAE telemetry. Only then can -50% versus tighter stops be compared honestly.

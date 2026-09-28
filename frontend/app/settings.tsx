@@ -7,22 +7,21 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { api } from '../utils/api';
-import { BACKEND_URL, DEMO_MODE } from '../constants/config';
+import { BACKEND_URL } from '../constants/config';
 import { BROKER_COLORS, BROKER_NAMES_FULL as BROKER_NAMES } from '../constants/brokers';
 import { SettingsDigest, summarizeSettings } from '../utils/settingsDigest';
 import { buildPremiumBufferSettingsParams } from '../utils/settingsPayload';
 import { parseSettingsViewFlags } from '../utils/settingsViewFlags';
 import { getBrokerConnectionResult } from '../utils/brokerConfigDigest';
 
-// Default demo settings
-const DEMO_SETTINGS: Settings = {
-  discord_token: 'DEMO_TOKEN',
+const FALLBACK_SETTINGS: Settings = {
+  discord_token: '',
   discord_channel_ids: ['123456789'],
   active_broker: 'IBKR',
   auto_trading_enabled: true,
   sell_alert_listening_enabled: true,
   default_quantity: 5,
-  simulation_mode: true,
+  simulation_mode: false,
   max_position_size: 1000,
   averaging_down_enabled: true,
   averaging_down_threshold: 10,
@@ -30,9 +29,14 @@ const DEMO_SETTINGS: Settings = {
   averaging_down_max_buys: 3,
   take_profit_enabled: true,
   take_profit_percentage: 50,
+  take_profit_sell_percentage: 100,
   stop_loss_enabled: true,
   stop_loss_percentage: 30,
   bracket_order_enabled: true,
+  break_even_enabled: false,
+  break_even_activation_type: 'percent',
+  break_even_activation_percentage: 10,
+  break_even_activation_cents: 10,
   stop_loss_order_type: 'market',
   trailing_stop_enabled: true,
   trailing_stop_type: 'percent',
@@ -44,23 +48,14 @@ const DEMO_SETTINGS: Settings = {
   max_daily_loss_amount: 500,
   premium_buffer_enabled: true,
   premium_buffer_amount: 2,
+  fill_confirmation_timeout_seconds: 180,
+  fill_background_poll_interval_seconds: 15,
   max_positions_per_ticker: 3,
   sms_enabled: false,
   sms_phone_number: '',
   twilio_account_sid: '',
   twilio_auth_token: '',
   twilio_from_number: '',
-};
-
-const DEMO_PATTERNS: AlertPatterns = {
-  buy_patterns: ['BTO', 'BUY', 'LONG', 'CALL'],
-  sell_patterns: ['STC', 'SELL', 'CLOSE', 'EXIT'],
-  partial_sell_patterns: ['STC PARTIAL', 'TRIM', 'TAKE PROFIT'],
-  average_down_patterns: ['AVG DOWN', 'ADD TO', 'AVERAGING'],
-  stop_loss_patterns: ['STOP', 'STOP LOSS', 'GLD'],
-  take_profit_patterns: ['TAKE PROFIT', 'TP', 'TARGET'],
-  ignore_patterns: ['WATCH', 'WATCHLIST', 'PAPER'],
-  case_sensitive: false,
 };
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -72,23 +67,20 @@ interface Settings {
   averaging_down_enabled: boolean; averaging_down_threshold: number;
   averaging_down_percentage: number; averaging_down_max_buys: number;
   take_profit_enabled: boolean; take_profit_percentage: number;
+  take_profit_sell_percentage: number;
   stop_loss_enabled: boolean; stop_loss_percentage: number;
-  bracket_order_enabled: boolean; stop_loss_order_type: string;
+  bracket_order_enabled: boolean; break_even_enabled: boolean;
+  break_even_activation_type: string; break_even_activation_percentage: number;
+  break_even_activation_cents: number; stop_loss_order_type: string;
   trailing_stop_enabled: boolean; trailing_stop_type: string;
   trailing_stop_percent: number; trailing_stop_cents: number;
   auto_shutdown_enabled: boolean; max_consecutive_losses: number;
   max_daily_losses: number; max_daily_loss_amount: number;
   premium_buffer_enabled: boolean; premium_buffer_amount: number;
+  fill_confirmation_timeout_seconds: number; fill_background_poll_interval_seconds: number;
   max_positions_per_ticker: number;
   sms_enabled: boolean; sms_phone_number: string;
   twilio_account_sid: string; twilio_auth_token: string; twilio_from_number: string;
-}
-
-interface AlertPatterns {
-  buy_patterns: string[]; sell_patterns: string[];
-  partial_sell_patterns: string[]; average_down_patterns: string[];
-  stop_loss_patterns: string[]; take_profit_patterns: string[];
-  ignore_patterns: string[]; case_sensitive: boolean;
 }
 
 // ── Reusable components ────────────────────────────────────────────────────────
@@ -218,14 +210,9 @@ function SettingsBriefing({ digest }: { digest: SettingsDigest }) {
 
       <View style={s.digestStats}>
         <DigestStat label="Mode" value={digest.modeLabel} color={digest.modeLabel === 'Live auto' ? '#f59e0b' : undefined} />
-        <DigestStat label="Discord" value={digest.channelLabel} />
-        <DigestStat label="Parser" value={digest.parserLabel} />
-        <DigestStat label="Guards" value={`${digest.guardrailCount}/6`} color={toneColor} />
-      </View>
-
-      <View style={s.digestMetaRow}>
-        <Text style={s.digestMetaText}>Broker: {digest.brokerLabel}</Text>
-        <Text style={s.digestMetaText}>Notify: {digest.notificationLabel}</Text>
+        <DigestStat label="Broker" value={digest.brokerLabel} />
+        <DigestStat label="Notify" value={digest.notificationLabel} />
+        <DigestStat label="Guards" value={`${digest.guardrailCount}/5`} color={toneColor} />
       </View>
 
       <View style={s.warningList}>
@@ -240,7 +227,7 @@ function SettingsBriefing({ digest }: { digest: SettingsDigest }) {
         )) : (
           <View style={s.warningRow}>
             <Ionicons name="shield-checkmark-outline" size={14} color="#22c55e" />
-            <Text style={s.clearText}>Discord, parser, and risk guardrails are aligned for simulated operation.</Text>
+            <Text style={s.clearText}>Trading mode and risk guardrails are aligned for broker-routed operation.</Text>
           </View>
         )}
         {hiddenWarningCount > 0 && (
@@ -254,47 +241,21 @@ function SettingsBriefing({ digest }: { digest: SettingsDigest }) {
 export default function SettingsScreen() {
   const router = useRouter();
   const [settings, setSettings]       = useState<Settings | null>(null);
-  const [patterns, setPatterns]       = useState<AlertPatterns | null>(null);
   const [loading, setLoading]         = useState(true);
   const [saving, setSaving]           = useState(false);
   const [dirty, setDirty]             = useState(false);
-  const [channelInput, setChannelInput] = useState('');
-
-  // Discord state
-  const [discordStarting, setDiscordStarting] = useState(false);
-  const [discordTesting, setDiscordTesting]   = useState(false);
-  const [discordResult, setDiscordResult]     = useState<any>(null);
-  const [showGuide, setShowGuide]             = useState(false);
 
   // Broker state
   const [brokerChecking, setBrokerChecking] = useState(false);
 
-  // Alert patterns state
-  const [showPatterns, setShowPatterns]       = useState(false);
-  const [patternType, setPatternType]         = useState('buy_patterns');
-  const [newPattern, setNewPattern]           = useState('');
-  const [addingPattern, setAddingPattern]     = useState(false);
   const [testingSms, setTestingSms]           = useState(false);
   const [smsTestResult, setSmsTestResult]     = useState<{ok: boolean; msg: string} | null>(null);
 
   const originalSettings = useRef<Settings | null>(null);
 
   const fetchAll = useCallback(async () => {
-    if (DEMO_MODE) {
-      // Use demo data
-      setSettings(DEMO_SETTINGS);
-      setPatterns(DEMO_PATTERNS);
-      setChannelInput(DEMO_SETTINGS.discord_channel_ids.join(', '));
-      originalSettings.current = DEMO_SETTINGS;
-      setDirty(false);
-      setLoading(false);
-      return;
-    }
     try {
-      const [sRes, pRes] = await Promise.all([
-        api.get(`${BACKEND_URL}/api/settings`),
-        api.get(`${BACKEND_URL}/api/discord/alert-patterns`),
-      ]);
+      const sRes = await api.get(`${BACKEND_URL}/api/settings`);
       // Merge auto-shutdown and premium-buffer into settings
       const [shutRes, bufRes, riskRes] = await Promise.all([
         api.get(`${BACKEND_URL}/api/auto-shutdown-settings`),
@@ -313,7 +274,12 @@ export default function SettingsScreen() {
         max_daily_loss_amount:  shutRes.data.max_daily_loss_amount,
         premium_buffer_enabled: bufRes.data.premium_buffer_enabled,
         premium_buffer_amount:  bufRes.data.premium_buffer_amount,
+        take_profit_sell_percentage: riskRes.data.take_profit_sell_percentage ?? 100,
         bracket_order_enabled:  riskRes.data.bracket_order_enabled,
+        break_even_enabled: riskRes.data.break_even_enabled ?? false,
+        break_even_activation_type: riskRes.data.break_even_activation_type || 'percent',
+        break_even_activation_percentage: riskRes.data.break_even_activation_percentage ?? 10,
+        break_even_activation_cents: riskRes.data.break_even_activation_cents ?? 10,
         stop_loss_order_type:   riskRes.data.stop_loss_order_type || 'market',
         max_positions_per_ticker: corrRes.data.max_positions_per_ticker ?? 3,
         sms_enabled:          notifRes.data.sms_enabled,
@@ -324,10 +290,13 @@ export default function SettingsScreen() {
       };
       setSettings(merged);
       originalSettings.current = merged;
-      setChannelInput(sRes.data.discord_channel_ids?.join(', ') || '');
-      setPatterns(pRes.data);
       setDirty(false);
-    } catch (e) { console.error(e); }
+    } catch (e) {
+      console.error(e);
+      setSettings(FALLBACK_SETTINGS);
+      originalSettings.current = FALLBACK_SETTINGS;
+      setDirty(false);
+    }
     finally { setLoading(false); }
   }, []);
 
@@ -342,12 +311,8 @@ export default function SettingsScreen() {
     if (!settings) return;
     setSaving(true);
     try {
-      const channelIds = channelInput.split(',').map(s => s.trim()).filter(Boolean);
-
       // Main settings
       await api.put(`${BACKEND_URL}/api/settings`, {
-        discord_token: settings.discord_token,
-        discord_channel_ids: channelIds,
         active_broker: settings.active_broker,
         auto_trading_enabled: settings.auto_trading_enabled,
         sell_alert_listening_enabled: settings.sell_alert_listening_enabled,
@@ -360,12 +325,19 @@ export default function SettingsScreen() {
         averaging_down_max_buys: settings.averaging_down_max_buys,
         take_profit_enabled: settings.take_profit_enabled,
         take_profit_percentage: settings.take_profit_percentage,
+        take_profit_sell_percentage: settings.take_profit_sell_percentage,
+        break_even_enabled: settings.break_even_enabled,
+        break_even_activation_type: settings.break_even_activation_type,
+        break_even_activation_percentage: settings.break_even_activation_percentage,
+        break_even_activation_cents: settings.break_even_activation_cents,
         stop_loss_enabled: settings.stop_loss_enabled,
         stop_loss_percentage: settings.stop_loss_percentage,
         trailing_stop_enabled: settings.trailing_stop_enabled,
         trailing_stop_type: settings.trailing_stop_type,
         trailing_stop_percent: settings.trailing_stop_percent,
         trailing_stop_cents: settings.trailing_stop_cents,
+        fill_confirmation_timeout_seconds: settings.fill_confirmation_timeout_seconds,
+        fill_background_poll_interval_seconds: settings.fill_background_poll_interval_seconds,
       });
 
       // Auto-shutdown settings (separate endpoint)
@@ -383,7 +355,16 @@ export default function SettingsScreen() {
 
       // Risk management extras
       await api.put(`${BACKEND_URL}/api/risk-management-settings`, {
+        take_profit_enabled: settings.take_profit_enabled,
+        take_profit_percentage: settings.take_profit_percentage,
+        take_profit_sell_percentage: settings.take_profit_sell_percentage,
         bracket_order_enabled: settings.bracket_order_enabled,
+        break_even_enabled: settings.break_even_enabled,
+        break_even_activation_type: settings.break_even_activation_type,
+        break_even_activation_percentage: settings.break_even_activation_percentage,
+        break_even_activation_cents: settings.break_even_activation_cents,
+        stop_loss_enabled: settings.stop_loss_enabled,
+        stop_loss_percentage: settings.stop_loss_percentage,
         stop_loss_order_type:  settings.stop_loss_order_type,
       });
 
@@ -405,7 +386,7 @@ export default function SettingsScreen() {
       );
 
       setDirty(false);
-      originalSettings.current = { ...settings, discord_channel_ids: channelIds };
+      originalSettings.current = { ...settings };
       Alert.alert('Saved', 'All settings saved successfully.');
     } catch { Alert.alert('Error', 'Failed to save settings.'); }
     finally { setSaving(false); }
@@ -414,28 +395,8 @@ export default function SettingsScreen() {
   const discardChanges = () => {
     if (originalSettings.current) {
       setSettings({ ...originalSettings.current });
-      setChannelInput(originalSettings.current.discord_channel_ids?.join(', ') || '');
       setDirty(false);
     }
-  };
-
-  const startDiscord = async () => {
-    setDiscordStarting(true);
-    try {
-      const r = await api.post(`${BACKEND_URL}/api/discord/start`);
-      Alert.alert('Discord', r.data.message);
-    } catch (e: any) { Alert.alert('Error', e.response?.data?.detail || 'Failed to start Discord bot'); }
-    finally { setDiscordStarting(false); }
-  };
-
-  const testDiscord = async () => {
-    setDiscordTesting(true); setDiscordResult(null);
-    try {
-      const r = await api.post(`${BACKEND_URL}/api/discord/test-connection`);
-      setDiscordResult(r.data);
-    } catch (e: any) {
-      setDiscordResult({ success: false, message: e.response?.data?.detail || 'Connection failed', details: null });
-    } finally { setDiscordTesting(false); }
   };
 
   const checkBroker = async () => {
@@ -448,32 +409,6 @@ export default function SettingsScreen() {
     } catch { Alert.alert('Error', 'Failed to check broker connection.'); }
     finally { setBrokerChecking(false); }
   };
-
-  const addPattern = async () => {
-    if (!newPattern.trim() || addingPattern) return;
-    setAddingPattern(true);
-    try {
-      const r = await api.post(`${BACKEND_URL}/api/discord/alert-patterns/${patternType}/add?pattern=${encodeURIComponent(newPattern.trim().toUpperCase())}`);
-      setPatterns(prev => prev ? { ...prev, [patternType]: r.data[patternType] } : null);
-      setNewPattern('');
-    } catch { Alert.alert('Error', 'Failed to add pattern.'); }
-    finally { setAddingPattern(false); }
-  };
-
-  const removePattern = async (type: string, pattern: string) => {
-    try {
-      const r = await api.post(`${BACKEND_URL}/api/discord/alert-patterns/${type}/remove?pattern=${encodeURIComponent(pattern)}`);
-      setPatterns(prev => prev ? { ...prev, [type]: r.data[type] } : null);
-    } catch { Alert.alert('Error', 'Failed to remove pattern.'); }
-  };
-
-  const resetPatterns = () => Alert.alert('Reset Patterns', 'Reset all alert patterns to defaults?', [
-    { text: 'Cancel', style: 'cancel' },
-    { text: 'Reset', style: 'destructive', onPress: async () => {
-      try { const r = await api.post(`${BACKEND_URL}/api/discord/alert-patterns/reset`); setPatterns(r.data); }
-      catch { Alert.alert('Error', 'Failed to reset.'); }
-    }}
-  ]);
 
   const testSms = async () => {
     setTestingSms(true);
@@ -488,14 +423,6 @@ export default function SettingsScreen() {
     }
   };
 
-  const PATTERN_TYPES = [
-    { key: 'buy_patterns',          label: 'Buy',          color: '#22c55e', icon: 'arrow-up'      },
-    { key: 'sell_patterns',         label: 'Sell',         color: '#ef4444', icon: 'arrow-down'    },
-    { key: 'partial_sell_patterns', label: 'Partial',      color: '#f59e0b', icon: 'remove'        },
-    { key: 'average_down_patterns', label: 'Avg Down',     color: '#a78bfa', icon: 'trending-down' },
-    { key: 'ignore_patterns',       label: 'Ignore',       color: '#68779b', icon: 'close-circle'  },
-  ] as const;
-
   if (loading) {
     return (
       <SafeAreaView style={s.container}>
@@ -506,9 +433,8 @@ export default function SettingsScreen() {
 
   const bColor = BROKER_COLORS[settings?.active_broker || ''] || '#f43f5e';
   const bName  = BROKER_NAMES[settings?.active_broker || ''] || 'None';
-  const channelIdsForDigest = channelInput.split(',').map(channel => channel.trim()).filter(Boolean);
   const settingsDigest = settings
-    ? summarizeSettings({ ...settings, discord_channel_ids: channelIdsForDigest }, patterns)
+    ? summarizeSettings(settings, null)
     : null;
   const settingsFlags = parseSettingsViewFlags(settings);
 
@@ -540,14 +466,6 @@ export default function SettingsScreen() {
           </View>
         </View>
 
-        {/* ── Sim mode banner ── */}
-        {settingsFlags.simulationMode && (
-          <View style={s.simBanner}>
-            <Ionicons name="flask" size={16} color="#a78bfa" />
-            <Text style={s.simBannerText}>SIMULATION MODE ACTIVE — No real trades will execute</Text>
-          </View>
-        )}
-
         {/* ── Unsaved changes bar ── */}
         {dirty && (
           <View style={s.dirtyBar}>
@@ -558,93 +476,6 @@ export default function SettingsScreen() {
 
         <ScrollView style={s.scroll} showsVerticalScrollIndicator={false}>
           {settingsDigest && <SettingsBriefing digest={settingsDigest} />}
-
-          {/* ═══ DISCORD ═══ */}
-          <SectionCard accent="#5865F2">
-            <SectionTitle icon="logo-discord" label="Discord" color="#5865F2" sub="Bot token & channels" />
-
-            <FieldLabel label="Bot Token" hint="Never share this — it controls your bot" />
-            <Input
-              value={settings?.discord_token || ''}
-              onChange={v => update('discord_token', v)}
-              placeholder={settings?.discord_token ? '••••••••• (saved)' : 'Paste your bot token'}
-              secure
-            />
-
-            <FieldLabel
-              label="Channel IDs"
-              hint="Comma-separated — right-click channel in Discord → Copy ID (requires Developer Mode)"
-            />
-            <Input
-              value={channelInput}
-              onChange={v => { setChannelInput(v); setDirty(true); }}
-              placeholder="123456789012345678, 987654321..."
-            />
-            {channelInput.split(',').filter(s => s.trim()).some(id => !/^\d{17,19}$/.test(id.trim())) && channelInput.trim() !== '' && (
-              <Text style={s.validationWarn}>⚠ Channel IDs should be 17–19 digit numbers</Text>
-            )}
-
-            <View style={s.btnRow}>
-              <TouchableOpacity style={[s.actionBtn, { backgroundColor: '#5865F2', flex: 1 }]} onPress={startDiscord} disabled={discordStarting}>
-                {discordStarting ? <ActivityIndicator size="small" color="#fff" /> : (
-                  <><Ionicons name="play" size={16} color="#fff" /><Text style={s.actionBtnText}>Start Bot</Text></>
-                )}
-              </TouchableOpacity>
-              <TouchableOpacity style={[s.actionBtn, { backgroundColor: '#29213a', flex: 1, borderWidth: 1, borderColor: '#5865F2' }]} onPress={testDiscord} disabled={discordTesting}>
-                {discordTesting ? <ActivityIndicator size="small" color="#5865F2" /> : (
-                  <><Ionicons name="pulse" size={16} color="#5865F2" /><Text style={[s.actionBtnText, { color: '#5865F2' }]}>Test</Text></>
-                )}
-              </TouchableOpacity>
-            </View>
-
-            {discordResult && (
-              <View style={[s.resultBox, discordResult.success ? s.resultSuccess : s.resultError]}>
-                <View style={s.resultHeader}>
-                  <Ionicons name={discordResult.success ? 'checkmark-circle' : 'alert-circle'} size={20} color={discordResult.success ? '#4ade80' : '#f87171'} />
-                  <Text style={[s.resultTitle, { color: discordResult.success ? '#4ade80' : '#f87171' }]}>
-                    {discordResult.success ? 'Connected' : 'Not Connected'}
-                  </Text>
-                </View>
-                <Text style={s.resultMsg}>{discordResult.message}</Text>
-                {discordResult.details?.monitoring_channels && (
-                  <Text style={s.resultDetail}>Channels: {discordResult.details.monitoring_channels.join(', ')}</Text>
-                )}
-                {discordResult.details?.alerts_processed !== undefined && (
-                  <Text style={s.resultDetail}>Alerts processed: {discordResult.details.alerts_processed}</Text>
-                )}
-              </View>
-            )}
-
-            <TouchableOpacity style={s.guideToggle} onPress={() => setShowGuide(!showGuide)}>
-              <View style={s.guideToggleLeft}>
-                <Ionicons name="help-circle-outline" size={16} color="#5865F2" />
-                <Text style={s.guideToggleText}>How to create your Discord bot</Text>
-              </View>
-              <Ionicons name={showGuide ? 'chevron-up' : 'chevron-down'} size={16} color="#68779b" />
-            </TouchableOpacity>
-
-            {showGuide && (
-              <View style={s.guide}>
-                {[
-                  { n: 1, title: 'Create application', steps: ['Go to discord.com/developers/applications', 'Click "New Application" → name it → Create'] },
-                  { n: 2, title: 'Create the bot', steps: ['Click "Bot" in sidebar → Add Bot', 'Enable MESSAGE CONTENT INTENT and SERVER MEMBERS INTENT', 'Click Save Changes'] },
-                  { n: 3, title: 'Copy your token', steps: ['On the Bot page, click Reset Token', 'Copy the token — paste it above', '⚠ Never share this token with anyone'] },
-                  { n: 4, title: 'Invite bot to server', steps: ['OAuth2 → URL Generator → check "bot"', 'Permissions: Read Messages, Read Message History', 'Open generated URL → select server → Authorize'] },
-                  { n: 5, title: 'Get channel IDs', steps: ['Discord → User Settings → Advanced → Developer Mode ON', 'Right-click any channel → Copy Channel ID', 'Paste the IDs above (comma-separated)'] },
-                ].map(({ n, title, steps }) => (
-                  <View key={n} style={s.guideStep}>
-                    <View style={s.guideStepHeader}>
-                      <View style={s.guideNum}><Text style={s.guideNumText}>{n}</Text></View>
-                      <Text style={s.guideStepTitle}>{title}</Text>
-                    </View>
-                    {steps.map((step, i) => (
-                      <Text key={i} style={s.guideStepText}>• {step}</Text>
-                    ))}
-                  </View>
-                ))}
-              </View>
-            )}
-          </SectionCard>
 
           {/* ═══ BROKER ═══ */}
           <SectionCard accent={bColor}>
@@ -669,15 +500,6 @@ export default function SettingsScreen() {
 
             <SwitchRow label="Auto Trading" sub="Execute trades when Discord alerts arrive" value={settingsFlags.autoTradingEnabled} onChange={v => update('auto_trading_enabled', v)} accent="#22c55e" />
             <SwitchRow label="Sell Alert Listening" sub="Let Discord sell and trim alerts close matching open positions" value={settingsFlags.sellAlertListeningEnabled} onChange={v => update('sell_alert_listening_enabled', v)} accent="#14b8a6" />
-            <SwitchRow label="Simulation Mode" sub="Paper trade — no real money executes" value={settingsFlags.simulationMode} onChange={v => update('simulation_mode', v)} accent="#a78bfa" />
-
-            {settingsFlags.simulationMode && (
-              <View style={s.simWarning}>
-                <Ionicons name="flask" size={14} color="#a78bfa" />
-                <Text style={s.simWarningText}>Simulation mode is ON. All trades will be paper trades only.</Text>
-              </View>
-            )}
-
             <View style={s.twoCol}>
               <View style={s.twoColItem}>
                 <FieldLabel label="Default Quantity" hint="Contracts per trade" />
@@ -688,6 +510,13 @@ export default function SettingsScreen() {
                 <Input value={String(settings?.max_position_size || 1000)} onChange={v => update('max_position_size', parseFloat(v) || 1000)} numeric />
               </View>
             </View>
+
+            <View style={s.divider} />
+            <Text style={s.subSectionLabel}>BROKER CONFIRMATION</Text>
+            <FieldLabel label="Confirmation Window (seconds)" hint="How long Echo checks rapidly before switching to background broker tracking" />
+            <QuickSelect values={[60, 120, 180, 300, 600]} current={settings?.fill_confirmation_timeout_seconds ?? 180} onChange={v => update('fill_confirmation_timeout_seconds', v)} suffix="s" />
+            <Input value={String(settings?.fill_confirmation_timeout_seconds ?? 180)} onChange={v => update('fill_confirmation_timeout_seconds', Math.max(30, parseInt(v) || 180))} numeric />
+            <InfoBox text="A timeout does not cancel a sell or mark it failed. Echo continues checking Alpaca until the order fills, is cancelled, expires, or is rejected." color="#22c55e" />
 
             {/* Premium Buffer */}
             <View style={s.divider} />
@@ -727,7 +556,7 @@ export default function SettingsScreen() {
 
           {/* ═══ RISK MANAGEMENT ═══ */}
           <SectionCard accent="#3b82f6">
-            <SectionTitle icon="shield-checkmark" label="Risk Management" color="#3b82f6" sub="Take profit, stop loss, bracket orders" />
+            <SectionTitle icon="shield-checkmark" label="Risk Management" color="#3b82f6" sub="Take profit, stop loss, Echo-managed exits" />
 
             {/* Take Profit */}
             <Text style={s.subSectionLabel}>TAKE PROFIT</Text>
@@ -738,7 +567,43 @@ export default function SettingsScreen() {
                 <QuickSelect values={[25, 50, 75, 100, 150]} current={settings?.take_profit_percentage ?? 50} onChange={v => update('take_profit_percentage', v)} suffix="%" />
                 <Input value={String(settings?.take_profit_percentage || 50)} onChange={v => update('take_profit_percentage', parseFloat(v) || 50)} numeric />
 
-                <SwitchRow label="Bracket Order" sub="Submit TP + SL as a single bracket order" value={settingsFlags.bracketOrderEnabled} onChange={v => update('bracket_order_enabled', v)} accent="#3b82f6" />
+                <FieldLabel label="Sell Size (%)" hint="How much of the open position to sell at take profit" />
+                <QuickSelect values={[25, 50, 75, 100]} current={settings?.take_profit_sell_percentage ?? 100} onChange={v => update('take_profit_sell_percentage', v)} suffix="%" />
+                <Input value={String(settings?.take_profit_sell_percentage || 100)} onChange={v => update('take_profit_sell_percentage', parseFloat(v) || 100)} numeric />
+
+                <SwitchRow label="Echo Bracket" sub="Use Echo-managed target and stop logic for the position" value={settingsFlags.bracketOrderEnabled} onChange={v => update('bracket_order_enabled', v)} accent="#3b82f6" />
+              </>
+            )}
+
+            <View style={s.divider} />
+
+            {/* Break Even */}
+            <Text style={s.subSectionLabel}>BREAK EVEN</Text>
+            <SwitchRow label="Break Even" sub="Sell if price returns to entry after a configured gain" value={settingsFlags.breakEvenEnabled} onChange={v => update('break_even_enabled', v)} accent="#14b8a6" />
+            {settingsFlags.breakEvenEnabled && (
+              <>
+                <FieldLabel label="Activation Type" />
+                <View style={s.segmentRow}>
+                  {[{ v: 'percent', label: '% Percent' }, { v: 'cents', label: '¢ Cents' }].map(({ v, label }) => (
+                    <TouchableOpacity key={v} style={[s.segBtn, settings?.break_even_activation_type === v && s.segBtnActive]} onPress={() => update('break_even_activation_type', v)}>
+                      <Text style={[s.segText, settings?.break_even_activation_type === v && s.segTextActive]}>{label}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+
+                {settings?.break_even_activation_type === 'cents' ? (
+                  <>
+                    <FieldLabel label="Activation Gain (¢)" hint="Start break-even protection after this premium gain" />
+                    <QuickSelect values={[5, 10, 15, 20]} current={settings?.break_even_activation_cents ?? 10} onChange={v => update('break_even_activation_cents', v)} suffix="¢" />
+                    <Input value={String(settings?.break_even_activation_cents || 10)} onChange={v => update('break_even_activation_cents', parseFloat(v) || 10)} placeholder="Custom ¢" numeric />
+                  </>
+                ) : (
+                  <>
+                    <FieldLabel label="Activation Gain (%)" hint="Start break-even protection after this profit threshold" />
+                    <QuickSelect values={[5, 10, 15, 20]} current={settings?.break_even_activation_percentage ?? 10} onChange={v => update('break_even_activation_percentage', v)} suffix="%" />
+                    <Input value={String(settings?.break_even_activation_percentage || 10)} onChange={v => update('break_even_activation_percentage', parseFloat(v) || 10)} placeholder="Custom %" numeric />
+                  </>
+                )}
               </>
             )}
 
@@ -935,70 +800,6 @@ export default function SettingsScreen() {
             <InfoBox text="Auto-shutdown pauses all trading when triggered. Use the Reset button on the dashboard to re-enable after reviewing." color="#f87171" />
           </SectionCard>
 
-          {/* ═══ ALERT PATTERNS ═══ */}
-          <SectionCard accent="#f43f5e">
-            <TouchableOpacity style={s.patternsHeader} onPress={() => setShowPatterns(!showPatterns)}>
-              <SectionTitle icon="code-working" label="Alert Patterns" color="#f43f5e" sub="Customize Discord keywords" />
-              <Ionicons name={showPatterns ? 'chevron-up' : 'chevron-down'} size={18} color="#68779b" />
-            </TouchableOpacity>
-
-            {showPatterns && patterns && (
-              <View style={s.patternsBody}>
-                {/* Type selector */}
-                <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 14 }}>
-                  <View style={s.patternTypesRow}>
-                    {PATTERN_TYPES.map(pt => (
-                      <TouchableOpacity
-                        key={pt.key}
-                        style={[s.patternTypeBtn, patternType === pt.key && { backgroundColor: pt.color }]}
-                        onPress={() => setPatternType(pt.key)}
-                      >
-                        <Ionicons name={pt.icon as any} size={13} color={patternType === pt.key ? '#fff' : pt.color} />
-                        <Text style={[s.patternTypeBtnText, patternType === pt.key && { color: '#fff' }]}>{pt.label}</Text>
-                      </TouchableOpacity>
-                    ))}
-                  </View>
-                </ScrollView>
-
-                {/* Current patterns */}
-                <View style={s.patternChips}>
-                  {(patterns[patternType as keyof AlertPatterns] as string[] || []).map((p, i) => {
-                    const pt = PATTERN_TYPES.find(t => t.key === patternType);
-                    return (
-                      <View key={i} style={[s.chip, { borderColor: pt?.color || '#68779b' }]}>
-                        <Text style={s.chipText}>{p}</Text>
-                        <TouchableOpacity onPress={() => removePattern(patternType, p)}>
-                          <Ionicons name="close" size={13} color="#68779b" />
-                        </TouchableOpacity>
-                      </View>
-                    );
-                  })}
-                  {(patterns[patternType as keyof AlertPatterns] as string[])?.length === 0 && (
-                    <Text style={s.noPatterns}>No patterns — add one below</Text>
-                  )}
-                </View>
-
-                {/* Add new */}
-                <View style={s.addPatternRow}>
-                  <TextInput
-                    style={[s.input, { flex: 1 }]}
-                    value={newPattern} onChangeText={setNewPattern}
-                    placeholder="New keyword..." placeholderTextColor="#68779b"
-                    autoCapitalize="characters"
-                  />
-                  <TouchableOpacity style={s.addPatternBtn} onPress={addPattern} disabled={addingPattern}>
-                    {addingPattern ? <ActivityIndicator size="small" color="#f43f5e" /> : <Ionicons name="add" size={20} color="#f43f5e" />}
-                  </TouchableOpacity>
-                </View>
-
-                <TouchableOpacity style={s.resetPatternsBtn} onPress={resetPatterns}>
-                  <Ionicons name="refresh" size={15} color="#f87171" />
-                  <Text style={s.resetPatternsBtnText}>Reset All to Defaults</Text>
-                </TouchableOpacity>
-              </View>
-            )}
-          </SectionCard>
-
           {/* ═══ NOTIFICATIONS (SMS) ═══ */}
           <SectionCard accent="#10b981">
             <SectionTitle icon="notifications" label="Notifications" color="#10b981" sub="SMS alerts via Twilio" />
@@ -1146,7 +947,7 @@ export default function SettingsScreen() {
           <View style={s.riskWarning}>
             <Ionicons name="warning-outline" size={20} color="#f59e0b" />
             <Text style={s.riskWarningText}>
-              Auto-trading carries significant financial risk. Always start with simulation mode and small position sizes. Never risk money you cannot afford to lose.
+              Auto-trading carries significant financial risk. Use small position sizes and verified broker credentials before increasing order size.
             </Text>
           </View>
 
@@ -1173,8 +974,6 @@ const s = StyleSheet.create({
   saveBtnDim:   { backgroundColor: '#29213a' },
   saveBtnText:  { fontSize: 13, color: '#fff', fontWeight: '700' },
 
-  simBanner:    { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: '#2d1f5e', marginHorizontal: 16, marginBottom: 8, padding: 10, borderRadius: 8, borderWidth: 1, borderColor: '#7c3aed' },
-  simBannerText:{ fontSize: 12, color: '#a78bfa', fontWeight: '700', flex: 1 },
   dirtyBar:     { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: '#1c1500', paddingHorizontal: 20, paddingVertical: 6 },
   dirtyText:    { fontSize: 11, color: '#92400e' },
 
@@ -1192,8 +991,6 @@ const s = StyleSheet.create({
   digestStat:   { flex: 1, minHeight: 58, borderRadius: 10, backgroundColor: '#050416', borderWidth: 1, borderColor: '#29213a', padding: 9, justifyContent: 'center' },
   digestStatValue: { fontSize: 14, fontWeight: '900', color: '#edf3ff' },
   digestStatLabel: { fontSize: 10, color: '#68779b', fontWeight: '700', marginTop: 3, textTransform: 'uppercase' },
-  digestMetaRow: { flexDirection: 'row', gap: 8, marginTop: 10, flexWrap: 'wrap' },
-  digestMetaText: { fontSize: 11, color: '#68779b', fontWeight: '700', backgroundColor: '#050416', borderRadius: 7, paddingHorizontal: 9, paddingVertical: 5 },
   warningList:  { marginTop: 12, gap: 8 },
   warningRow:   { flexDirection: 'row', alignItems: 'flex-start', gap: 8 },
   warningCopy:  { flex: 1 },
@@ -1249,30 +1046,13 @@ const s = StyleSheet.create({
   twoCol:       { flexDirection: 'row', gap: 10 },
   twoColItem:   { flex: 1 },
 
-  btnRow:       { flexDirection: 'row', gap: 8, marginTop: 10 },
   actionBtn:    { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 7, padding: 12, borderRadius: 9 },
   actionBtnText:{ fontSize: 14, fontWeight: '700', color: '#fff' },
-
-  validationWarn: { fontSize: 11, color: '#f59e0b', marginBottom: 6 },
 
   resultBox:    { borderRadius: 9, padding: 12, marginTop: 10, borderWidth: 1 },
   resultSuccess:{ backgroundColor: '#052e16', borderColor: '#22c55e' },
   resultError:  { backgroundColor: '#2d1515', borderColor: '#ef4444' },
-  resultHeader: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 6 },
-  resultTitle:  { fontSize: 15, fontWeight: '700' },
   resultMsg:    { fontSize: 13, color: '#aec0e5', marginBottom: 4 },
-  resultDetail: { fontSize: 12, color: '#68779b' },
-
-  guideToggle:  { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 12, paddingTop: 12, borderTopWidth: 1, borderTopColor: '#29213a' },
-  guideToggleLeft: { flexDirection: 'row', alignItems: 'center', gap: 7 },
-  guideToggleText: { fontSize: 13, color: '#aec0e5', fontWeight: '500' },
-  guide:        { backgroundColor: 'transparent', borderRadius: 9, padding: 14, marginTop: 10, borderWidth: 1, borderColor: '#29213a' },
-  guideStep:    { marginBottom: 16 },
-  guideStepHeader: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 6 },
-  guideNum:     { width: 22, height: 22, borderRadius: 11, backgroundColor: '#5865F2', alignItems: 'center', justifyContent: 'center' },
-  guideNumText: { fontSize: 11, fontWeight: '700', color: '#fff' },
-  guideStepTitle: { fontSize: 13, fontWeight: '700', color: '#edf3ff' },
-  guideStepText: { fontSize: 12, color: '#68779b', lineHeight: 20, paddingLeft: 32 },
 
   brokerRow:    { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 12 },
   brokerDot:    { width: 10, height: 10, borderRadius: 5 },
@@ -1286,25 +1066,9 @@ const s = StyleSheet.create({
   segText:      { fontSize: 13, color: '#68779b', fontWeight: '600' },
   segTextActive:{ color: '#f43f5e' },
 
-  simWarning:   { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: '#1a0f3d', borderRadius: 7, padding: 10, marginTop: 6, borderWidth: 1, borderColor: '#7c3aed' },
-  simWarningText: { flex: 1, fontSize: 12, color: '#a78bfa' },
 
   infoBox:      { flexDirection: 'row', alignItems: 'flex-start', gap: 8, backgroundColor: 'transparent', borderRadius: 7, padding: 10, marginTop: 12, borderLeftWidth: 2 },
   infoText:     { flex: 1, fontSize: 12, color: '#68779b', lineHeight: 18 },
-
-  patternsHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  patternsBody:   { marginTop: 14 },
-  patternTypesRow:{ flexDirection: 'row', gap: 7 },
-  patternTypeBtn: { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 11, paddingVertical: 7, borderRadius: 7, backgroundColor: 'rgba(21, 16, 33, 0.72)' },
-  patternTypeBtnText: { fontSize: 12, fontWeight: '600', color: '#68779b' },
-  patternChips:   { flexDirection: 'row', flexWrap: 'wrap', gap: 7, marginBottom: 12 },
-  chip:           { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 6, backgroundColor: 'rgba(21, 16, 33, 0.72)', borderWidth: 1 },
-  chipText:       { fontSize: 12, color: '#edf3ff' },
-  noPatterns:     { fontSize: 12, color: '#68779b', fontStyle: 'italic' },
-  addPatternRow:  { flexDirection: 'row', gap: 8, marginBottom: 10 },
-  addPatternBtn:  { width: 44, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(244, 63, 94, 0.18)', borderRadius: 9, borderWidth: 1, borderColor: '#f43f5e' },
-  resetPatternsBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 7, padding: 11, borderRadius: 8, backgroundColor: '#2d1515' },
-  resetPatternsBtnText: { fontSize: 13, color: '#f87171', fontWeight: '600' },
 
   thresholdBlock:  { backgroundColor: 'transparent', borderRadius: 10, padding: 12, marginTop: 10, borderWidth: 1, borderColor: '#29213a' },
   thresholdHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 },

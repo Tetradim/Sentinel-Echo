@@ -22,7 +22,8 @@ export interface ReconciliationDigest {
 export function summarizeReconciliation(rows: ReconciliationRow[] | null | undefined): ReconciliationDigest {
   const list = Array.isArray(rows) ? rows : [];
   const attentionCount = list.filter((row) => String(row.attention_reason || '').length > 0).length;
-  const pendingCount = list.filter((row) => String(row.trade_status || '').toLowerCase() === 'pending').length;
+  const pendingStatuses = new Set(['pending', 'submitted', 'unconfirmed', 'pending_broker']);
+  const pendingCount = list.filter((row) => pendingStatuses.has(String(row.trade_status || '').toLowerCase())).length;
   const liveCount = list.filter((row) => row.simulated === false).length;
 
   return {

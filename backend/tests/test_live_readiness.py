@@ -142,7 +142,7 @@ class LiveReadinessTests(unittest.TestCase):
         self.assertEqual(result["blocking_issues"], [])
         self.assertEqual(result["checks"]["role"]["active_role"], "live_executioner")
 
-    def test_ready_settings_block_live_by_default_without_explicit_execution_role(self):
+    def test_ready_settings_do_not_require_execution_role_gate(self):
         from live_readiness import evaluate_live_readiness
 
         result = evaluate_live_readiness(
@@ -152,10 +152,9 @@ class LiveReadinessTests(unittest.TestCase):
             env=READY_ENV,
         )
 
-        self.assertFalse(result["ready_for_live"])
-        self.assertIn("sentinel_echo_role_not_live_executioner", result["blocking_codes"])
-        self.assertEqual(result["checks"]["role"]["active_role"], "paper_shadow")
-        self.assertFalse(result["checks"]["role"]["live_execution_allowed"])
+        self.assertTrue(result["ready_for_live"])
+        self.assertNotIn("sentinel_echo_role_not_live_executioner", result["blocking_codes"])
+        self.assertTrue(result["checks"]["role"]["live_execution_allowed"])
 
     def test_broker_enum_value_is_normalized_for_readiness(self):
         from live_readiness import evaluate_live_readiness
@@ -540,7 +539,7 @@ class LiveReadinessTests(unittest.TestCase):
                     "source overrides must be an object",
                 )
 
-    def test_source_policy_check_reports_blocked_source_reasons(self):
+    def test_source_policy_ignores_removed_paper_and_manual_source_flags(self):
         from live_readiness import evaluate_live_readiness
 
         settings = dict(READY_SETTINGS)
@@ -559,14 +558,10 @@ class LiveReadinessTests(unittest.TestCase):
         source_policy = result["checks"]["source_policy"]
         blocked = {item["key"]: item["reasons"] for item in source_policy["blocked_sources"]}
 
-        self.assertIn("no_live_source", result["blocking_codes"])
+        self.assertNotIn("no_live_source", result["blocking_codes"])
         self.assertEqual(source_policy["override_count"], 3)
-        self.assertEqual(source_policy["auto_live_sources"], 0)
-        self.assertEqual(source_policy["paper_only_sources"], 1)
-        self.assertEqual(source_policy["manual_confirm_sources"], 1)
+        self.assertEqual(source_policy["auto_live_sources"], 2)
         self.assertEqual(source_policy["disabled_sources"], 1)
-        self.assertEqual(blocked["paper"], ["paper_only"])
-        self.assertEqual(blocked["manual"], ["manual_confirm_required"])
         self.assertEqual(blocked["disabled"], ["disabled"])
 
     def test_invalid_max_position_size_reports_blocker_without_crashing(self):

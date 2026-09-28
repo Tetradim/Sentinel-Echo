@@ -3,9 +3,10 @@
  *
  * Configure multiple Discord communities with custom alert patterns
  */
-import React, { useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Alert,
+  ActivityIndicator,
   ScrollView,
   StyleSheet,
   Switch,
@@ -20,8 +21,10 @@ import {
   DiscordDigest,
   summarizeDiscordSettings,
 } from '../utils/discordDigest';
+import { api } from '../utils/api';
+import { BACKEND_URL } from '../constants/config';
 
-type TabType = 'communities' | 'patterns' | 'filters';
+type TabType = 'communities' | 'patterns' | 'filters' | 'behaviors';
 type PresetId = 'default' | 'aggressive' | 'swing' | 'theta' | 'momentum' | 'custom';
 
 type Community = {
@@ -32,6 +35,16 @@ type Community = {
   preset: PresetId;
   autoTrade: boolean;
   simulation: boolean;
+  processFollowupUpdates: boolean;
+  processActionableEdits: boolean;
+  allowSinglePositionInferredSell: boolean;
+  allowBroadExitMatching: boolean;
+  protectTrailingArmedFromContextualExits: boolean;
+  trailingContextExitOverrideEnabled: boolean;
+  trailingContextExitOverridePercent: number;
+  dedupeByChannelUrl: boolean;
+  ignoreFollowupMessages: boolean;
+  allowFreshEntryAfterClose: boolean;
 };
 
 type Patterns = {
@@ -53,10 +66,21 @@ type Filters = {
   maxPrice: number;
 };
 
+type DiscordConnectionResult = {
+  success: boolean;
+  message: string;
+  details?: {
+    monitoring_channels?: string[];
+    alerts_processed?: number;
+    [key: string]: unknown;
+  } | null;
+};
+
 const TABS: { id: TabType; label: string }[] = [
   { id: 'communities', label: 'Communities' },
   { id: 'patterns', label: 'Patterns' },
   { id: 'filters', label: 'Filters' },
+  { id: 'behaviors', label: 'Behaviors' },
 ];
 
 const PRESETS: { id: PresetId; name: string; detail: string }[] = [
@@ -66,18 +90,6 @@ const PRESETS: { id: PresetId; name: string; detail: string }[] = [
   { id: 'theta', name: 'Theta', detail: 'Premium selling' },
   { id: 'momentum', name: 'Momentum', detail: 'Breakout signals' },
   { id: 'custom', name: 'Custom', detail: 'Manual rules' },
-];
-
-const DEFAULT_COMMUNITIES: Community[] = [
-  {
-    id: '1',
-    name: 'Main Trading Server',
-    channelId: '123456789',
-    enabled: true,
-    preset: 'default',
-    autoTrade: false,
-    simulation: true,
-  },
 ];
 
 const DEFAULT_PATTERNS: Patterns = {
@@ -99,8 +111,227 @@ const DEFAULT_FILTERS: Filters = {
   maxPrice: 100,
 };
 
-function cloneCommunities(): Community[] {
-  return DEFAULT_COMMUNITIES.map((community) => ({ ...community }));
+const DEFAULT_BEHAVIORS = {
+  processFollowupUpdates: true,
+  processActionableEdits: true,
+  allowSinglePositionInferredSell: true,
+  allowBroadExitMatching: true,
+  protectTrailingArmedFromContextualExits: true,
+  trailingContextExitOverrideEnabled: true,
+  trailingContextExitOverridePercent: 80,
+  dedupeByChannelUrl: false,
+  ignoreFollowupMessages: false,
+  allowFreshEntryAfterClose: false,
+};
+
+const PRESET_IDS = new Set<PresetId>(['default', 'aggressive', 'swing', 'theta', 'momentum', 'custom']);
+const MASKED_SECRET = '********';
+
+function parseBoolean(value: unknown, fallback = false): boolean {
+  if (typeof value === 'boolean') return value;
+  if (typeof value === 'number') return value !== 0;
+  const normalized = String(value ?? '').trim().toLowerCase();
+  if (['true', '1', 'yes', 'on'].includes(normalized)) return true;
+  if (['false', '0', 'no', 'off'].includes(normalized)) return false;
+  return fallback;
+}
+
+function normalizePreset(value: unknown): PresetId {
+  const preset = String(value || 'default').trim().toLowerCase() as PresetId;
+  return PRESET_IDS.has(preset) ? preset : 'default';
+}
+
+function splitList(value: string): string[] {
+  return value
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function uniqueList(values: string[]): string[] {
+  const seen = new Set<string>();
+  const result: string[] = [];
+  values.forEach((value) => {
+    const clean = value.trim();
+    if (clean && !seen.has(clean)) {
+      seen.add(clean);
+      result.push(clean);
+    }
+  });
+  return result;
+}
+
+function patternText(value: unknown, fallback: string): string {
+  if (Array.isArray(value)) return value.map((item) => String(item).trim()).filter(Boolean).join(',');
+  return fallback;
+}
+
+function patternList(value: string): string[] {
+  return splitList(value).map((item) => item.toUpperCase());
+}
+
+function numberValue(value: unknown, fallback: number): number {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function normalizeCommunity(value: any, index: number): Community | null {
+  if (!value || typeof value !== 'object') return null;
+  const channelId = String(value.channelId ?? value.channel_id ?? '').trim();
+  const id = String(value.id || channelId || `community-${index + 1}`);
+  return {
+    id,
+    name: String(value.name || `Discord Channel ${channelId || index + 1}`),
+    channelId,
+    enabled: parseBoolean(value.enabled, true),
+    preset: normalizePreset(value.preset || value.parser_format),
+    autoTrade: parseBoolean(value.autoTrade ?? value.auto_trade ?? !parseBoolean(value.require_manual_confirm, false), false),
+    simulation: parseBoolean(value.simulation ?? value.paper_only, true),
+    processFollowupUpdates: parseBoolean(
+      value.processFollowupUpdates ?? value.process_followup_updates,
+      DEFAULT_BEHAVIORS.processFollowupUpdates,
+    ),
+    processActionableEdits: parseBoolean(
+      value.processActionableEdits ?? value.process_actionable_edits,
+      DEFAULT_BEHAVIORS.processActionableEdits,
+    ),
+    allowSinglePositionInferredSell: parseBoolean(
+      value.allowSinglePositionInferredSell ?? value.allow_single_position_inferred_sell,
+      DEFAULT_BEHAVIORS.allowSinglePositionInferredSell,
+    ),
+    allowBroadExitMatching: parseBoolean(
+      value.allowBroadExitMatching ?? value.allow_broad_exit_matching,
+      DEFAULT_BEHAVIORS.allowBroadExitMatching,
+    ),
+    protectTrailingArmedFromContextualExits: parseBoolean(
+      value.protectTrailingArmedFromContextualExits ?? value.protect_trailing_armed_from_contextual_exits,
+      DEFAULT_BEHAVIORS.protectTrailingArmedFromContextualExits,
+    ),
+    trailingContextExitOverrideEnabled: parseBoolean(
+      value.trailingContextExitOverrideEnabled ?? value.trailing_context_exit_override_enabled,
+      DEFAULT_BEHAVIORS.trailingContextExitOverrideEnabled,
+    ),
+    trailingContextExitOverridePercent: numberValue(
+      value.trailingContextExitOverridePercent ?? value.trailing_context_exit_override_percent,
+      DEFAULT_BEHAVIORS.trailingContextExitOverridePercent,
+    ),
+    dedupeByChannelUrl: parseBoolean(
+      value.dedupeByChannelUrl ?? value.dedupe_by_channel_url,
+      DEFAULT_BEHAVIORS.dedupeByChannelUrl,
+    ),
+    ignoreFollowupMessages: parseBoolean(
+      value.ignoreFollowupMessages ?? value.ignore_followup_messages,
+      DEFAULT_BEHAVIORS.ignoreFollowupMessages,
+    ),
+    allowFreshEntryAfterClose: parseBoolean(
+      value.allowFreshEntryAfterClose ?? value.allow_fresh_entry_after_close,
+      DEFAULT_BEHAVIORS.allowFreshEntryAfterClose,
+    ),
+  };
+}
+
+function communitiesFromSettings(settings: any): Community[] {
+  const saved = Array.isArray(settings?.discord_communities)
+    ? settings.discord_communities
+        .map((community: any, index: number) => normalizeCommunity(community, index))
+        .filter(Boolean) as Community[]
+    : [];
+  if (saved.length > 0) return saved;
+
+  const sourceOverrides = settings?.source_overrides && typeof settings.source_overrides === 'object'
+    ? settings.source_overrides
+    : {};
+  const channelIds = Array.isArray(settings?.discord_channel_ids)
+    ? settings.discord_channel_ids.map((channelId: unknown) => String(channelId).trim()).filter(Boolean)
+    : [];
+  return channelIds.map((channelId: string, index: number) => {
+    const source = sourceOverrides[channelId] || {};
+    return {
+      id: channelId || `community-${index + 1}`,
+      name: String(source.name || `Discord Channel ${channelId}`),
+      channelId,
+      enabled: parseBoolean(source.enabled, true),
+      preset: normalizePreset(source.parser_format),
+      autoTrade: !parseBoolean(source.require_manual_confirm, false),
+      simulation: parseBoolean(source.paper_only, false),
+      processFollowupUpdates: parseBoolean(source.process_followup_updates, DEFAULT_BEHAVIORS.processFollowupUpdates),
+      processActionableEdits: parseBoolean(source.process_actionable_edits, DEFAULT_BEHAVIORS.processActionableEdits),
+      allowSinglePositionInferredSell: parseBoolean(source.allow_single_position_inferred_sell, DEFAULT_BEHAVIORS.allowSinglePositionInferredSell),
+      allowBroadExitMatching: parseBoolean(source.allow_broad_exit_matching, DEFAULT_BEHAVIORS.allowBroadExitMatching),
+      protectTrailingArmedFromContextualExits: parseBoolean(
+        source.protect_trailing_armed_from_contextual_exits,
+        DEFAULT_BEHAVIORS.protectTrailingArmedFromContextualExits,
+      ),
+      trailingContextExitOverrideEnabled: parseBoolean(
+        source.trailing_context_exit_override_enabled,
+        DEFAULT_BEHAVIORS.trailingContextExitOverrideEnabled,
+      ),
+      trailingContextExitOverridePercent: numberValue(
+        source.trailing_context_exit_override_percent,
+        DEFAULT_BEHAVIORS.trailingContextExitOverridePercent,
+      ),
+      dedupeByChannelUrl: parseBoolean(source.dedupe_by_channel_url, DEFAULT_BEHAVIORS.dedupeByChannelUrl),
+      ignoreFollowupMessages: parseBoolean(source.ignore_followup_messages, DEFAULT_BEHAVIORS.ignoreFollowupMessages),
+      allowFreshEntryAfterClose: parseBoolean(
+        source.allow_fresh_entry_after_close,
+        DEFAULT_BEHAVIORS.allowFreshEntryAfterClose,
+      ),
+    };
+  });
+}
+
+function patternsFromResponse(patternResponse: any, requirements: any): Patterns {
+  return {
+    buyKeywords: patternText(patternResponse?.buy_patterns, DEFAULT_PATTERNS.buyKeywords),
+    sellKeywords: patternText(patternResponse?.sell_patterns, DEFAULT_PATTERNS.sellKeywords),
+    avgDownKeywords: patternText(patternResponse?.average_down_patterns, DEFAULT_PATTERNS.avgDownKeywords),
+    ignoreKeywords: patternText(patternResponse?.ignore_patterns, DEFAULT_PATTERNS.ignoreKeywords),
+    tickerPattern: String(patternResponse?.ticker_pattern || DEFAULT_PATTERNS.tickerPattern),
+    requireTicker: parseBoolean(requirements?.requireTicker ?? requirements?.require_ticker, DEFAULT_PATTERNS.requireTicker),
+    requireExpiration: parseBoolean(requirements?.requireExpiration ?? requirements?.require_expiration, DEFAULT_PATTERNS.requireExpiration),
+    requirePrice: parseBoolean(requirements?.requirePrice ?? requirements?.require_price, DEFAULT_PATTERNS.requirePrice),
+  };
+}
+
+function filtersFromSettings(settings: any): Filters {
+  const saved = settings?.discord_filters && typeof settings.discord_filters === 'object'
+    ? settings.discord_filters
+    : {};
+  return {
+    listenToUsers: String(saved.listenToUsers ?? saved.listen_to_users ?? ''),
+    ignoreUsers: String(saved.ignoreUsers ?? saved.ignore_users ?? ''),
+    listenToChannels: String(saved.listenToChannels ?? saved.listen_to_channels ?? ''),
+    minPrice: numberValue(saved.minPrice ?? saved.min_price, DEFAULT_FILTERS.minPrice),
+    maxPrice: numberValue(saved.maxPrice ?? saved.max_price, DEFAULT_FILTERS.maxPrice),
+  };
+}
+
+function buildSourceOverrides(communities: Community[], existing: any): Record<string, any> {
+  const source_overrides = existing && typeof existing === 'object' ? { ...existing } : {};
+  communities.forEach((community) => {
+    const key = community.channelId.trim() || community.id;
+    if (!key) return;
+    const previous = source_overrides[key] && typeof source_overrides[key] === 'object' ? source_overrides[key] : {};
+    source_overrides[key] = {
+      ...previous,
+      name: community.name.trim() || community.channelId.trim() || community.id,
+      enabled: community.enabled,
+      paper_only: community.simulation,
+      require_manual_confirm: !community.autoTrade,
+      parser_format: community.preset,
+      process_followup_updates: community.processFollowupUpdates,
+      process_actionable_edits: community.processActionableEdits,
+      allow_single_position_inferred_sell: community.allowSinglePositionInferredSell,
+      allow_broad_exit_matching: community.allowBroadExitMatching,
+      protect_trailing_armed_from_contextual_exits: community.protectTrailingArmedFromContextualExits,
+      trailing_context_exit_override_enabled: community.trailingContextExitOverrideEnabled,
+      trailing_context_exit_override_percent: community.trailingContextExitOverridePercent,
+      dedupe_by_channel_url: community.dedupeByChannelUrl,
+      ignore_followup_messages: community.ignoreFollowupMessages,
+      allow_fresh_entry_after_close: community.allowFreshEntryAfterClose,
+    };
+  });
+  return source_overrides;
 }
 
 function DigestStat({ label, value, color }: { label: string; value: string; color?: string }) {
@@ -222,10 +453,68 @@ function Field({
 
 export function DiscordSettingsPage() {
   const [activeTab, setActiveTab] = useState<TabType>('communities');
-  const [communities, setCommunities] = useState<Community[]>(cloneCommunities);
+  const [communities, setCommunities] = useState<Community[]>([]);
   const [patterns, setPatterns] = useState<Patterns>(DEFAULT_PATTERNS);
   const [filters, setFilters] = useState<Filters>(DEFAULT_FILTERS);
+  const [discordToken, setDiscordToken] = useState('');
+  const [discordTokenConfigured, setDiscordTokenConfigured] = useState(false);
+  const [discordStarting, setDiscordStarting] = useState(false);
+  const [discordTesting, setDiscordTesting] = useState(false);
+  const [discordResult, setDiscordResult] = useState<DiscordConnectionResult | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [loadError, setLoadError] = useState('');
+  const [sourceOverrides, setSourceOverrides] = useState<Record<string, any>>({});
+  const originalState = useRef<{
+    communities: Community[];
+    patterns: Patterns;
+    filters: Filters;
+    discordTokenConfigured: boolean;
+    sourceOverrides: Record<string, any>;
+  } | null>(null);
   const digest = summarizeDiscordSettings(communities, patterns, filters);
+
+  const fetchSettings = useCallback(async () => {
+    setLoading(true);
+    setLoadError('');
+    try {
+      const [settingsRes, patternsRes] = await Promise.all([
+        api.get(`${BACKEND_URL}/api/settings`),
+        api.get(`${BACKEND_URL}/api/discord/alert-patterns`),
+      ]);
+      const settings = settingsRes.data || {};
+      const loadedCommunities = communitiesFromSettings(settings);
+      const loadedPatterns = patternsFromResponse(patternsRes.data || {}, settings.discord_parser_requirements || {});
+      const loadedFilters = filtersFromSettings(settings);
+      const loadedSourceOverrides = settings.source_overrides && typeof settings.source_overrides === 'object'
+        ? settings.source_overrides
+        : {};
+      const hasSavedToken = Boolean(settings.discord_token_configured || (settings.discord_token && settings.discord_token !== MASKED_SECRET));
+
+      setCommunities(loadedCommunities);
+      setPatterns(loadedPatterns);
+      setFilters(loadedFilters);
+      setDiscordToken('');
+      setDiscordTokenConfigured(hasSavedToken);
+      setSourceOverrides(loadedSourceOverrides);
+      originalState.current = {
+        communities: loadedCommunities.map((community) => ({ ...community })),
+        patterns: { ...loadedPatterns },
+        filters: { ...loadedFilters },
+        discordTokenConfigured: hasSavedToken,
+        sourceOverrides: loadedSourceOverrides,
+      };
+    } catch (error) {
+      console.error('Discord settings load failed:', error);
+      setLoadError('Discord settings could not load. Check the backend connection and retry.');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchSettings();
+  }, [fetchSettings]);
 
   const addCommunity = () => {
     setCommunities(prev => [
@@ -238,6 +527,7 @@ export function DiscordSettingsPage() {
         preset: 'default',
         autoTrade: false,
         simulation: true,
+        ...DEFAULT_BEHAVIORS,
       },
     ]);
   };
@@ -261,13 +551,118 @@ export function DiscordSettingsPage() {
   };
 
   const resetSettings = () => {
-    setCommunities(cloneCommunities());
-    setPatterns(DEFAULT_PATTERNS);
-    setFilters(DEFAULT_FILTERS);
+    if (originalState.current) {
+      setCommunities(originalState.current.communities.map((community) => ({ ...community })));
+      setPatterns({ ...originalState.current.patterns });
+      setFilters({ ...originalState.current.filters });
+      setDiscordToken('');
+      setDiscordTokenConfigured(originalState.current.discordTokenConfigured);
+      setSourceOverrides(originalState.current.sourceOverrides);
+      return;
+    }
+    fetchSettings();
   };
 
-  const saveSettings = () => {
-    Alert.alert('Saved', 'Discord settings saved successfully');
+  const saveSettings = async () => {
+    setSaving(true);
+    try {
+      const filterChannelIds = splitList(filters.listenToChannels);
+      const enabledCommunityChannelIds = communities
+        .filter((community) => community.enabled)
+        .map((community) => community.channelId.trim())
+        .filter(Boolean);
+      const discord_channel_ids = uniqueList([...enabledCommunityChannelIds, ...filterChannelIds]);
+      const source_overrides = buildSourceOverrides(communities, sourceOverrides);
+      const settingsPayload: Record<string, any> = {
+        discord_channel_ids,
+        source_overrides,
+        discord_communities: communities,
+        discord_filters: filters,
+        discord_parser_requirements: {
+          requireTicker: patterns.requireTicker,
+          requireExpiration: patterns.requireExpiration,
+          requirePrice: patterns.requirePrice,
+        },
+      };
+      const token = discordToken.trim();
+      if (token && token !== MASKED_SECRET) {
+        settingsPayload.discord_token = token;
+      }
+
+      const patternsPayload = {
+        buy_patterns: patternList(patterns.buyKeywords),
+        sell_patterns: patternList(patterns.sellKeywords),
+        average_down_patterns: patternList(patterns.avgDownKeywords),
+        ignore_patterns: patternList(patterns.ignoreKeywords),
+        ticker_pattern: patterns.tickerPattern,
+      };
+
+      await Promise.all([
+        api.put(`${BACKEND_URL}/api/settings`, settingsPayload),
+        api.put(`${BACKEND_URL}/api/discord/alert-patterns`, patternsPayload),
+      ]);
+
+      setDiscordToken('');
+      setDiscordTokenConfigured(discordTokenConfigured || Boolean(token));
+      setSourceOverrides(source_overrides);
+      originalState.current = {
+        communities: communities.map((community) => ({ ...community })),
+        patterns: { ...patterns },
+        filters: { ...filters },
+        discordTokenConfigured: discordTokenConfigured || Boolean(token),
+        sourceOverrides: source_overrides,
+      };
+      Alert.alert('Saved', 'Discord settings saved successfully');
+    } catch (error: any) {
+      console.error('Discord settings save failed:', error);
+      Alert.alert('Error', error?.response?.data?.detail || 'Failed to save Discord settings');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const startDiscord = async () => {
+    setDiscordStarting(true);
+    setDiscordResult(null);
+    try {
+      const response = await api.post(`${BACKEND_URL}/api/discord/start`);
+      const result: DiscordConnectionResult = {
+        success: response.data?.success ?? true,
+        message: response.data?.message || 'Discord bot start requested.',
+        details: response.data?.details || response.data || null,
+      };
+      setDiscordResult(result);
+      Alert.alert('Discord', result.message);
+    } catch (error: any) {
+      setDiscordResult({
+        success: false,
+        message: error?.response?.data?.detail || 'Failed to start Discord bot',
+        details: null,
+      });
+    } finally {
+      setDiscordStarting(false);
+    }
+  };
+
+  const testDiscord = async () => {
+    setDiscordTesting(true);
+    setDiscordResult(null);
+    try {
+      const response = await api.post(`${BACKEND_URL}/api/discord/test-connection`);
+      setDiscordResult({
+        success: Boolean(response.data?.success),
+        message: response.data?.message || 'Discord connection checked.',
+        details: response.data?.details || null,
+      });
+    } catch (error: any) {
+      setDiscordResult({
+        success: false,
+        message: error?.response?.data?.detail || 'Connection failed',
+        details: null,
+      });
+    } finally {
+      setDiscordTesting(false);
+    }
   };
 
   return (
@@ -284,6 +679,70 @@ export function DiscordSettingsPage() {
         </View>
 
         <DiscordBriefing digest={digest} />
+
+        <View style={styles.connectionPanel}>
+          <View style={styles.connectionHeader}>
+            <View style={styles.connectionCopy}>
+              <Text style={styles.sectionTitle}>Bot Connection</Text>
+              <Text style={styles.sectionHint}>Start the listener and test access to the saved Discord token and channels.</Text>
+            </View>
+          </View>
+          <View style={styles.connectionActions}>
+            <TouchableOpacity
+              style={[styles.connectionAction, styles.connectionPrimary, (loading || discordStarting) && styles.actionDisabled]}
+              onPress={startDiscord}
+              disabled={loading || discordStarting}
+            >
+              {discordStarting ? <ActivityIndicator size="small" color="#070812" /> : <Ionicons name="play" size={17} color="#070812" />}
+              <Text style={styles.connectionPrimaryText}>{discordStarting ? 'Starting...' : 'Start Bot'}</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.connectionAction, styles.connectionSecondary, (loading || discordTesting) && styles.actionDisabled]}
+              onPress={testDiscord}
+              disabled={loading || discordTesting}
+            >
+              {discordTesting ? <ActivityIndicator size="small" color="#fb7185" /> : <Ionicons name="pulse-outline" size={17} color="#fb7185" />}
+              <Text style={styles.connectionSecondaryText}>{discordTesting ? 'Testing...' : 'Test'}</Text>
+            </TouchableOpacity>
+          </View>
+          {discordResult ? (
+            <View style={[styles.connectionResult, discordResult.success ? styles.connectionSuccess : styles.connectionError]}>
+              <View style={styles.connectionResultHeader}>
+                <Ionicons
+                  name={discordResult.success ? 'checkmark-circle' : 'alert-circle'}
+                  size={17}
+                  color={discordResult.success ? '#4ade80' : '#f87171'}
+                />
+                <Text style={[styles.connectionResultTitle, { color: discordResult.success ? '#4ade80' : '#f87171' }]}>
+                  {discordResult.success ? 'Connected' : 'Not Connected'}
+                </Text>
+              </View>
+              <Text style={styles.connectionResultMessage}>{discordResult.message}</Text>
+              {discordResult.details?.monitoring_channels?.length ? (
+                <Text style={styles.connectionResultDetail}>Channels: {discordResult.details.monitoring_channels.join(', ')}</Text>
+              ) : null}
+              {discordResult.details?.alerts_processed !== undefined ? (
+                <Text style={styles.connectionResultDetail}>Alerts processed: {discordResult.details.alerts_processed}</Text>
+              ) : null}
+            </View>
+          ) : null}
+        </View>
+
+        {loading && (
+          <View style={styles.statusPanel}>
+            <ActivityIndicator size="small" color="#fb7185" />
+            <Text style={styles.statusText}>Loading saved Discord settings...</Text>
+          </View>
+        )}
+        {loadError ? (
+          <View style={styles.statusPanel}>
+            <Ionicons name="warning-outline" size={16} color="#f59e0b" />
+            <Text style={styles.statusText}>{loadError}</Text>
+            <TouchableOpacity style={styles.retryButton} onPress={fetchSettings}>
+              <Text style={styles.retryText}>Retry</Text>
+            </TouchableOpacity>
+          </View>
+        ) : null}
 
         <View style={styles.tabRow}>
           {TABS.map((tab) => (
@@ -308,6 +767,26 @@ export function DiscordSettingsPage() {
                 <Ionicons name="add" size={16} color="#fb7185" />
                 <Text style={styles.miniActionText}>Add</Text>
               </TouchableOpacity>
+            </View>
+
+            <View style={styles.tokenPanel}>
+              <View style={styles.tokenHeader}>
+                <View>
+                  <Text style={styles.sectionTitle}>Bot Token</Text>
+                  <Text style={styles.sectionHint}>
+                    {discordTokenConfigured ? 'A Discord token is saved. Enter a new token only when rotating it.' : 'No Discord token is saved for bot login.'}
+                  </Text>
+                </View>
+                <View style={[styles.tokenBadge, discordTokenConfigured ? styles.tokenBadgeSaved : styles.tokenBadgeMissing]}>
+                  <Text style={styles.tokenBadgeText}>{discordTokenConfigured ? 'Saved' : 'Missing'}</Text>
+                </View>
+              </View>
+              <Field
+                label="New Bot Token"
+                value={discordToken}
+                onChangeText={setDiscordToken}
+                placeholder={discordTokenConfigured ? 'Leave blank to keep saved token' : 'Paste bot token'}
+              />
             </View>
 
             {communities.map((community) => (
@@ -375,6 +854,12 @@ export function DiscordSettingsPage() {
                 />
               </View>
             ))}
+            {communities.length === 0 && !loading ? (
+              <View style={styles.emptyPanel}>
+                <Text style={styles.emptyTitle}>No Discord channels saved</Text>
+                <Text style={styles.emptyDetail}>Add a community and channel ID, then save to start monitoring it.</Text>
+              </View>
+            ) : null}
           </View>
         )}
 
@@ -480,14 +965,106 @@ export function DiscordSettingsPage() {
           </View>
         )}
 
+        {activeTab === 'behaviors' && (
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Behaviors</Text>
+            <Text style={styles.sectionHint}>Source-specific compatibility switches for analyst conversation parsing.</Text>
+
+            {communities.map((community) => (
+              <View key={community.id} style={styles.communityCard}>
+                <View style={styles.communityTop}>
+                  <View style={styles.communityTitleBlock}>
+                    <Text style={styles.communityName}>{community.name}</Text>
+                    <Text style={styles.communityMeta}>{community.channelId || 'No channel ID saved'}</Text>
+                  </View>
+                </View>
+                <ToggleRow
+                  title="Process Follow-Up Updates"
+                  detail="Treat profit updates and fill notes as state changes for active positions."
+                  value={community.processFollowupUpdates}
+                  onValueChange={(value) => updateCommunity(community.id, 'processFollowupUpdates', value)}
+                />
+                <ToggleRow
+                  title="Process Actionable Edits"
+                  detail="Re-parse Discord edits when a message changes into a sell, trim, close, or average-down instruction."
+                  value={community.processActionableEdits}
+                  onValueChange={(value) => updateCommunity(community.id, 'processActionableEdits', value)}
+                />
+                <ToggleRow
+                  title="Infer Single-Position Sells"
+                  detail="Allow a sell missing expiration to close the only matching open contract."
+                  value={community.allowSinglePositionInferredSell}
+                  onValueChange={(value) => updateCommunity(community.id, 'allowSinglePositionInferredSell', value)}
+                />
+                <ToggleRow
+                  title="Broad Exit Matching"
+                  detail="Allow broad SOLD, TRIM, and CLOSE messages to match open contracts when the match is unambiguous."
+                  value={community.allowBroadExitMatching}
+                  onValueChange={(value) => updateCommunity(community.id, 'allowBroadExitMatching', value)}
+                />
+                <ToggleRow
+                  title="Protect Trailing Runners"
+                  detail="Ignore broad or inferred sell messages after a contract reaches trailing activation. Exact contract exits still close it."
+                  value={community.protectTrailingArmedFromContextualExits}
+                  onValueChange={(value) => updateCommunity(community.id, 'protectTrailingArmedFromContextualExits', value)}
+                />
+                <ToggleRow
+                  title="Obey Large Exact Exits"
+                  detail="Allow a contract-specific sell at or above the threshold to override trailing protection, even when expiration is omitted."
+                  value={community.trailingContextExitOverrideEnabled}
+                  onValueChange={(value) => updateCommunity(community.id, 'trailingContextExitOverrideEnabled', value)}
+                />
+                <View style={styles.field}>
+                  <Text style={styles.label}>Exact Exit Override Threshold (%)</Text>
+                  <TextInput
+                    style={[styles.input, !community.trailingContextExitOverrideEnabled && styles.inputDisabled]}
+                    value={String(community.trailingContextExitOverridePercent)}
+                    onChangeText={(value) => updateCommunity(
+                      community.id,
+                      'trailingContextExitOverridePercent',
+                      Number(value),
+                    )}
+                    keyboardType="numeric"
+                    editable={community.trailingContextExitOverrideEnabled}
+                  />
+                </View>
+                <ToggleRow
+                  title="Legacy Channel URL Dedupe"
+                  detail="Use channel-only Discord URLs as duplicate identity for sources that need older Chrome parsing behavior."
+                  value={community.dedupeByChannelUrl}
+                  onValueChange={(value) => updateCommunity(community.id, 'dedupeByChannelUrl', value)}
+                />
+                <ToggleRow
+                  title="Ignore Follow-Up Messages"
+                  detail="Skip follow-up messages instead of using them to update active position marks."
+                  value={community.ignoreFollowupMessages}
+                  onValueChange={(value) => updateCommunity(community.id, 'ignoreFollowupMessages', value)}
+                />
+                <ToggleRow
+                  title="Allow Fresh Same-Contract Entries"
+                  detail="Permit a new alert ID to reopen a contract closed earlier in the session. Reposts of the same alert remain blocked."
+                  value={community.allowFreshEntryAfterClose}
+                  onValueChange={(value) => updateCommunity(community.id, 'allowFreshEntryAfterClose', value)}
+                />
+              </View>
+            ))}
+            {communities.length === 0 && !loading ? (
+              <View style={styles.emptyPanel}>
+                <Text style={styles.emptyTitle}>No Discord channels saved</Text>
+                <Text style={styles.emptyDetail}>Add a community before tuning source behaviors.</Text>
+              </View>
+            ) : null}
+          </View>
+        )}
+
         <View style={styles.actionRow}>
-          <TouchableOpacity style={styles.secondaryAction} onPress={resetSettings}>
+          <TouchableOpacity style={[styles.secondaryAction, loading && styles.actionDisabled]} onPress={resetSettings} disabled={loading || saving}>
             <Ionicons name="refresh-outline" size={18} color="#fb7185" />
             <Text style={styles.secondaryActionText}>Reset</Text>
           </TouchableOpacity>
-          <TouchableOpacity style={styles.primaryAction} onPress={saveSettings}>
-            <Ionicons name="save-outline" size={18} color="#070812" />
-            <Text style={styles.primaryActionText}>Save Discord Settings</Text>
+          <TouchableOpacity style={[styles.primaryAction, (loading || saving) && styles.actionDisabled]} onPress={saveSettings} disabled={loading || saving}>
+            {saving ? <ActivityIndicator size="small" color="#070812" /> : <Ionicons name="save-outline" size={18} color="#070812" />}
+            <Text style={styles.primaryActionText}>{saving ? 'Saving...' : 'Save Discord Settings'}</Text>
           </TouchableOpacity>
         </View>
       </ScrollView>
@@ -551,7 +1128,68 @@ const styles = StyleSheet.create({
   warningTitle: { color: '#fbbf24', fontSize: 12, fontWeight: '800' },
   warningDetail: { color: '#68779b', fontSize: 11, lineHeight: 15, marginTop: 2 },
   clearText: { color: '#aec0e5', flex: 1, fontSize: 12, fontWeight: '700' },
+  connectionPanel: {
+    backgroundColor: 'rgba(16, 9, 28, 0.88)',
+    borderColor: '#29213a',
+    borderRadius: 12,
+    borderWidth: 1,
+    marginBottom: 12,
+    padding: 14,
+  },
+  connectionHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 },
+  connectionCopy: { flex: 1 },
+  connectionActions: { flexDirection: 'row', gap: 10, marginTop: 12 },
+  connectionAction: {
+    minHeight: 46,
+    borderRadius: 9,
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 7,
+    paddingHorizontal: 12,
+  },
+  connectionPrimary: { backgroundColor: '#f43f5e' },
+  connectionSecondary: {
+    backgroundColor: 'rgba(244, 63, 94, 0.18)',
+    borderColor: '#f43f5e',
+    borderWidth: 1,
+  },
+  connectionPrimaryText: { color: '#070812', fontSize: 14, fontWeight: '900' },
+  connectionSecondaryText: { color: '#fb7185', fontSize: 14, fontWeight: '900' },
+  connectionResult: {
+    borderRadius: 9,
+    borderWidth: 1,
+    marginTop: 12,
+    padding: 11,
+  },
+  connectionSuccess: { backgroundColor: '#052e16', borderColor: '#22c55e' },
+  connectionError: { backgroundColor: '#2d1515', borderColor: '#ef4444' },
+  connectionResultHeader: { flexDirection: 'row', alignItems: 'center', gap: 7, marginBottom: 5 },
+  connectionResultTitle: { fontSize: 13, fontWeight: '900' },
+  connectionResultMessage: { color: '#aec0e5', fontSize: 12, fontWeight: '700', lineHeight: 17 },
+  connectionResultDetail: { color: '#68779b', fontSize: 11, fontWeight: '700', marginTop: 4 },
   tabRow: { flexDirection: 'row', gap: 8, marginBottom: 12 },
+  statusPanel: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: 'rgba(16, 9, 28, 0.88)',
+    borderColor: '#29213a',
+    borderRadius: 8,
+    borderWidth: 1,
+    marginBottom: 12,
+    padding: 10,
+  },
+  statusText: { color: '#aec0e5', flex: 1, fontSize: 12, fontWeight: '700' },
+  retryButton: {
+    borderColor: '#164766',
+    borderRadius: 6,
+    borderWidth: 1,
+    paddingHorizontal: 9,
+    paddingVertical: 5,
+  },
+  retryText: { color: '#fb7185', fontSize: 11, fontWeight: '900' },
   tab: {
     flex: 1,
     alignItems: 'center',
@@ -587,6 +1225,26 @@ const styles = StyleSheet.create({
     paddingVertical: 7,
   },
   miniActionText: { color: '#fb7185', fontSize: 12, fontWeight: '900' },
+  tokenPanel: {
+    backgroundColor: 'rgba(21, 16, 33, 0.72)',
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#29213a',
+    padding: 12,
+    marginBottom: 12,
+  },
+  tokenHeader: { flexDirection: 'row', justifyContent: 'space-between', gap: 12, marginBottom: 10 },
+  tokenBadge: {
+    alignItems: 'center',
+    borderRadius: 999,
+    height: 26,
+    justifyContent: 'center',
+    minWidth: 68,
+    paddingHorizontal: 10,
+  },
+  tokenBadgeSaved: { backgroundColor: 'rgba(34, 197, 94, 0.18)' },
+  tokenBadgeMissing: { backgroundColor: 'rgba(245, 158, 11, 0.18)' },
+  tokenBadgeText: { color: '#edf3ff', fontSize: 11, fontWeight: '900' },
   communityCard: {
     backgroundColor: 'rgba(21, 16, 33, 0.72)',
     borderRadius: 12,
@@ -622,6 +1280,7 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     paddingHorizontal: 12,
   },
+  inputDisabled: { opacity: 0.5 },
   multilineInput: { minHeight: 72, paddingTop: 10, textAlignVertical: 'top' },
   presetGrid: { gap: 8, marginBottom: 12 },
   presetButton: {
@@ -654,6 +1313,15 @@ const styles = StyleSheet.create({
   },
   requirementTitle: { color: '#edf3ff', fontSize: 14, fontWeight: '900', marginBottom: 4 },
   twoColumn: { flexDirection: 'row', gap: 10 },
+  emptyPanel: {
+    borderColor: '#29213a',
+    borderRadius: 10,
+    borderStyle: 'dashed',
+    borderWidth: 1,
+    padding: 14,
+  },
+  emptyTitle: { color: '#edf3ff', fontSize: 14, fontWeight: '900' },
+  emptyDetail: { color: '#68779b', fontSize: 12, lineHeight: 16, marginTop: 3 },
   actionRow: { flexDirection: 'row', gap: 10, marginTop: 4, marginBottom: 32 },
   secondaryAction: {
     flex: 1,
@@ -678,5 +1346,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: 8,
   },
+  actionDisabled: { opacity: 0.55 },
   primaryActionText: { color: '#070812', fontSize: 14, fontWeight: '900' },
 });

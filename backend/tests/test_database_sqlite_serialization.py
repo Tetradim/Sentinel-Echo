@@ -34,30 +34,94 @@ class SQLiteSerializationTests(unittest.TestCase):
         self.assertIn("timeout=30", abstraction_source)
         self.assertIn("PRAGMA journal_mode=WAL", abstraction_source)
 
+    def test_legacy_sqlite_reader_backfills_new_exit_defaults(self):
+        previous_database_path = os.environ.get("DATABASE_PATH")
+        previous_module_database_path = None
+        if "database_sqlite" in sys.modules:
+            previous_module_database_path = getattr(sys.modules["database_sqlite"], "DATABASE_PATH", None)
+        with tempfile.TemporaryDirectory() as temp_dir:
+            db_path = pathlib.Path(temp_dir) / "legacy-settings.sqlite3"
+            try:
+                os.environ["DATABASE_PATH"] = str(db_path)
+
+                import database_sqlite
+
+                database_sqlite.DATABASE_PATH = str(db_path)
+                database_sqlite.init_database()
+                with database_sqlite.get_connection() as conn:
+                    conn.execute(
+                        "UPDATE settings SET data = ? WHERE id = ?",
+                        ('{"active_broker":"alpaca"}', "main_settings"),
+                    )
+                    conn.commit()
+                settings = database_sqlite.get_settings()
+            finally:
+                if previous_database_path is None:
+                    os.environ.pop("DATABASE_PATH", None)
+                else:
+                    os.environ["DATABASE_PATH"] = previous_database_path
+                if "database_sqlite" in sys.modules:
+                    if previous_module_database_path is not None:
+                        sys.modules["database_sqlite"].DATABASE_PATH = previous_module_database_path
+                    else:
+                        from database_paths import configured_database_path
+
+                        sys.modules["database_sqlite"].DATABASE_PATH = configured_database_path()
+
+        self.assertEqual(settings["active_broker"], "alpaca")
+        self.assertTrue(settings["reversal_exit_enabled"])
+        self.assertTrue(settings["adaptive_trailing_enabled"])
+        self.assertTrue(settings["zero_dte_liquidation_enabled"])
+        self.assertTrue(settings["coordinated_exit_enabled"])
+        self.assertTrue(settings["risk_budget_sizing_enabled"])
+        self.assertEqual(settings["max_loss_per_trade"], 100.0)
+        self.assertEqual(settings["coordinated_normal_stop_loss_percent"], 35.0)
+        self.assertEqual(settings["coordinated_high_risk_stop_loss_percent"], 50.0)
+        self.assertFalse(settings["take_profit_enabled"])
+        self.assertFalse(settings["stop_loss_enabled"])
+        self.assertFalse(settings["trailing_stop_enabled"])
+
     def test_insert_alert_accepts_pydantic_model_dump_with_datetime(self):
+        previous_database_path = os.environ.get("DATABASE_PATH")
+        previous_module_database_path = None
+        if "database_sqlite" in sys.modules:
+            previous_module_database_path = getattr(sys.modules["database_sqlite"], "DATABASE_PATH", None)
         with tempfile.TemporaryDirectory() as temp_dir:
             db_path = pathlib.Path(temp_dir) / "test.sqlite3"
-            os.environ["DATABASE_PATH"] = str(db_path)
+            try:
+                os.environ["DATABASE_PATH"] = str(db_path)
 
-            import database_sqlite
-            from models import Alert
+                import database_sqlite
+                from models import Alert
 
-            database_sqlite.DATABASE_PATH = str(db_path)
-            database_sqlite.init_database()
+                database_sqlite.DATABASE_PATH = str(db_path)
+                database_sqlite.init_database()
 
-            alert = Alert(
-                ticker="SPY",
-                strike=738,
-                option_type="PUT",
-                expiration="6/18/2026",
-                entry_price=0.6,
-                alert_type="buy",
-                raw_message="$SPY\n$738 PUTS\nEXPIRATION 6/18/2026\n$.6 Entry",
-                timestamp=datetime(2026, 6, 19, 18, 2, tzinfo=timezone.utc),
-            )
+                alert = Alert(
+                    ticker="SPY",
+                    strike=738,
+                    option_type="PUT",
+                    expiration="6/18/2026",
+                    entry_price=0.6,
+                    alert_type="buy",
+                    raw_message="$SPY\n$738 PUTS\nEXPIRATION 6/18/2026\n$.6 Entry",
+                    timestamp=datetime(2026, 6, 19, 18, 2, tzinfo=timezone.utc),
+                )
 
-            alert_id = database_sqlite.insert_alert(alert.model_dump())
-            alerts = database_sqlite.get_alerts()
+                alert_id = database_sqlite.insert_alert(alert.model_dump())
+                alerts = database_sqlite.get_alerts()
+            finally:
+                if previous_database_path is None:
+                    os.environ.pop("DATABASE_PATH", None)
+                else:
+                    os.environ["DATABASE_PATH"] = previous_database_path
+                if "database_sqlite" in sys.modules:
+                    if previous_module_database_path is not None:
+                        sys.modules["database_sqlite"].DATABASE_PATH = previous_module_database_path
+                    else:
+                        from database_paths import configured_database_path
+
+                        sys.modules["database_sqlite"].DATABASE_PATH = configured_database_path()
 
         self.assertEqual(alert_id, alert.id)
         self.assertEqual(alerts[0]["ticker"], "SPY")
@@ -111,6 +175,51 @@ class SQLiteSerializationTests(unittest.TestCase):
             runtime["simulation_replay_acceptance_replay_url"],
             "http://127.0.0.1:9200/api/sentinel-echo/replay/events",
         )
+
+    def test_sqlite_positions_persist_contract_fields_as_queryable_columns(self):
+        async def run_case():
+            import aiosqlite
+            from database.abstraction import SQLiteDatabase
+
+            with tempfile.TemporaryDirectory() as temp_dir:
+                db_path = pathlib.Path(temp_dir) / "positions.sqlite3"
+                database = SQLiteDatabase(str(db_path))
+                await database.insert_position(
+                    {
+                        "id": "position-alpaca-spy-260621-c-500",
+                        "ticker": "SPY",
+                        "strike": 500.0,
+                        "option_type": "CALL",
+                        "expiration": "6/21/2026",
+                        "entry_price": 1.25,
+                        "current_price": 1.30,
+                        "original_quantity": 2,
+                        "remaining_quantity": 2,
+                        "broker": "alpaca",
+                        "status": "open",
+                        "opened_at": "2026-06-19T18:02:00+00:00",
+                        "unrealized_pnl": 10.0,
+                    }
+                )
+                async with aiosqlite.connect(db_path) as conn:
+                    conn.row_factory = aiosqlite.Row
+                    async with conn.execute(
+                        """SELECT ticker, strike, option_type, expiration, remaining_quantity, broker
+                           FROM positions
+                           WHERE id = ?""",
+                        ("position-alpaca-spy-260621-c-500",),
+                    ) as cur:
+                        row = await cur.fetchone()
+                return dict(row)
+
+        row = asyncio.run(run_case())
+
+        self.assertEqual(row["ticker"], "SPY")
+        self.assertEqual(row["strike"], 500.0)
+        self.assertEqual(row["option_type"], "CALL")
+        self.assertEqual(row["expiration"], "6/21/2026")
+        self.assertEqual(row["remaining_quantity"], 2)
+        self.assertEqual(row["broker"], "alpaca")
 
 
 if __name__ == "__main__":

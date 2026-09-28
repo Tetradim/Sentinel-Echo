@@ -43,8 +43,8 @@ C:\Users\automation\GitBots\Sentinel-Echo
 | Custom patterns | Saved and preview-only buy, sell, partial sell, average down, stop loss, take profit, ignore, ticker regex, and case-sensitivity settings. |
 | Source policy | Per-channel or per-name overrides for enable/disable, paper-only, paper-shadow, manual confirmation, allowed actions, risk multiplier, max premium, max contracts, ticker allow/block lists, and notes. |
 | Alert persistence | Parsed alerts are stored with processing and execution status. |
-| Position sizing | Uses default quantity, max position size, and source risk multiplier, then applies max-contract limits. |
-| Risk controls | Duplicate alert checks, max positions per ticker, source policy, shutdown counters, stop loss, take profit, trailing stop, averaging down, and premium buffer settings. |
+| Position sizing | Uses default quantity, max position size, and source risk multiplier, applies max-contract limits, then optionally reduces entry quantity using native market-alignment tiers. |
+| Risk controls | Duplicate alert checks, max positions per ticker, source policy, shutdown counters, stop loss, take profit, break even, one-shot partial exits, adaptive trailing, reversal-aware exits, mandatory 0DTE liquidation, averaging down, and premium buffer settings. |
 | Simulated trading | In simulation mode, buy and sell alerts create local trades and positions without a broker. |
 | Live order submission | Live buy and sell paths use broker clients, deterministic client order IDs, pending trade records, and fill monitoring. |
 | Fill monitoring | Polls broker status, reconciles filled, partial, rejected, cancelled, expired, unconfirmed, and timeout states. |

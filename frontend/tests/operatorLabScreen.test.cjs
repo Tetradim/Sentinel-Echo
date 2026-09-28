@@ -10,35 +10,21 @@ test('operator lab exposes safe backend action endpoints', () => {
 
   assert.match(source, /getOperatorEvents/);
   assert.match(source, /getAlertChains/);
-  assert.match(source, /createOperatorTestAlert/);
-  assert.match(source, /simulateOperatorExit/);
   assert.match(source, /getLiveReadiness/);
   assert.match(source, /armLiveTrading/);
   assert.match(source, /disarmLiveTrading/);
   assert.match(source, /panicStop/);
   assert.match(source, /getReconciliation/);
-  assert.match(source, /summarizeBridgeAlertDecisions/);
-  assert.match(source, /summarizeAlertChains/);
-  assert.match(source, /bridgeAlerts\.stateLabel/);
-  assert.match(source, /alertChains\.stateLabel/);
-  assert.match(source, /sourceEvidenceLabel/);
 });
 
 test('operator lab renders the expected action surface', () => {
   const source = fs.readFileSync(screenPath, 'utf8');
 
-  assert.match(source, /Create Test Alert/);
-  assert.match(source, /Sell 50% Test Position/);
   assert.match(source, /Arm Live/);
   assert.match(source, /Disarm/);
   assert.match(source, /Panic Stop/);
-  assert.match(source, /Reconciliation/);
-  assert.match(source, /Alert Chain Proof/);
-  assert.match(source, /Placed/);
-  assert.match(source, /Reconciled/);
-  assert.match(source, /Bridge Alerts/);
-  assert.match(source, /Accepted/);
-  assert.match(source, /Skipped/);
-  assert.match(source, /Activity Log/);
-  assert.match(source, /Open Positions/);
+  assert.match(source, /Broker Reconciliation/);
+  assert.match(source, /Readiness/);
+  assert.match(source, /Recent Operator Events/);
+  assert.match(source, /alert chain/);
 });

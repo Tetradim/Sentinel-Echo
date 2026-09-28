@@ -50,6 +50,8 @@ def calculate_option_buy_limit_price(
     *,
     premium_buffer_enabled: Any = False,
     premium_buffer_amount: Any = 0.0,
+    live_ask: Any = None,
+    marketable_entry_enabled: Any = False,
 ) -> float:
     """Return the max buy limit allowed for an option alert.
 
@@ -65,6 +67,10 @@ def calculate_option_buy_limit_price(
     if coerce_bool(premium_buffer_enabled, default=False):
         buffer_dollars = max(0.0, _float_or_default(premium_buffer_amount, 0.0)) / 100
         limit_price = entry + buffer_dollars
+    if coerce_bool(marketable_entry_enabled, default=False):
+        ask = _positive_float(live_ask)
+        if ask is not None:
+            limit_price = max(limit_price, ask)
 
     return round(max(limit_price, 0.01), 2)
 
@@ -213,14 +219,14 @@ def resolve_broker_config(settings: Any, broker_id: Optional[str] = None) -> Dic
 def require_order_status_support(client: Any, *, require: bool) -> None:
     if require and not hasattr(client, "get_order_status"):
         raise BrokerConfigurationError(
-            "Live execution requires broker order-status support; use paper mode or a supported broker."
+            "Broker execution requires order-status support; configure a supported broker."
         )
 
 
 def require_cancel_order_support(client: Any, *, require: bool) -> None:
     if require and not hasattr(client, "cancel_order"):
         raise BrokerConfigurationError(
-            "Live OCO execution requires broker cancel-order support; use paper mode or a supported broker."
+            "Bot-managed exit execution requires broker cancel-order support; configure a supported broker."
         )
 
 

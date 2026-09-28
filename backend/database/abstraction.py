@@ -66,12 +66,25 @@ def _default_settings() -> Dict[str, Any]:
         'broker_configs': {},
         'auto_trading_enabled': True,
         'sell_alert_listening_enabled': True,
+        'smart_sizing_enabled': True,
+        'smart_sizing_agreement_percent': 100.0,
+        'smart_sizing_mixed_percent': 50.0,
+        'smart_sizing_conflict_percent': 25.0,
+        'entry_slippage_sizing_enabled': True,
+        'entry_slippage_mode': 'tiered',
+        'entry_slippage_warning_percent': 10.0,
+        'entry_slippage_severe_percent': 20.0,
+        'entry_slippage_warning_size_percent': 50.0,
+        'entry_slippage_severe_size_percent': 25.0,
+        'marketable_entry_enabled': True,
         'premium_buffer_enabled': False,
         'premium_buffer_amount': 10.0,
         'default_quantity': 1,
-        'simulation_mode': True,
+        'simulation_mode': False,
         'max_position_size': 1000.0,
         'risk_per_trade': 1.0,
+        'risk_budget_sizing_enabled': True,
+        'max_loss_per_trade': 500.0,
         'max_drawdown_percent': 20.0,
         'max_positions_per_ticker': 3,
         'max_positions_per_sector': 3,
@@ -81,7 +94,12 @@ def _default_settings() -> Dict[str, Any]:
         'averaging_down_max_buys': 3,
         'take_profit_enabled': False,
         'take_profit_percentage': 50.0,
+        'take_profit_sell_percentage': 100.0,
         'bracket_order_enabled': False,
+        'break_even_enabled': False,
+        'break_even_activation_type': 'percent',
+        'break_even_activation_percentage': 10.0,
+        'break_even_activation_cents': 10.0,
         'stop_loss_enabled': False,
         'stop_loss_percentage': 25.0,
         'stop_loss_order_type': 'market',
@@ -90,6 +108,111 @@ def _default_settings() -> Dict[str, Any]:
         'trailing_stop_percent': 10.0,
         'trailing_stop_cents': 50.0,
         'trailing_hours': 4.0,
+        'coordinated_exit_enabled': True,
+        'coordinated_exit_quote_max_age_seconds': 15.0,
+        'coordinated_normal_stop_loss_percent': 35.0,
+        'coordinated_high_risk_stop_loss_percent': 50.0,
+        'coordinated_high_risk_size_percent': 25.0,
+        'coordinated_break_even_required_confirmations': 2,
+        'coordinated_break_even_confirmation_interval_seconds': 1.0,
+        'coordinated_break_even_preserve_runner': True,
+        'coordinated_runner_reserve_quantity': 1,
+        'coordinated_profit_stage_1_percent': 25.0,
+        'coordinated_profit_stage_1_sell_percent': 50.0,
+        'coordinated_profit_stage_2_percent': 35.0,
+        'coordinated_profit_stage_2_sell_percent': 25.0,
+        'coordinated_low_premium_threshold': 0.30,
+        'coordinated_medium_premium_threshold': 1.00,
+        'coordinated_low_activation_percent': 25.0,
+        'coordinated_low_min_activation_cents': 5.0,
+        'coordinated_low_trailing_percent': 18.0,
+        'coordinated_low_min_trailing_cents': 4.0,
+        'coordinated_low_break_even_activation_percent': 25.0,
+        'coordinated_medium_activation_percent': 20.0,
+        'coordinated_medium_trailing_percent': 15.0,
+        'coordinated_medium_break_even_activation_percent': 20.0,
+        'coordinated_high_activation_percent': 12.0,
+        'coordinated_high_trailing_percent': 10.0,
+        'coordinated_high_break_even_activation_percent': 12.0,
+        'coordinated_progressive_trailing_enabled': True,
+        'coordinated_trailing_mode': 'tightening',
+        'coordinated_trailing_step_gain_percent': 10.0,
+        'coordinated_trailing_step_tighten_percent': 1.0,
+        'coordinated_trailing_min_percent': 8.0,
+        'coordinated_trailing_volatility_gate_percent': 8.0,
+        'coordinated_elastic_activation_percent': 5.0,
+        'coordinated_elastic_min_activation_cents': 3.0,
+        'coordinated_elastic_trailing_start_percent': 6.0,
+        'coordinated_elastic_trailing_step_gain_percent': 10.0,
+        'coordinated_elastic_trailing_step_widen_percent': 1.0,
+        'coordinated_elastic_trailing_max_percent': 10.0,
+        'coordinated_trailing_spread_multiplier': 2.0,
+        'coordinated_loss_ladder_enabled': True,
+        'coordinated_loss_ladder': [
+            {'loss_percent': 12.0, 'quantity_mode': 'percent_original', 'quantity': 10.0, 'confirmations': 2},
+            {'loss_percent': 18.0, 'quantity_mode': 'percent_original', 'quantity': 20.0, 'confirmations': 2},
+            {'loss_percent': 25.0, 'quantity_mode': 'percent_original', 'quantity': 30.0, 'confirmations': 2},
+            {'loss_percent': 35.0, 'quantity_mode': 'percent_remaining', 'quantity': 100.0, 'confirmations': 1},
+        ],
+        'core_runner_enabled': False,
+        'core_runner_allocation_mode': 'greater_of',
+        'core_runner_allocation_percent': 20.0,
+        'core_runner_fixed_contracts': 1,
+        'core_runner_min_contracts': 1,
+        'core_runner_max_contracts': 2,
+        'core_runner_allow_single_contract': False,
+        'core_runner_activation_mfe_percent': 100.0,
+        'core_runner_reserve_candidates_from_profit': True,
+        'core_runner_loss_ladder_consumes_candidates': True,
+        'core_runner_protect_loss_ladder': True,
+        'core_runner_protect_hard_stop': True,
+        'core_runner_protect_break_even': True,
+        'core_runner_protect_profit_stages': True,
+        'core_runner_protect_ordinary_trailing': True,
+        'core_runner_protect_reversal_warning': True,
+        'core_runner_protect_contextual_trims': True,
+        'core_runner_confirmed_reversal_exits': True,
+        'core_runner_catastrophic_stop_percent': 65.0,
+        'core_runner_catastrophic_confirmations': 2,
+        'core_runner_catastrophic_confirmation_interval_seconds': 3.0,
+        'core_runner_trailing_enabled': True,
+        'core_runner_trailing_mode': 'tiered',
+        'core_runner_fixed_trailing_percent': 35.0,
+        'core_runner_trailing_tiers': [
+            {'mfe_percent': 100.0, 'trail_percent': 35.0},
+            {'mfe_percent': 300.0, 'trail_percent': 30.0},
+            {'mfe_percent': 500.0, 'trail_percent': 25.0},
+            {'mfe_percent': 1000.0, 'trail_percent': 20.0},
+        ],
+        'core_runner_min_trailing_cents': 0.0,
+        'core_runner_spread_multiplier': 2.0,
+        'core_runner_trailing_confirmations': 2,
+        'core_runner_trailing_confirmation_interval_seconds': 3.0,
+        'core_runner_minimum_activation_seconds': 0,
+        'core_runner_require_fresh_high': False,
+        'core_runner_allow_floor_to_move_down': False,
+        'core_runner_analyst_override_percent': 80.0,
+        'core_runner_explicit_full_exit_overrides': True,
+        'core_runner_contextual_full_exit_overrides': False,
+        'core_runner_zero_dte_liquidation_enabled': True,
+        'core_runner_zero_dte_liquidation_time': '15:40',
+        'reversal_exit_enabled': True,
+        'reversal_warning_confirmations': 3,
+        'reversal_confirmed_confirmations': 5,
+        'reversal_warning_sell_percent': 25.0,
+        'reversal_premium_drawdown_percent': 12.0,
+        'reversal_reduce_min_return_percent': 5.0,
+        'reversal_reduce_min_mfe_percent': 20.0,
+        'adaptive_trailing_enabled': True,
+        'adaptive_trailing_min_percent': 8.0,
+        'adaptive_trailing_max_percent': 35.0,
+        'zero_dte_liquidation_enabled': True,
+        'zero_dte_liquidation_time': '15:40',
+        'fill_confirmation_timeout_seconds': 180,
+        'fill_background_poll_interval_seconds': 15,
+        'exit_reprice_interval_seconds': 5,
+        'profit_exit_reprice_interval_seconds': 3,
+        'profit_exit_marketable_offset_cents': 1.0,
         'auto_shutdown_enabled': False,
         'max_consecutive_losses': 3,
         'max_daily_losses': 5,
@@ -128,6 +251,13 @@ class DatabaseInterface(ABC):
 
     @abstractmethod
     async def insert_alert(self, alert: Dict[str, Any]) -> str: pass
+
+    async def get_alert_by_id(self, alert_id: str) -> Optional[Dict[str, Any]]:
+        raise NotImplementedError
+
+    async def insert_card_alert(self, alert: Dict[str, Any]) -> bool:
+        """Atomically persist a deterministic card action; False means already claimed."""
+        raise NotImplementedError
 
     @abstractmethod
     async def update_alert(self, alert_id: str, updates: Dict[str, Any]): pass
@@ -202,7 +332,7 @@ class MongoDBDatabase(DatabaseInterface):
 
     async def get_settings(self) -> Dict[str, Any]:
         doc = await self.db.settings.find_one({'id': 'main_settings'}, {'_id': 0})
-        return doc or {}
+        return {**_default_settings(), **(doc or {})}
 
     async def update_settings(self, updates: Dict[str, Any]) -> Dict[str, Any]:
         async with self._settings_lock:  # M1
@@ -263,6 +393,17 @@ class MongoDBDatabase(DatabaseInterface):
 
     async def update_alert(self, alert_id: str, updates: Dict[str, Any]):
         await self.db.alerts.update_one({'id': alert_id}, {'$set': updates})
+
+    async def get_alert_by_id(self, alert_id: str) -> Optional[Dict[str, Any]]:
+        return await self.db.alerts.find_one({'id': alert_id}, {'_id': 0})
+
+    async def insert_card_alert(self, alert: Dict[str, Any]) -> bool:
+        from pymongo.errors import DuplicateKeyError
+        try:
+            await self.db.alerts.insert_one({**alert, '_id': alert['id']})
+            return True
+        except DuplicateKeyError:
+            return False
 
     async def get_trades(self, limit: int = 50) -> List[Dict[str, Any]]:
         trades = await self.db.trades.find().sort('created_at', -1).limit(limit).to_list(length=limit)
@@ -442,6 +583,12 @@ CREATE TABLE IF NOT EXISTS positions (
     id             TEXT PRIMARY KEY,
     status         TEXT DEFAULT 'open',
     opened_at      TEXT,
+    ticker         TEXT DEFAULT '',
+    strike         REAL DEFAULT 0.0,
+    option_type    TEXT DEFAULT '',
+    expiration     TEXT DEFAULT '',
+    remaining_quantity INTEGER DEFAULT 0,
+    broker         TEXT DEFAULT '',
     unrealized_pnl REAL DEFAULT 0.0,
     data           TEXT NOT NULL
 );
@@ -514,6 +661,7 @@ class SQLiteDatabase(DatabaseInterface):
                         "INSERT INTO runtime_state (id) VALUES (?)", ('runtime',)
                     )
             await self._ensure_runtime_columns(conn)
+            await self._ensure_position_columns(conn)
             await conn.commit()
 
     async def _ensure_runtime_columns(self, conn):
@@ -540,6 +688,22 @@ class SQLiteDatabase(DatabaseInterface):
             if column not in existing:
                 await conn.execute(statement)
 
+    async def _ensure_position_columns(self, conn):
+        async with conn.execute('PRAGMA table_info(positions)') as cur:
+            rows = await cur.fetchall()
+        existing = {row[1] for row in rows}
+        additions = {
+            'ticker': "ALTER TABLE positions ADD COLUMN ticker TEXT DEFAULT ''",
+            'strike': "ALTER TABLE positions ADD COLUMN strike REAL DEFAULT 0.0",
+            'option_type': "ALTER TABLE positions ADD COLUMN option_type TEXT DEFAULT ''",
+            'expiration': "ALTER TABLE positions ADD COLUMN expiration TEXT DEFAULT ''",
+            'remaining_quantity': "ALTER TABLE positions ADD COLUMN remaining_quantity INTEGER DEFAULT 0",
+            'broker': "ALTER TABLE positions ADD COLUMN broker TEXT DEFAULT ''",
+        }
+        for column, statement in additions.items():
+            if column not in existing:
+                await conn.execute(statement)
+
     # -- Settings -----------------------------------------------------------
 
     async def get_settings(self) -> Dict[str, Any]:
@@ -551,7 +715,8 @@ class SQLiteDatabase(DatabaseInterface):
                 'SELECT data FROM settings WHERE id = ?', ('main_settings',)
             ) as cur:
                 row = await cur.fetchone()
-        return json.loads(row['data']) if row else _default_settings()
+        stored = json.loads(row['data']) if row else {}
+        return {**_default_settings(), **stored}
 
     async def update_settings(self, updates: Dict[str, Any]) -> Dict[str, Any]:
         await self._ensure_ready()
@@ -714,6 +879,24 @@ class SQLiteDatabase(DatabaseInterface):
             await conn.commit()
         return alert.get('id', '')
 
+    async def get_alert_by_id(self, alert_id: str) -> Optional[Dict[str, Any]]:
+        await self._ensure_ready()
+        import aiosqlite
+        async with aiosqlite.connect(self.db_path, timeout=30) as conn:
+            async with conn.execute('SELECT data FROM alerts WHERE id = ?', (alert_id,)) as cur:
+                row = await cur.fetchone()
+        return json.loads(row[0]) if row else None
+
+    async def insert_card_alert(self, alert: Dict[str, Any]) -> bool:
+        import sqlite3
+        try:
+            await self.insert_alert(alert)
+            return True
+        except sqlite3.IntegrityError:
+            if await self.get_alert_by_id(alert['id']):
+                return False
+            raise
+
     async def update_alert(self, alert_id: str, updates: Dict[str, Any]):
         await self._ensure_ready()
         import aiosqlite
@@ -821,10 +1004,19 @@ class SQLiteDatabase(DatabaseInterface):
             opened_at = opened_at.isoformat()
         async with aiosqlite.connect(self.db_path, timeout=30) as conn:
             await conn.execute(
-                '''INSERT INTO positions (id, status, opened_at, unrealized_pnl, data)
-                   VALUES (?, ?, ?, ?, ?)''',
+                '''INSERT INTO positions (
+                       id, status, opened_at, ticker, strike, option_type, expiration,
+                       remaining_quantity, broker, unrealized_pnl, data
+                   )
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''',
                 (
                     position.get('id'), position.get('status', 'open'), opened_at,
+                    position.get('ticker', ''),
+                    float(position.get('strike', 0.0) or 0.0),
+                    position.get('option_type', ''),
+                    position.get('expiration', ''),
+                    int(position.get('remaining_quantity') or position.get('quantity') or 0),
+                    position.get('broker', ''),
                     float(position.get('unrealized_pnl', 0.0)),
                     json.dumps(position, default=str),
                 )
@@ -852,10 +1044,18 @@ class SQLiteDatabase(DatabaseInterface):
                     pos.update(updates)
                 await conn.execute(
                     '''UPDATE positions
-                       SET status = ?, unrealized_pnl = ?, data = ?
+                       SET status = ?, ticker = ?, strike = ?, option_type = ?,
+                           expiration = ?, remaining_quantity = ?, broker = ?,
+                           unrealized_pnl = ?, data = ?
                        WHERE id = ?''',
                     (
                         pos.get('status', 'open'),
+                        pos.get('ticker', ''),
+                        float(pos.get('strike', 0.0) or 0.0),
+                        pos.get('option_type', ''),
+                        pos.get('expiration', ''),
+                        int(pos.get('remaining_quantity') or pos.get('quantity') or 0),
+                        pos.get('broker', ''),
                         float(pos.get('unrealized_pnl', 0.0)),
                         json.dumps(pos, default=str), position_id,
                     )

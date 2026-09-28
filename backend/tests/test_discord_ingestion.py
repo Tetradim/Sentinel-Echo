@@ -189,7 +189,7 @@ class DiscordIngestionTests(unittest.TestCase):
         self.assertEqual(result.trade_request_reason, "auto trading disabled")
         self.assertEqual(deps.trades, [])
 
-    def test_manual_confirmation_source_inserts_alert_without_trade_request(self):
+    def test_manual_confirmation_source_key_does_not_block_trade_request(self):
         from discord_ingestion import handle_discord_message
 
         deps = FakeDeps(
@@ -209,11 +209,11 @@ class DiscordIngestionTests(unittest.TestCase):
         )
 
         self.assertTrue(result.alert_inserted)
-        self.assertFalse(result.trade_requested)
-        self.assertEqual(result.skip_reason, "manual confirmation required")
-        self.assertEqual(result.trade_request_reason, "manual confirmation required")
+        self.assertTrue(result.trade_requested)
+        self.assertEqual(result.skip_reason, "")
+        self.assertEqual(result.trade_request_reason, "auto trading enabled")
         self.assertEqual(deps.alerts[0].ticker, "SPY")
-        self.assertEqual(deps.trades, [])
+        self.assertEqual(deps.trades[0][1]["ticker"], "SPY")
 
 
 if __name__ == "__main__":

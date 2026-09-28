@@ -145,6 +145,15 @@ class FakeRawTradingDb(FakeTradingDb):
         return self.settings
 
 
+class FakeSellBrokerClient:
+    def __init__(self):
+        self.orders = []
+
+    async def place_order(self, **kwargs):
+        self.orders.append(kwargs)
+        return {"order_id": "broker-sell-1", "status": "submitted"}
+
+
 class FakeBrokerDb:
     async def get_settings(self):
         return {
@@ -200,22 +209,22 @@ class OperatorRouteContractTests(unittest.TestCase):
         self.assertIn(("GET", "/api/operator/alert-chains"), routes)
 
     def test_operator_test_alert_creates_records_and_event(self):
+        from fastapi import HTTPException
         from routes import operator as operator_route
 
         fake_db = FakeTradingDb()
         operator_route.set_db(fake_db)
 
-        response = asyncio.run(operator_route.create_operator_test_alert())
+        with self.assertRaises(HTTPException) as raised:
+            asyncio.run(operator_route.create_operator_test_alert())
 
-        self.assertEqual(response["message"], "Operator test alert created")
-        self.assertEqual(len(fake_db.inserted_alerts), 1)
-        self.assertEqual(len(fake_db.inserted_trades), 1)
-        self.assertEqual(len(fake_db.inserted_positions), 1)
-        self.assertEqual(len(fake_db.inserted_events), 1)
-        self.assertEqual(fake_db.inserted_events[0]["category"], "test_lab")
-        self.assertEqual(fake_db.inserted_events[0]["action"], "test_alert_created")
+        self.assertEqual(raised.exception.status_code, 410)
+        self.assertEqual(fake_db.inserted_alerts, [])
+        self.assertEqual(fake_db.inserted_trades, [])
+        self.assertEqual(fake_db.inserted_positions, [])
 
     def test_operator_test_alert_positions_include_oco_exit_plan_when_guards_are_enabled(self):
+        from fastapi import HTTPException
         from routes import operator as operator_route
 
         fake_db = FakeTradingDb()
@@ -232,17 +241,11 @@ class OperatorRouteContractTests(unittest.TestCase):
         )
         operator_route.set_db(fake_db)
 
-        asyncio.run(operator_route.create_operator_test_alert())
+        with self.assertRaises(HTTPException) as raised:
+            asyncio.run(operator_route.create_operator_test_alert())
 
-        position = fake_db.inserted_positions[0]
-        plan = position["oco_exit_plan"]
-        self.assertTrue(position["oco_exit_protected"])
-        self.assertEqual(plan["status"], "armed")
-        self.assertEqual(plan["take_profit"]["trigger_price"], 1.75)
-        self.assertEqual(plan["stop_loss"]["trigger_price"], 1.0)
-        self.assertIn(position["id"], plan["take_profit"]["client_order_id"])
-        self.assertIn(position["id"], plan["stop_loss"]["client_order_id"])
-        self.assertTrue(plan["trailing_stop"]["enabled"])
+        self.assertEqual(raised.exception.status_code, 410)
+        self.assertEqual(fake_db.inserted_positions, [])
 
     def test_operator_events_return_newest_first_with_limit(self):
         from routes import operator as operator_route
@@ -794,6 +797,78 @@ class OperatorRouteContractTests(unittest.TestCase):
         self.assertEqual(fake_db.trade_updates[-1][1]["status"], "failed")
         self.assertEqual(fake_db.trade_updates[-1][1]["error_message"], "operator cancelled")
 
+    def test_operator_refresh_broker_orders_infers_position_for_filled_sell_trade(self):
+        from routes import operator as operator_route
+
+        class FakeRefreshDb(FakeTradingDb):
+            def __init__(self):
+                super().__init__()
+                self.trade = {
+                    "id": "trade-sell-unconfirmed",
+                    "alert_id": "alert-sell",
+                    "ticker": "AAPL",
+                    "strike": 310.0,
+                    "option_type": "PUT",
+                    "expiration": "07/10/26",
+                    "side": "SELL",
+                    "quantity": 1,
+                    "entry_price": 5.55,
+                    "exit_price": 5.45,
+                    "status": "unconfirmed",
+                    "order_id": "order-filled",
+                    "broker": "alpaca",
+                    "simulated": False,
+                    "sell_percentage": 100.0,
+                    "exit_trigger": "sell_alert",
+                    "error_message": "Fill unconfirmed",
+                }
+                self.position = {
+                    "id": "position-aapl-310p",
+                    "ticker": "AAPL",
+                    "strike": 310.0,
+                    "option_type": "PUT",
+                    "expiration": "07/10/26",
+                    "entry_price": 5.55,
+                    "current_price": 5.55,
+                    "original_quantity": 1,
+                    "remaining_quantity": 1,
+                    "realized_pnl": 0.0,
+                    "status": "open",
+                    "broker": "alpaca",
+                    "simulated": False,
+                    "trade_ids": ["entry-trade"],
+                }
+                self.settings = {
+                    "active_broker": "alpaca",
+                    "broker_configs": {"alpaca": {"api_key": "key", "api_secret": "secret"}},
+                }
+
+        class BrokerWithFilledOrder:
+            async def get_order_status(self, order_id):
+                return {
+                    "status": "filled",
+                    "filled_qty": 1,
+                    "avg_fill_price": 5.45,
+                }
+
+        fake_db = FakeRefreshDb()
+        operator_route.set_db(fake_db)
+
+        with patch("routes.operator.get_configured_broker_client", return_value=BrokerWithFilledOrder()), patch(
+            "routes.operator.close_broker_client", return_value=None
+        ):
+            response = asyncio.run(operator_route.refresh_broker_orders())
+
+        self.assertEqual(response["checked_count"], 1)
+        self.assertEqual(response["reconciled_count"], 1)
+        self.assertEqual(response["errors"], [])
+        self.assertEqual(fake_db.trade["status"], "executed")
+        self.assertEqual(fake_db.trade["exit_price"], 5.45)
+        self.assertEqual(fake_db.trade["error_message"], "")
+        self.assertEqual(fake_db.position["status"], "closed")
+        self.assertEqual(fake_db.position["remaining_quantity"], 0)
+        self.assertEqual(fake_db.position["trade_ids"], ["entry-trade", "trade-sell-unconfirmed"])
+
     def test_operator_live_readiness_payload_blocks_unprotected_open_live_position(self):
         from routes import operator as operator_route
 
@@ -957,6 +1032,7 @@ class OperatorRouteContractTests(unittest.TestCase):
         self.assertEqual(fake_db.inserted_events[-1]["action"], "live_trading_arm_blocked")
 
     def test_operator_simulate_exit_sells_first_open_position_and_logs_event(self):
+        from fastapi import HTTPException
         from routes import operator as operator_route
         from routes import settings as settings_route
         from routes import trading as trading_route
@@ -966,16 +1042,15 @@ class OperatorRouteContractTests(unittest.TestCase):
         trading_route.set_db(fake_db)
         settings_route.set_db(fake_db)
 
-        response = asyncio.run(
-            operator_route.simulate_exit(
-                operator_route.OperatorSimulateExitRequest(exit_price=3.0, sell_percentage=50)
+        with self.assertRaises(HTTPException) as raised:
+            asyncio.run(
+                operator_route.simulate_exit(
+                    operator_route.OperatorSimulateExitRequest(exit_price=3.0, sell_percentage=50)
+                )
             )
-        )
 
-        self.assertEqual(response["position_id"], "pos-1")
-        self.assertEqual(response["sold_quantity"], 2)
-        self.assertEqual(fake_db.position["remaining_quantity"], 2)
-        self.assertEqual(fake_db.inserted_events[-1]["action"], "simulated_exit")
+        self.assertEqual(raised.exception.status_code, 410)
+        self.assertEqual(fake_db.inserted_trades, [])
 
     def test_broker_check_closes_temporary_client(self):
         from routes import brokers as brokers_route
@@ -1185,18 +1260,24 @@ class OperatorRouteContractTests(unittest.TestCase):
         from routes import trading as trading_route
 
         fake_db = FakeTradingDb()
+        fake_db.position["trade_ids"] = ["trade-1"]
         trading_route.set_db(fake_db)
         settings_route.set_db(fake_db)
 
-        response = asyncio.run(
-            trading_route.close_trade("trade-1", trading_route.CloseTradeRequest(exit_price=3.0))
-        )
+        with patch("routes.trading.get_configured_broker_client", return_value=FakeSellBrokerClient()), patch(
+            "routes.trading.monitor_fill", return_value=None
+        ), patch("routes.trading.asyncio.create_task"):
+            response = asyncio.run(
+                trading_route.close_trade("trade-1", trading_route.CloseTradeRequest(exit_price=3.0))
+            )
 
-        self.assertEqual(response["trade_id"], "trade-1")
-        self.assertEqual(response["realized_pnl"], 200.0)
+        self.assertEqual(response["trade_id"], fake_db.inserted_trades[0]["id"])
+        self.assertEqual(response["realized_pnl"], 400.0)
         self.assertEqual(fake_db.trade["status"], "closed")
         self.assertEqual(fake_db.trade["exit_price"], 3.0)
         self.assertIsNotNone(fake_db.trade["closed_at"])
+        self.assertEqual(fake_db.inserted_trades[0]["status"], "pending")
+        self.assertEqual(fake_db.inserted_trades[0]["side"], "SELL")
 
     def test_trade_close_endpoint_closes_linked_open_position(self):
         from routes import settings as settings_route
@@ -1207,16 +1288,15 @@ class OperatorRouteContractTests(unittest.TestCase):
         trading_route.set_db(fake_db)
         settings_route.set_db(fake_db)
 
-        response = asyncio.run(
-            trading_route.close_trade("trade-1", trading_route.CloseTradeRequest(exit_price=3.0))
-        )
+        with patch("routes.trading.get_configured_broker_client", return_value=FakeSellBrokerClient()), patch(
+            "routes.trading.monitor_fill", return_value=None
+        ), patch("routes.trading.asyncio.create_task"):
+            response = asyncio.run(
+                trading_route.close_trade("trade-1", trading_route.CloseTradeRequest(exit_price=3.0))
+            )
 
         self.assertEqual(response["position_id"], "pos-1")
-        self.assertEqual(response["sold_quantity"], 4)
-        self.assertEqual(fake_db.position["status"], "closed")
-        self.assertEqual(fake_db.position["remaining_quantity"], 0)
-        self.assertEqual(fake_db.position["current_price"], 3.0)
-        self.assertEqual(fake_db.position["realized_pnl"], 400.0)
+        self.assertEqual(response["submitted_quantity"], 4)
         self.assertEqual(fake_db.trade["status"], "closed")
 
     def test_trade_close_endpoint_blocks_unlinked_live_trade_without_broker_exit(self):
@@ -1240,7 +1320,7 @@ class OperatorRouteContractTests(unittest.TestCase):
             )
 
         self.assertEqual(raised.exception.status_code, 409)
-        self.assertIn("live broker exit", raised.exception.detail)
+        self.assertIn("linked open position", raised.exception.detail)
         self.assertEqual(fake_db.trade_updates, [])
         self.assertEqual(fake_db.position_updates, [])
 
@@ -1270,20 +1350,22 @@ class OperatorRouteContractTests(unittest.TestCase):
         trading_route.set_db(fake_db)
         settings_route.set_db(fake_db)
 
-        response = asyncio.run(
-            trading_route.sell_position_from_operator(
-                "pos-1",
-                sell_percentage=50,
-                exit_price=3.0,
+        with patch("routes.trading.get_configured_broker_client", return_value=FakeSellBrokerClient()), patch(
+            "routes.trading.monitor_fill", return_value=None
+        ), patch("routes.trading.asyncio.create_task"):
+            response = asyncio.run(
+                trading_route.sell_position_from_operator(
+                    "pos-1",
+                    sell_percentage=50,
+                    exit_price=3.0,
+                )
             )
-        )
 
         self.assertEqual(response["position_id"], "pos-1")
-        self.assertEqual(response["sold_quantity"], 2)
+        self.assertEqual(response["submitted_quantity"], 2)
         self.assertEqual(response["realized_pnl"], 200.0)
-        self.assertEqual(fake_db.position["remaining_quantity"], 2)
-        self.assertEqual(fake_db.position["current_price"], 3.0)
         self.assertEqual(fake_db.inserted_trades[0]["exit_price"], 3.0)
+        self.assertEqual(fake_db.inserted_trades[0]["status"], "pending")
 
     def test_position_sell_endpoint_blocks_live_position_without_broker_exit(self):
         from fastapi import HTTPException
@@ -1306,12 +1388,13 @@ class OperatorRouteContractTests(unittest.TestCase):
                 )
             )
 
-        self.assertEqual(raised.exception.status_code, 409)
-        self.assertIn("live broker exit", raised.exception.detail)
-        self.assertEqual(fake_db.inserted_trades, [])
+        self.assertEqual(raised.exception.status_code, 502)
+        self.assertIn("Broker SELL order failed", raised.exception.detail)
+        self.assertEqual(fake_db.inserted_trades[0]["status"], "failed")
         self.assertEqual(fake_db.position_updates, [])
 
-    def test_position_sell_defaults_to_simulated_when_settings_are_malformed(self):
+    def test_position_sell_fails_broker_route_when_settings_are_malformed(self):
+        from fastapi import HTTPException
         from routes import settings as settings_route
         from routes import trading as trading_route
 
@@ -1319,19 +1402,19 @@ class OperatorRouteContractTests(unittest.TestCase):
         trading_route.set_db(fake_db)
         settings_route.set_db(fake_db)
 
-        response = asyncio.run(
-            trading_route.sell_position_from_operator(
-                "pos-1",
-                sell_percentage=50,
-                exit_price=3.0,
+        with self.assertRaises(HTTPException) as raised:
+            asyncio.run(
+                trading_route.sell_position_from_operator(
+                    "pos-1",
+                    sell_percentage=50,
+                    exit_price=3.0,
+                )
             )
-        )
 
-        self.assertEqual(response["sold_quantity"], 2)
+        self.assertEqual(raised.exception.status_code, 502)
         self.assertEqual(fake_db.inserted_trades[0]["broker"], "ibkr")
-        self.assertEqual(fake_db.inserted_trades[0]["status"], "simulated")
-        self.assertTrue(fake_db.inserted_trades[0]["simulated"])
-        self.assertEqual(fake_db.runtime_updates[-1]["shutdown_reason"], "Settings are malformed")
+        self.assertEqual(fake_db.inserted_trades[0]["status"], "failed")
+        self.assertFalse(fake_db.inserted_trades[0]["simulated"])
 
     def test_operator_trailing_stop_check_sells_simulated_position_when_triggered(self):
         from routes import operator as operator_route
@@ -1352,55 +1435,54 @@ class OperatorRouteContractTests(unittest.TestCase):
         settings_route.set_db(fake_db)
         trading_route.set_db(fake_db)
 
-        response = asyncio.run(
-            operator_route.evaluate_trailing_stop(
-                operator_route.OperatorTrailingStopRequest(
-                    position_id="pos-1",
-                    current_price=2.40,
-                    sell_percentage=100,
+        with patch("routes.trading.get_configured_broker_client", return_value=FakeSellBrokerClient()), patch(
+            "routes.trading.monitor_fill", return_value=None
+        ), patch("routes.trading.asyncio.create_task"):
+            response = asyncio.run(
+                operator_route.evaluate_trailing_stop(
+                    operator_route.OperatorTrailingStopRequest(
+                        position_id="pos-1",
+                        current_price=2.40,
+                        sell_percentage=100,
+                    )
                 )
             )
-        )
 
         self.assertEqual(response["decision"]["action"], "triggered")
         self.assertEqual(response["decision"]["trailing_stop_level"], 2.40)
-        self.assertEqual(response["sell_result"]["sold_quantity"], 4)
-        self.assertEqual(fake_db.position["status"], "closed")
-        self.assertEqual(fake_db.position["remaining_quantity"], 0)
+        self.assertEqual(response["sell_result"]["submitted_quantity"], 4)
         self.assertEqual(fake_db.inserted_trades[0]["side"], "SELL")
         self.assertEqual(fake_db.inserted_trades[0]["exit_price"], 2.40)
         self.assertEqual(fake_db.inserted_events[-1]["action"], "trailing_stop_triggered")
 
     def test_test_alert_endpoint_creates_simulated_records(self):
+        from fastapi import HTTPException
         from routes import trading as trading_route
 
         fake_db = FakeTradingDb()
         trading_route.set_db(fake_db)
 
-        response = asyncio.run(trading_route.create_test_alert())
+        with self.assertRaises(HTTPException) as raised:
+            asyncio.run(trading_route.create_test_alert())
 
-        self.assertEqual(response["message"], "Test alert created")
-        self.assertEqual(len(fake_db.inserted_alerts), 1)
-        self.assertEqual(len(fake_db.inserted_trades), 1)
-        self.assertEqual(len(fake_db.inserted_positions), 1)
-        self.assertTrue(fake_db.inserted_alerts[0]["trade_executed"])
-        self.assertEqual(fake_db.inserted_trades[0]["status"], "simulated")
-        self.assertEqual(fake_db.inserted_positions[0]["status"], "open")
-        self.assertEqual(fake_db.inserted_positions[0]["trade_ids"], [fake_db.inserted_trades[0]["id"]])
+        self.assertEqual(raised.exception.status_code, 410)
+        self.assertEqual(fake_db.inserted_alerts, [])
+        self.assertEqual(fake_db.inserted_trades, [])
+        self.assertEqual(fake_db.inserted_positions, [])
 
-    def test_test_alert_endpoint_defaults_to_simulated_when_settings_are_malformed(self):
+    def test_test_alert_endpoint_rejects_when_settings_are_malformed(self):
+        from fastapi import HTTPException
         from routes import trading as trading_route
 
         fake_db = FakeRawTradingDb("settings")
         trading_route.set_db(fake_db)
 
-        response = asyncio.run(trading_route.create_test_alert())
+        with self.assertRaises(HTTPException) as raised:
+            asyncio.run(trading_route.create_test_alert())
 
-        self.assertEqual(response["message"], "Test alert created")
-        self.assertEqual(fake_db.inserted_trades[0]["broker"], "ibkr")
-        self.assertTrue(fake_db.inserted_trades[0]["simulated"])
-        self.assertEqual(fake_db.inserted_trades[0]["status"], "simulated")
-        self.assertTrue(fake_db.inserted_positions[0]["simulated"])
+        self.assertEqual(raised.exception.status_code, 410)
+        self.assertEqual(fake_db.inserted_trades, [])
+        self.assertEqual(fake_db.inserted_positions, [])
 
 
 if __name__ == "__main__":

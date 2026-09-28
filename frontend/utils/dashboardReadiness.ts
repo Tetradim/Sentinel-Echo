@@ -211,7 +211,7 @@ export function buildDashboardReadiness(input: DashboardReadinessInput): Dashboa
         ? {
             id: 'guards',
             label: 'Exit Guards',
-            detail: 'Exit guard settings are configured, but active orders still need manual or broker-side handling.',
+            detail: 'Exit guard settings are configured, but active orders still need confirmed Echo-managed handling.',
             state: 'attention',
             icon: 'shield-half',
             actionLabel: 'Tune Risk',

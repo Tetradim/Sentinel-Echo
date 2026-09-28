@@ -57,6 +57,30 @@ class TrailingStopEngineTests(unittest.TestCase):
         self.assertEqual(decision["trailing_stop_level"], 0.51)
         self.assertEqual(decision["exit_price"], 0.51)
 
+    def test_percent_trailing_stop_waits_for_minimum_profit_activation(self):
+        from trailing_stop_engine import evaluate_trailing_stop
+
+        decision = evaluate_trailing_stop(
+            {
+                "id": "pos-nvda",
+                "entry_price": 0.19,
+                "highest_price": 0.205,
+                "remaining_quantity": 10,
+                "status": "open",
+            },
+            {
+                "trailing_stop_enabled": True,
+                "trailing_stop_type": "percent",
+                "trailing_stop_percent": 10.0,
+                "trailing_stop_activation_percent": 10.0,
+            },
+            current_price=0.16,
+        )
+
+        self.assertEqual(decision["action"], "held")
+        self.assertFalse(decision["triggered"])
+        self.assertEqual(decision["reason"], "trailing stop has not reached activation profit")
+
 
 if __name__ == "__main__":
     unittest.main()

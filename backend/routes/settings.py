@@ -33,13 +33,39 @@ db = None
 _BOOLEAN_SETTING_DEFAULTS = {
     "auto_trading_enabled": True,
     "sell_alert_listening_enabled": True,
+    "smart_sizing_enabled": True,
+    "entry_slippage_sizing_enabled": True,
+    "coordinated_loss_ladder_enabled": True,
+    "core_runner_enabled": False,
+    "core_runner_allow_single_contract": False,
+    "core_runner_reserve_candidates_from_profit": True,
+    "core_runner_loss_ladder_consumes_candidates": True,
+    "core_runner_protect_loss_ladder": True,
+    "core_runner_protect_hard_stop": True,
+    "core_runner_protect_break_even": True,
+    "core_runner_protect_profit_stages": True,
+    "core_runner_protect_ordinary_trailing": True,
+    "core_runner_protect_reversal_warning": True,
+    "core_runner_protect_contextual_trims": True,
+    "core_runner_confirmed_reversal_exits": True,
+    "core_runner_trailing_enabled": True,
+    "core_runner_require_fresh_high": False,
+    "core_runner_allow_floor_to_move_down": False,
+    "core_runner_explicit_full_exit_overrides": True,
+    "core_runner_contextual_full_exit_overrides": False,
+    "core_runner_zero_dte_liquidation_enabled": True,
+    "marketable_entry_enabled": True,
     "premium_buffer_enabled": False,
-    "simulation_mode": True,
+    "simulation_mode": False,
     "averaging_down_enabled": False,
     "take_profit_enabled": False,
     "bracket_order_enabled": False,
+    "break_even_enabled": False,
     "stop_loss_enabled": False,
     "trailing_stop_enabled": False,
+    "reversal_exit_enabled": True,
+    "adaptive_trailing_enabled": True,
+    "zero_dte_liquidation_enabled": True,
     "auto_shutdown_enabled": False,
     "shutdown_triggered": False,
     "sms_enabled": False,
@@ -60,14 +86,75 @@ def _dict_or_empty(value: Any) -> dict[str, Any]:
     return value if isinstance(value, dict) else {}
 
 
+def _normalize_loss_ladder(value: Any) -> list[dict[str, Any]]:
+    if not isinstance(value, list) or not value or len(value) > 10:
+        raise ValueError("loss ladder must contain between 1 and 10 steps")
+    normalized = []
+    previous_loss = 0.0
+    for index, raw in enumerate(value):
+        if not isinstance(raw, dict):
+            raise ValueError(f"loss ladder step {index + 1} must be an object")
+        try:
+            loss_percent = float(raw.get("loss_percent"))
+            quantity = float(raw.get("quantity"))
+            confirmations = int(raw.get("confirmations", 2))
+        except (TypeError, ValueError):
+            raise ValueError(f"loss ladder step {index + 1} contains an invalid number")
+        quantity_mode = str(raw.get("quantity_mode") or "percent_original").strip().lower()
+        allocation_target = str(raw.get("allocation_target") or "core_only").strip().lower()
+        if not 0 < loss_percent <= 100 or loss_percent <= previous_loss:
+            raise ValueError("loss ladder loss percentages must increase and stay within 0-100")
+        if quantity_mode not in {"fixed", "percent_original", "percent_remaining"}:
+            raise ValueError(f"loss ladder step {index + 1} has an invalid quantity mode")
+        if allocation_target not in {"core_only", "runners_only", "core_then_runners", "entire_position"}:
+            raise ValueError(f"loss ladder step {index + 1} has an invalid allocation target")
+        if quantity <= 0 or (quantity_mode != "fixed" and quantity > 100):
+            raise ValueError(f"loss ladder step {index + 1} has an invalid quantity")
+        if not 1 <= confirmations <= 10:
+            raise ValueError(f"loss ladder step {index + 1} confirmations must be 1-10")
+        normalized.append(
+            {
+                "loss_percent": loss_percent,
+                "quantity_mode": quantity_mode,
+                "quantity": quantity,
+                "confirmations": confirmations,
+                "allocation_target": allocation_target,
+            }
+        )
+        previous_loss = loss_percent
+    return normalized
+
+
+def _normalize_runner_trailing_tiers(value: Any) -> list[dict[str, float]]:
+    if not isinstance(value, list) or not value or len(value) > 10:
+        raise ValueError("runner trailing tiers must contain between 1 and 10 rows")
+    normalized: list[dict[str, float]] = []
+    previous_mfe = -1.0
+    for index, raw in enumerate(value):
+        if not isinstance(raw, dict):
+            raise ValueError(f"runner trailing tier {index + 1} must be an object")
+        try:
+            mfe_percent = float(raw.get("mfe_percent"))
+            trail_percent = float(raw.get("trail_percent"))
+        except (TypeError, ValueError):
+            raise ValueError(f"runner trailing tier {index + 1} contains an invalid number")
+        if mfe_percent < 0 or mfe_percent <= previous_mfe:
+            raise ValueError("runner trailing MFE thresholds must strictly increase")
+        if not 1 <= trail_percent <= 100:
+            raise ValueError("runner trailing widths must stay within 1-100")
+        normalized.append({"mfe_percent": mfe_percent, "trail_percent": trail_percent})
+        previous_mfe = mfe_percent
+    return normalized
+
+
 def _settings_response(settings: Dict[str, Any] | None) -> Dict[str, Any]:
     """Return settings safe for API clients: no plaintext broker credentials."""
-    if not isinstance(settings, dict) or not settings:
-        settings = Settings().model_dump()
-    response = dict(settings)
+    stored = settings if isinstance(settings, dict) else {}
+    response = {**Settings().model_dump(), **stored}
     for field, default in _BOOLEAN_SETTING_DEFAULTS.items():
         if field in response:
             response[field] = coerce_bool(response.get(field), default=default)
+    response["simulation_mode"] = False
     discord_token = str(response.get("discord_token") or "").strip()
     response["discord_token_configured"] = bool(discord_token)
     if discord_token:
@@ -110,9 +197,73 @@ async def get_settings():
 async def update_settings(update: SettingsUpdate):
     """Update settings -- broker_configs encrypted before persistence."""
     update_dict = {k: v for k, v in update.model_dump().items() if v is not None}
+    update_dict.pop("simulation_mode", None)
+    existing_settings = _dict_or_empty(await db.get_settings())
+    if "coordinated_loss_ladder" in update_dict:
+        try:
+            update_dict["coordinated_loss_ladder"] = _normalize_loss_ladder(
+                update_dict["coordinated_loss_ladder"]
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
+    if "core_runner_trailing_tiers" in update_dict:
+        try:
+            update_dict["core_runner_trailing_tiers"] = _normalize_runner_trailing_tiers(
+                update_dict["core_runner_trailing_tiers"]
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
+    candidate = {**Settings().model_dump(), **existing_settings, **update_dict}
+    if candidate["reversal_confirmed_confirmations"] <= candidate["reversal_warning_confirmations"]:
+        raise HTTPException(
+            status_code=400,
+            detail="reversal_confirmed_confirmations must be greater than reversal_warning_confirmations",
+        )
+    if candidate["adaptive_trailing_max_percent"] < candidate["adaptive_trailing_min_percent"]:
+        raise HTTPException(
+            status_code=400,
+            detail="adaptive_trailing_max_percent must be at least adaptive_trailing_min_percent",
+        )
+    if candidate["coordinated_elastic_trailing_max_percent"] < candidate["coordinated_elastic_trailing_start_percent"]:
+        raise HTTPException(
+            status_code=400,
+            detail="elastic trailing maximum must be at least its starting width",
+        )
+    if candidate["entry_slippage_severe_percent"] <= candidate["entry_slippage_warning_percent"]:
+        raise HTTPException(
+            status_code=400,
+            detail="entry_slippage_severe_percent must be greater than entry_slippage_warning_percent",
+        )
+    if (
+        candidate["coordinated_fast_scalp_profit_stage_2_percent"]
+        <= candidate["coordinated_fast_scalp_profit_stage_1_percent"]
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail="fast-scalp second profit target must be greater than the first",
+        )
+    if candidate["coordinated_emergency_stop_loss_percent"] < candidate["coordinated_normal_stop_loss_percent"]:
+        raise HTTPException(
+            status_code=400,
+            detail="emergency stop loss must not be tighter than the normal stop loss",
+        )
+    if (
+        candidate["core_runner_max_contracts"] > 0
+        and candidate["core_runner_min_contracts"] > candidate["core_runner_max_contracts"]
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail="core runner minimum contracts must not exceed its maximum",
+        )
+    if "source_overrides" in update_dict:
+        try:
+            update_dict["source_overrides"] = normalize_source_overrides(update_dict["source_overrides"])
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
+    if is_masked_secret(update_dict.get("discord_token")):
+        update_dict.pop("discord_token", None)
     # C4: broker screens save one config at a time, so merge before encryption.
     if 'broker_configs' in update_dict:
-        existing_settings = _dict_or_empty(await db.get_settings())
         existing_configs = decrypt_broker_configs(existing_settings.get('broker_configs', {}))
         merged_configs = _merge_broker_configs(existing_configs, update_dict['broker_configs'])
         update_dict['broker_configs'] = encrypt_broker_configs(merged_configs)
@@ -195,7 +346,7 @@ async def toggle_trading():
         raise HTTPException(status_code=409, detail=blocked_readiness)
     current = coerce_bool((settings or {}).get("auto_trading_enabled"), default=True)
     new_state = not current
-    if new_state and not coerce_bool((settings or {}).get("simulation_mode"), default=True):
+    if new_state and not coerce_bool((settings or {}).get("simulation_mode"), default=False):
         from live_readiness import evaluate_live_readiness
         from routes.health import get_bot_status
 
@@ -327,7 +478,12 @@ async def get_risk_management_settings():
     return {
         "take_profit_enabled": coerce_bool(settings.get('take_profit_enabled'), default=False),
         "take_profit_percentage": settings.get('take_profit_percentage', 50.0),
+        "take_profit_sell_percentage": settings.get('take_profit_sell_percentage', 100.0),
         "bracket_order_enabled": coerce_bool(settings.get('bracket_order_enabled'), default=False),
+        "break_even_enabled": coerce_bool(settings.get('break_even_enabled'), default=False),
+        "break_even_activation_type": settings.get('break_even_activation_type', 'percent'),
+        "break_even_activation_percentage": settings.get('break_even_activation_percentage', 10.0),
+        "break_even_activation_cents": settings.get('break_even_activation_cents', 10.0),
         "stop_loss_enabled": coerce_bool(settings.get('stop_loss_enabled'), default=False),
         "stop_loss_percentage": settings.get('stop_loss_percentage', 25.0),
         "stop_loss_order_type": settings.get('stop_loss_order_type', 'market')
@@ -340,12 +496,19 @@ async def update_risk_management_settings(update: RiskManagementSettingsUpdate):
     update_dict = {k: v for k, v in update.model_dump().items() if v is not None}
     if 'stop_loss_order_type' in update_dict and update_dict['stop_loss_order_type'] not in ['market', 'limit']:
         raise HTTPException(status_code=400, detail="stop_loss_order_type must be 'market' or 'limit'")
+    if 'break_even_activation_type' in update_dict and update_dict['break_even_activation_type'] not in ['percent', 'cents']:
+        raise HTTPException(status_code=400, detail="break_even_activation_type must be 'percent' or 'cents'")
     await db.update_settings(update_dict)
     settings = {**update_dict, **_dict_or_empty(await db.get_settings())}
     return {
         "take_profit_enabled": coerce_bool(settings.get('take_profit_enabled'), default=False),
         "take_profit_percentage": settings.get('take_profit_percentage', 50.0),
+        "take_profit_sell_percentage": settings.get('take_profit_sell_percentage', 100.0),
         "bracket_order_enabled": coerce_bool(settings.get('bracket_order_enabled'), default=False),
+        "break_even_enabled": coerce_bool(settings.get('break_even_enabled'), default=False),
+        "break_even_activation_type": settings.get('break_even_activation_type', 'percent'),
+        "break_even_activation_percentage": settings.get('break_even_activation_percentage', 10.0),
+        "break_even_activation_cents": settings.get('break_even_activation_cents', 10.0),
         "stop_loss_enabled": coerce_bool(settings.get('stop_loss_enabled'), default=False),
         "stop_loss_percentage": settings.get('stop_loss_percentage', 25.0),
         "stop_loss_order_type": settings.get('stop_loss_order_type', 'market')
@@ -370,6 +533,7 @@ async def get_trailing_stop_settings():
         "trailing_stop_enabled": coerce_bool(settings.get('trailing_stop_enabled'), default=False),
         "trailing_stop_type": settings.get('trailing_stop_type', 'percent'),
         "trailing_stop_percent": settings.get('trailing_stop_percent', 10.0),
+        "trailing_stop_activation_percent": settings.get('trailing_stop_activation_percent', 10.0),
         "trailing_stop_cents": settings.get('trailing_stop_cents', 50.0)
     }
 
@@ -386,6 +550,7 @@ async def update_trailing_stop_settings(update: TrailingStopSettingsUpdate):
         "trailing_stop_enabled": coerce_bool(settings.get('trailing_stop_enabled'), default=False),
         "trailing_stop_type": settings.get('trailing_stop_type', 'percent'),
         "trailing_stop_percent": settings.get('trailing_stop_percent', 10.0),
+        "trailing_stop_activation_percent": settings.get('trailing_stop_activation_percent', 10.0),
         "trailing_stop_cents": settings.get('trailing_stop_cents', 50.0)
     }
 
@@ -466,7 +631,7 @@ async def reset_loss_counters(x_admin_key: Optional[str] = Header(default=None))
             details={"blocking_issues": blocked_readiness["blocking_issues"]},
         )
         raise HTTPException(status_code=409, detail=blocked_readiness)
-    if not coerce_bool((settings or {}).get("simulation_mode"), default=True):
+    if not coerce_bool((settings or {}).get("simulation_mode"), default=False):
         from live_readiness import evaluate_live_readiness
 
         candidate_settings = dict(settings or {})

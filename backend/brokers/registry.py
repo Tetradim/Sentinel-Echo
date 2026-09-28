@@ -5,11 +5,11 @@ BROKER_REGISTRY: dict[str, BrokerInfo] = {
     # --- LOW RISK ---
     "alpaca": BrokerInfo(
         id="alpaca", name="Alpaca",
-        description="Commission-free API-first broker built for algorithmic trading. Paper and live trading.",
+        description="Commission-free API-first broker built for algorithmic trading.",
         supported=True,
-        auth_fields=["api_key", "api_secret", "paper"],
+        auth_fields=["api_key", "api_secret", "base_url"],
         risk_warning=BrokerRiskWarning(BrokerRiskLevel.LOW,
-            "Alpaca is designed for algorithmic trading with a robust REST and WebSocket API. Paper trading available. Very low risk of restrictions."),
+            "Alpaca is designed for algorithmic trading with a robust REST and WebSocket API. Very low risk of restrictions."),
         docs_url="https://docs.alpaca.markets/", color="#22c55e",
     ),
     "ibkr": BrokerInfo(

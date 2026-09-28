@@ -5,6 +5,7 @@ FIXED C2b, C20, M28, M29
 from fastapi import APIRouter
 import os
 import threading
+from datetime import datetime, timezone
 from broker_capabilities import (
     broker_config_has_saved_value,
     get_broker_capabilities,
@@ -13,6 +14,7 @@ from broker_capabilities import (
     normalize_broker_id,
 )
 from live_readiness import evaluate_live_readiness
+from order_execution import close_broker_client
 from readiness_status import readiness_ready_for_live, status_flag
 from settings_flags import coerce_bool
 from source_config import summarize_source_policy
@@ -75,9 +77,8 @@ async def health():
         runtime = await db.get_runtime_state() if hasattr(db, "get_runtime_state") else {}
         readiness = evaluate_live_readiness(settings, runtime, status=status)
         signal_ingestion = readiness.get("checks", {}).get("signal_ingestion", {})
-        broker = readiness.get("checks", {}).get("broker", {})
         discord_ok = status_flag(signal_ingestion, "discord_connected")
-        broker_ok = status_flag(broker, "connected") and status_flag(broker, "configured")
+        broker_ok = await resolve_broker_connected(settings, status)
     else:
         broker_ok = status_flag(status, "broker_connected")
     return {
@@ -85,6 +86,30 @@ async def health():
         "discord_connected": discord_ok,
         "broker_connected": broker_ok
     }
+
+
+async def resolve_broker_connected(settings: dict, status: dict, *, client_factory=None) -> bool:
+    """Return broker connectivity from status, falling back to a direct configured-client check."""
+    settings = _dict_or_empty(settings)
+    active_broker = normalize_broker_id(settings.get("active_broker"), default="")
+    broker_configs = _dict_or_empty(settings.get("broker_configs"))
+    if not active_broker or not is_broker_configured(broker_configs, active_broker):
+        return False
+    if status_flag(status, "broker_connected"):
+        return True
+    if client_factory is None:
+        from order_execution import get_configured_broker_client
+
+        client_factory = get_configured_broker_client
+    try:
+        client = client_factory(settings, active_broker)
+        connected = await client.check_connection()
+        return bool(connected)
+    except Exception:
+        return False
+    finally:
+        if "client" in locals():
+            await close_broker_client(client)
 
 
 @router.get("/status")
@@ -101,16 +126,21 @@ async def get_status():
             settings.get("active_broker", status.get("active_broker", "ibkr")),
             default="ibkr",
         )
-        readiness = evaluate_live_readiness(settings, runtime, status=status)
+        broker_connected = await resolve_broker_connected(settings, status)
+        update_bot_status("broker_connected", broker_connected)
+        readiness_status = {**status, "broker_connected": broker_connected}
+        readiness = evaluate_live_readiness(settings, runtime, status=readiness_status)
         signal_ingestion = readiness.get("checks", {}).get("signal_ingestion", {})
         status.update(
             {
                 "discord_connected": status_flag(signal_ingestion, "discord_connected"),
+                "broker_connected": broker_connected,
                 "active_broker": active_broker,
                 "auto_trading_enabled": coerce_bool(settings.get("auto_trading_enabled"), default=True),
                 "simulation_mode": coerce_bool(settings.get("simulation_mode"), default=True),
             }
         )
+        status.update(await _persistent_alert_status(db, status))
         if has_runtime_state:
             status["shutdown_triggered"] = coerce_bool(runtime.get("shutdown_triggered"), default=False)
             status["shutdown_reason"] = runtime.get("shutdown_reason", "")
@@ -210,6 +240,59 @@ def _discord_token_configured(settings: dict, status: dict) -> bool:
 
 def _dict_or_empty(value) -> dict:
     return value if isinstance(value, dict) else {}
+
+
+async def _persistent_alert_status(database, status: dict) -> dict:
+    if not hasattr(database, "get_alerts"):
+        return {}
+    try:
+        alerts = await database.get_alerts(limit=1000)
+    except Exception:
+        return {}
+    if not isinstance(alerts, list) or not alerts:
+        return {}
+
+    newest_value = None
+    newest_sort_key = None
+    for alert in alerts:
+        if not isinstance(alert, dict):
+            continue
+        raw_timestamp = alert.get("received_at") or alert.get("created_at") or alert.get("timestamp")
+        sort_key = _timestamp_sort_key(raw_timestamp)
+        if sort_key is None:
+            continue
+        if newest_sort_key is None or sort_key > newest_sort_key:
+            newest_sort_key = sort_key
+            newest_value = raw_timestamp.isoformat() if isinstance(raw_timestamp, datetime) else str(raw_timestamp)
+
+    current_count = _safe_int(status.get("alerts_processed"))
+    return {
+        "alerts_processed": max(current_count, len([alert for alert in alerts if isinstance(alert, dict)])),
+        "last_alert_time": newest_value or status.get("last_alert_time"),
+    }
+
+
+def _timestamp_sort_key(value):
+    if isinstance(value, datetime):
+        parsed = value
+    else:
+        text = str(value or "").strip()
+        if not text:
+            return None
+        try:
+            parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+        except ValueError:
+            return text
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.timestamp()
+
+
+def _safe_int(value) -> int:
+    try:
+        return max(0, int(value or 0))
+    except (TypeError, ValueError):
+        return 0
 
 
 def _setup_warnings(
