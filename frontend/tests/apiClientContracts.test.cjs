@@ -16,6 +16,7 @@ test('api client centralizes critical operator and trading routes', () => {
     'sellPosition',
     'closeTrade',
     'updateTradePrice',
+    'cleanSlateTrades',
     'switchBroker',
     'checkBroker',
   ].forEach((name) => assert.match(source, new RegExp(`function ${name}\\b`)));
@@ -29,6 +30,7 @@ test('api client centralizes critical operator and trading routes', () => {
     '/api/operator/alert-chains',
     '/api/positions',
     '/api/trades/',
+    '/api/trades/clean-slate',
     '/api/broker/switch',
     '/api/broker/check',
   ].forEach((route) => assert.match(source, new RegExp(route.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))));

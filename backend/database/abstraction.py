@@ -54,6 +54,21 @@ def _default_runtime_state() -> Dict[str, Any]:
     }
 
 
+def _clean_slate_backup_path(backup_id: str) -> str:
+    return os.path.join(os.getcwd(), 'data', 'clean_slate_backups', f'{backup_id}.json')
+
+
+async def _write_clean_slate_backup(backup_id: str, payload: Dict[str, Any]) -> str:
+    path = _clean_slate_backup_path(backup_id)
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    def write_payload():
+        with open(path, 'w', encoding='utf-8') as handle:
+            handle.write(json.dumps(payload, indent=2, default=str))
+
+    await asyncio.to_thread(write_payload)
+    return path
+
+
 def _default_settings() -> Dict[str, Any]:
     """Pure config -- no runtime counters or transient flags."""
     return {
@@ -314,6 +329,9 @@ class DatabaseInterface(ABC):
     async def get_portfolio_summary(self) -> Dict[str, Any]: pass
 
     @abstractmethod
+    async def clean_slate_trading(self) -> Dict[str, Any]: pass
+
+    @abstractmethod
     async def get_operator_events(self, limit: int = 100) -> List[Dict[str, Any]]: pass
 
     @abstractmethod
@@ -517,6 +535,42 @@ class MongoDBDatabase(DatabaseInterface):
             'best_trade': t.get('best_trade', 0.0) or 0.0,
             'worst_trade': t.get('worst_trade', 0.0) or 0.0,
             'average_pnl': (t.get('total_realized', 0.0) / total_trades) if total_trades else 0.0,
+        }
+
+    async def clean_slate_trading(self) -> Dict[str, Any]:
+        backup_id = f"clean-slate-{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}"
+        trades = await self.db.trades.find({}, {'_id': 0}).to_list(length=None)
+        positions = await self.db.positions.find({}, {'_id': 0}).to_list(length=None)
+        alerts = await self.db.alerts.find({}, {'_id': 0}).to_list(length=None)
+        operator_events = await self.db.operator_events.find({}, {'_id': 0}).to_list(length=None)
+        runtime_before = await self.get_runtime_state()
+        portfolio_before = await self.get_portfolio_summary()
+        backup_path = await _write_clean_slate_backup(
+            backup_id,
+            {
+                'backup_id': backup_id,
+                'created_at': datetime.now(timezone.utc).isoformat(),
+                'runtime_state': runtime_before,
+                'portfolio': portfolio_before,
+                'trades': trades,
+                'positions': positions,
+                'alerts': alerts,
+                'operator_events': operator_events,
+            },
+        )
+        trade_result = await self.db.trades.delete_many({})
+        position_result = await self.db.positions.delete_many({})
+        await self.reset_loss_counters()
+        return {
+            'backup_id': backup_id,
+            'backup_path': backup_path,
+            'trades_backed_up': len(trades),
+            'positions_backed_up': len(positions),
+            'alerts_backed_up': len(alerts),
+            'operator_events_backed_up': len(operator_events),
+            'trades_deleted': trade_result.deleted_count,
+            'positions_deleted': position_result.deleted_count,
+            'loss_counters_reset': True,
         }
 
     async def get_operator_events(self, limit: int = 100) -> List[Dict[str, Any]]:
@@ -1216,6 +1270,67 @@ class SQLiteDatabase(DatabaseInterface):
             'best_trade': tr['best_trade'] if tr else 0.0,
             'worst_trade': tr['worst_trade'] if tr else 0.0,
             'average_pnl': (total_realized / total_trades) if total_trades else 0.0,
+        }
+
+    async def clean_slate_trading(self) -> Dict[str, Any]:
+        await self._ensure_ready()
+        import aiosqlite
+
+        backup_id = f"clean-slate-{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}"
+        async with aiosqlite.connect(self.db_path, timeout=30) as conn:
+            conn.row_factory = aiosqlite.Row
+
+            async def read_json_rows(table: str) -> List[Dict[str, Any]]:
+                async with conn.execute(f'SELECT data FROM {table}') as cur:
+                    rows = await cur.fetchall()
+                return [json.loads(row['data']) for row in rows]
+
+            trades = await read_json_rows('trades')
+            positions = await read_json_rows('positions')
+            alerts = await read_json_rows('alerts')
+            operator_events = await read_json_rows('operator_events')
+            async with conn.execute('SELECT * FROM runtime_state WHERE id = ?', ('runtime',)) as cur:
+                runtime_row = await cur.fetchone()
+            runtime_before = dict(runtime_row) if runtime_row else {}
+            portfolio_before = await self.get_portfolio_summary()
+
+            backup_path = await _write_clean_slate_backup(
+                backup_id,
+                {
+                    'backup_id': backup_id,
+                    'created_at': datetime.now(timezone.utc).isoformat(),
+                    'runtime_state': runtime_before,
+                    'portfolio': portfolio_before,
+                    'trades': trades,
+                    'positions': positions,
+                    'alerts': alerts,
+                    'operator_events': operator_events,
+                },
+            )
+
+            trade_cursor = await conn.execute('DELETE FROM trades')
+            position_cursor = await conn.execute('DELETE FROM positions')
+            await conn.execute(
+                '''UPDATE runtime_state
+                   SET consecutive_losses = 0,
+                       daily_losses = 0,
+                       daily_loss_amount = 0.0,
+                       last_loss_reset_date = ?
+                   WHERE id = ?''',
+                (datetime.now(timezone.utc).date().isoformat(), 'runtime'),
+            )
+            await conn.commit()
+
+        return {
+            'backup_id': backup_id,
+            'backup_path': backup_path,
+            'trades_backed_up': len(trades),
+            'positions_backed_up': len(positions),
+            'alerts_backed_up': len(alerts),
+            'operator_events_backed_up': len(operator_events),
+            'trades_deleted': trade_cursor.rowcount,
+            'positions_deleted': position_cursor.rowcount,
+            'loss_counters_reset': True,
         }
 
     # -- Operator events ---------------------------------------------------

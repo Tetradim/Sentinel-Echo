@@ -68,6 +68,7 @@ class FakeTradingDb:
         self.position_updates = []
         self.settings_updates = []
         self.runtime_updates = []
+        self.clean_slate_calls = 0
         self.runtime_state = {}
         self.settings = {
             "active_broker": "ibkr",
@@ -135,6 +136,20 @@ class FakeTradingDb:
     async def get_settings(self):
         return dict(self.settings)
 
+    async def clean_slate_trading(self):
+        self.clean_slate_calls += 1
+        return {
+            "backup_id": "clean-slate-20260928T120000Z",
+            "backup_path": "data/clean_slate_backups/clean-slate-20260928T120000Z.json",
+            "trades_backed_up": 2,
+            "positions_backed_up": 1,
+            "alerts_backed_up": 3,
+            "operator_events_backed_up": 4,
+            "trades_deleted": 2,
+            "positions_deleted": 1,
+            "loss_counters_reset": True,
+        }
+
 
 class FakeRawTradingDb(FakeTradingDb):
     def __init__(self, settings):
@@ -188,6 +203,7 @@ class OperatorRouteContractTests(unittest.TestCase):
 
         self.assertIn(("POST", "/api/trades/{trade_id}/close"), routes)
         self.assertIn(("PUT", "/api/trades/{trade_id}/price"), routes)
+        self.assertIn(("POST", "/api/trades/clean-slate"), routes)
         self.assertIn(("POST", "/api/positions/{position_id}/sell"), routes)
         self.assertIn(("POST", "/api/test-alert"), routes)
         self.assertIn(("POST", "/api/broker/switch/{broker_id}"), routes)
@@ -1051,6 +1067,22 @@ class OperatorRouteContractTests(unittest.TestCase):
 
         self.assertEqual(raised.exception.status_code, 410)
         self.assertEqual(fake_db.inserted_trades, [])
+
+    def test_clean_slate_backs_up_trading_state_and_logs_event(self):
+        from routes import trading as trading_route
+
+        fake_db = FakeTradingDb()
+        trading_route.set_db(fake_db)
+
+        response = asyncio.run(trading_route.clean_slate_trading())
+
+        self.assertEqual(fake_db.clean_slate_calls, 1)
+        self.assertEqual(response["backup_id"], "clean-slate-20260928T120000Z")
+        self.assertEqual(response["trades_deleted"], 2)
+        self.assertEqual(response["positions_deleted"], 1)
+        self.assertTrue(response["loss_counters_reset"])
+        self.assertEqual(fake_db.inserted_events[-1]["action"], "trading_clean_slate")
+        self.assertEqual(fake_db.inserted_events[-1]["details"]["backup_id"], "clean-slate-20260928T120000Z")
 
     def test_broker_check_closes_temporary_client(self):
         from routes import brokers as brokers_route

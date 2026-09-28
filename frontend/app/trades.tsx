@@ -9,6 +9,7 @@ import { api } from '../utils/api';
 import { BACKEND_URL, DEMO_MODE } from '../constants/config';
 import { BROKER_COLORS, BROKER_NAMES } from '../constants/brokers';
 import { validatePrice, formatDate, formatPnL, getPnLColor, formatCurrency, finiteNumber } from '../utils/format';
+import { cleanSlateTrades } from '../utils/apiClient';
 import {
   filterTrades,
   summarizeTrades,
@@ -191,6 +192,41 @@ export default function TradesScreen() {
     finally { setSubmitting(false); }
   };
 
+  const requestCleanSlate = () => {
+    if (DEMO_MODE) {
+      Alert.alert('Demo Mode', 'Clean slate is only available when Echo is connected to the live backend.');
+      return;
+    }
+    Alert.alert(
+      'Clean Slate',
+      'Back up current trades, positions, alerts, and counters, then reset trades and PnL to zero? This cannot be undone from the app.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Clean Slate',
+          style: 'destructive',
+          onPress: async () => {
+            setSubmitting(true);
+            try {
+              const response = await cleanSlateTrades();
+              await fetchTrades();
+              const backupId = response.data?.backup_id || 'backup saved';
+              const backupPath = response.data?.backup_path;
+              Alert.alert(
+                'Clean Slate Complete',
+                backupPath ? `${backupId}\n${backupPath}` : String(backupId),
+              );
+            } catch (e: any) {
+              Alert.alert('Error', e.response?.data?.detail || 'Failed to reset trading state');
+            } finally {
+              setSubmitting(false);
+            }
+          },
+        },
+      ],
+    );
+  };
+
   const renderItem = ({ item: t }: { item: Trade }) => {
     const si = statusInfo(t.status, t.simulated);
     const bColor = BROKER_COLORS[t.broker] || '#68779b';
@@ -282,14 +318,26 @@ export default function TradesScreen() {
           <Text style={s.eyebrow}>TRADE HISTORY</Text>
           <Text style={s.title}>Trades</Text>
         </View>
-        {portfolio && (
-          <View style={s.headerPnl}>
-            <Text style={[s.headerPnlNum, { color: getPnLColor(portfolio.total_pnl) }]}>
-              {formatPnL(portfolio.total_pnl)}
-            </Text>
-            <Text style={s.headerPnlLabel}>{(finiteNumber(portfolio.win_rate) ?? 0).toFixed(0)}% win rate</Text>
-          </View>
-        )}
+        <View style={s.headerRight}>
+          {portfolio && (
+            <View style={s.headerPnl}>
+              <Text style={[s.headerPnlNum, { color: getPnLColor(portfolio.total_pnl) }]}>
+                {formatPnL(portfolio.total_pnl)}
+              </Text>
+              <Text style={s.headerPnlLabel}>{(finiteNumber(portfolio.win_rate) ?? 0).toFixed(0)}% win rate</Text>
+            </View>
+          )}
+          <TouchableOpacity
+            style={[s.cleanSlateButton, submitting && s.cleanSlateButtonDisabled]}
+            onPress={requestCleanSlate}
+            disabled={submitting}
+            accessibilityRole="button"
+            accessibilityLabel="Clean Slate"
+          >
+            <Ionicons name="refresh-circle-outline" size={16} color="#fecdd3" />
+            <Text style={s.cleanSlateButtonText}>Clean Slate</Text>
+          </TouchableOpacity>
+        </View>
       </View>
 
       {/* Stats strip */}
@@ -412,9 +460,13 @@ const s = StyleSheet.create({
   header:     { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end', paddingHorizontal: 20, paddingTop: 16, paddingBottom: 12 },
   eyebrow:    { fontSize: 10, color: '#f43f5e', fontWeight: '700', letterSpacing: 2, marginBottom: 2 },
   title:      { fontSize: 26, fontWeight: '800', color: '#edf3ff' },
+  headerRight: { alignItems: 'flex-end', gap: 8 },
   headerPnl:  { alignItems: 'flex-end' },
   headerPnlNum: { fontSize: 20, fontWeight: '800' },
   headerPnlLabel: { fontSize: 11, color: '#68779b', marginTop: 1 },
+  cleanSlateButton: { flexDirection: 'row', alignItems: 'center', gap: 5, borderRadius: 8, borderWidth: 1, borderColor: '#7f1d1d', backgroundColor: 'rgba(127, 29, 29, 0.42)', paddingHorizontal: 9, paddingVertical: 6 },
+  cleanSlateButtonDisabled: { opacity: 0.55 },
+  cleanSlateButtonText: { color: '#fecdd3', fontSize: 11, fontWeight: '900' },
 
   strip:      { flexDirection: 'row', marginHorizontal: 16, backgroundColor: 'rgba(16, 9, 28, 0.82)', borderRadius: 12, padding: 12, marginBottom: 10, borderWidth: 1, borderColor: '#29213a' },
   stripCell:  { flex: 1, alignItems: 'center' },

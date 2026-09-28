@@ -333,6 +333,29 @@ async def update_trade_price(trade_id: str, request: UpdateTradePriceRequest):
     }
 
 
+@router.post("/trades/clean-slate")
+async def clean_slate_trading():
+    """Back up trading history and reset trade, position, P&L, and loss counters."""
+    if not hasattr(db, "clean_slate_trading"):
+        raise HTTPException(status_code=501, detail="Clean slate is not supported by this database")
+
+    result = await db.clean_slate_trading()
+    await record_operator_event(
+        db,
+        "trade",
+        "trading_clean_slate",
+        "Trading counters and history were reset after backup.",
+        severity="warning",
+        details={
+            "backup_id": result.get("backup_id"),
+            "backup_path": result.get("backup_path"),
+            "trades_deleted": result.get("trades_deleted", 0),
+            "positions_deleted": result.get("positions_deleted", 0),
+        },
+    )
+    return result
+
+
 # Positions
 @router.get("/positions")
 async def get_positions(status: Optional[str] = None):

@@ -4,6 +4,7 @@ export const API_ROUTES = {
   settings: '/api/settings',
   toggleTrading: '/api/toggle-trading',
   positions: '/api/positions',
+  tradesCleanSlate: '/api/trades/clean-slate',
   operatorEvents: '/api/operator/events',
   liveReadiness: '/api/operator/live-readiness',
   liveArm: '/api/operator/live-arm',
@@ -41,6 +42,10 @@ export function closeTrade(tradeId: string, exitPrice: number) {
 
 export function updateTradePrice(tradeId: string, currentPrice: number) {
   return api.put(`/api/trades/${tradeId}/price`, { current_price: currentPrice });
+}
+
+export function cleanSlateTrades() {
+  return api.post(API_ROUTES.tradesCleanSlate);
 }
 
 export function switchBroker(brokerId: string) {
