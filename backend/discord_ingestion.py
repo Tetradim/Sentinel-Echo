@@ -134,6 +134,31 @@ async def handle_discord_message(
             trade_request_reason="sell alert listening disabled",
         )
 
+    if _is_trim_alert(parsed) and not _trim_alert_listening_enabled(settings, source_config):
+        source_override = source_config.get("trim_alert_listening_enabled") is not None
+        disabled_reason = (
+            "trim alert listening disabled for source"
+            if source_override
+            else "trim alert listening disabled"
+        )
+        alert = _build_alert(
+            parsed=parsed,
+            raw_message=alert_text,
+            metadata=metadata,
+            processed=True,
+            skip_reason=disabled_reason,
+            trade_request_reason=disabled_reason,
+        )
+        await _maybe_await(deps.insert_alert(alert))
+        return DiscordIngestionResult(
+            parsed=parsed,
+            alert_inserted=True,
+            trade_requested=False,
+            skip_reason=disabled_reason,
+            alert_id=alert.id,
+            trade_request_reason=disabled_reason,
+        )
+
     await _maybe_await(deps.update_status("last_alert_time", datetime.now(timezone.utc).isoformat()))
     increment_alerts_processed = getattr(deps, "increment_alerts_processed", None)
     if increment_alerts_processed:
@@ -204,7 +229,7 @@ def _build_alert(
         trade_result=f"skipped: {reason}" if reason else None,
         skip_reason=reason or None,
         trade_request_reason=trade_request_reason or None,
-        exit_trigger="sell_alert" if _is_exit_alert(parsed) else None,
+        exit_trigger=(parsed.get("exit_trigger") or "sell_alert") if _is_exit_alert(parsed) else None,
         card_action=parsed.get('_card'),
         **metadata,
     )
@@ -246,6 +271,17 @@ def _is_exit_alert(parsed: dict) -> bool:
 
 def _sell_alert_listening_enabled(settings: dict) -> bool:
     return coerce_bool(settings.get("sell_alert_listening_enabled"), default=True)
+
+
+def _is_trim_alert(parsed: dict) -> bool:
+    return str((parsed or {}).get("alert_type", "")).strip().lower() == "trim"
+
+
+def _trim_alert_listening_enabled(settings: dict, source_config: dict | None = None) -> bool:
+    source_value = (source_config or {}).get("trim_alert_listening_enabled")
+    if source_value is not None:
+        return coerce_bool(source_value, default=True)
+    return coerce_bool(settings.get("trim_alert_listening_enabled"), default=True)
 
 
 def _auto_trading_enabled(settings: dict) -> bool:

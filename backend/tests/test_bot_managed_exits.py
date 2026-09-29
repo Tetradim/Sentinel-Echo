@@ -130,6 +130,73 @@ class FakeReplacePendingBroker(FakeContextBroker):
 
 
 class BotManagedExitTests(unittest.TestCase):
+    def test_post_exit_telemetry_records_best_bid_without_submitting_orders(self):
+        from bot_managed_exits import _refresh_recent_closed_position_telemetry
+
+        db = FakeExitDb()
+        db.positions.append(
+            {
+                "id": "closed-position",
+                "ticker": "SPY",
+                "strike": 775.0,
+                "option_type": "CALL",
+                "expiration": "2026-09-28",
+                "entry_price": 0.34,
+                "current_price": 0.30,
+                "remaining_quantity": 0,
+                "broker": "alpaca",
+                "status": "closed",
+                "closed_at": "2026-09-28T15:00:00+00:00",
+            }
+        )
+        broker = FakeContextBroker(
+            context={
+                "option_bid": 0.51,
+                "option_ask": 0.53,
+                "option_quote_observed_at": "2026-09-28T15:10:00+00:00",
+            }
+        )
+
+        refreshed = asyncio.run(
+            _refresh_recent_closed_position_telemetry(
+                db,
+                broker,
+                {"post_exit_telemetry_enabled": True, "post_exit_telemetry_minutes": 60},
+                now=datetime(2026, 9, 28, 15, 10, tzinfo=timezone.utc),
+            )
+        )
+
+        self.assertEqual(refreshed, 1)
+        self.assertEqual(db.positions[0]["post_exit_last_bid"], 0.51)
+        self.assertEqual(db.positions[0]["post_exit_highest_bid"], 0.51)
+        self.assertEqual(db.positions[0]["post_exit_highest_return_percent"], 50.0)
+        self.assertEqual(broker.orders, [])
+
+    def test_legacy_sell_trade_recovers_position_from_reserved_order_id_only(self):
+        from bot_managed_exits import _position_id_for_trade
+
+        trade = {"side": "SELL", "order_id": "legacy-exit-order"}
+        positions = [
+            {
+                "id": "position-1",
+                "exit_order_pending": True,
+                "exit_order_id": "legacy-exit-order",
+            },
+            {
+                "id": "position-2",
+                "exit_order_pending": True,
+                "exit_order_id": "other-order",
+            },
+        ]
+
+        self.assertEqual(_position_id_for_trade(trade, positions), "position-1")
+        self.assertIsNone(
+            _position_id_for_trade(
+                trade,
+                positions + [{"id": "position-3", "exit_order_id": "legacy-exit-order"}],
+            )
+        )
+
     def test_exit_worker_cadence_honors_fastest_configured_reprice_interval(self):
         from bot_managed_exits import _exit_worker_interval_seconds
 

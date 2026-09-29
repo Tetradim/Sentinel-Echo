@@ -8,7 +8,15 @@ from card_ingestion import prepare_card
 from database.abstraction import SQLiteDatabase
 from discord_ingestion import DiscordIngestionDeps, handle_discord_message
 from structured_alert_cards import parse_card
-from test_structured_alert_cards import ENTRY, EDIT, TRIM, CLOSE
+from test_structured_alert_cards import (
+    ENTRY,
+    EDIT,
+    TRIM,
+    CLOSE,
+    MONEY_GLITCH_ENTRY,
+    MONEY_GLITCH_TRIM,
+    MONEY_GLITCH_CLOSE,
+)
 
 
 class CardIngestionTests(unittest.IsolatedAsyncioTestCase):
@@ -117,3 +125,59 @@ class CardIngestionTests(unittest.IsolatedAsyncioTestCase):
         plans = build_exit_plans(positions, parsed)
         self.assertEqual(len(plans), 1)
         self.assertEqual(plans[0]['quantity'], 3)
+
+    async def test_money_glitch_trim_updates_source_stop_even_when_trim_execution_is_disabled(self):
+        self.settings.update({
+            'trim_alert_listening_enabled': True,
+            'source_overrides': {
+                'homebrew': {'trim_alert_listening_enabled': False},
+            },
+        })
+        entry = await self.ingest(MONEY_GLITCH_ENTRY, 'homebrew-card', 'homebrew')
+        await self.db.insert_position({
+            'id': 'homebrew-position',
+            'alert_id': entry.alert_id,
+            'ticker': 'SPY',
+            'strike': 775,
+            'option_type': 'CALL',
+            'expiration': '09/21/26',
+            'broker': 'alpaca',
+            'quantity': 2,
+            'remaining_quantity': 2,
+            'entry_price': 0.34,
+            'current_price': 0.37,
+            'status': 'open',
+        })
+
+        result = await self.ingest(MONEY_GLITCH_TRIM, 'homebrew-card', 'homebrew')
+        position = await self.db.get_position_by_id('homebrew-position')
+
+        self.assertFalse(result.trade_requested)
+        self.assertEqual(result.skip_reason, 'trim alert listening disabled for source')
+        self.assertEqual(position['source_reported_stop_price'], 0.34)
+        self.assertTrue(position['source_reported_break_even_stop'])
+
+    async def test_money_glitch_close_edit_targets_existing_card_position(self):
+        self.settings['source_overrides'] = {'homebrew': {'trim_alert_listening_enabled': False}}
+        entry = await self.ingest(MONEY_GLITCH_ENTRY, 'homebrew-card', 'homebrew')
+        await self.db.insert_position({
+            'id': 'homebrew-position',
+            'alert_id': entry.alert_id,
+            'ticker': 'SPY',
+            'strike': 775,
+            'option_type': 'CALL',
+            'expiration': '09/21/26',
+            'broker': 'alpaca',
+            'quantity': 2,
+            'remaining_quantity': 2,
+            'entry_price': 0.34,
+            'current_price': 0.42,
+            'status': 'open',
+        })
+
+        result = await self.ingest(MONEY_GLITCH_CLOSE, 'homebrew-card', 'homebrew')
+
+        self.assertTrue(result.trade_requested)
+        self.assertEqual(result.parsed['alert_type'], 'close')
+        self.assertEqual(result.parsed['exit_trigger'], 'source_card_close')
+        self.assertEqual(result.parsed['_card']['position_id'], 'homebrew-position')

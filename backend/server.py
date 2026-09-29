@@ -340,14 +340,14 @@ async def _process_starter_buy_alert(
         return False, block_reason
 
     # 1. Risk-based position sizing.
-    from entry_controls import alert_exit_profile, alert_risk_size_cap
+    from entry_controls import alert_risk_size_cap, resolve_entry_exit_profile
 
     risk_language_cap, risk_language_reasons = alert_risk_size_cap(
         alert.raw_message,
         cap_percent=settings.coordinated_high_risk_size_percent,
     )
     entry_risk_profile = "high_risk" if risk_language_reasons else "normal"
-    entry_exit_profile = alert_exit_profile(alert.raw_message)
+    entry_exit_profile = resolve_entry_exit_profile(alert.raw_message, source_config)
     estimated_stop_loss_percent = (
         settings.coordinated_high_risk_stop_loss_percent
         if entry_risk_profile == "high_risk"
@@ -480,6 +480,7 @@ async def _process_starter_buy_alert(
         return False, f"blocked: {block_reason}"
 
     # 3. Build the trade record.
+    source_card = alert.card_action if isinstance(alert.card_action, dict) else {}
     trade = Trade(
         alert_id=alert.id,
         ticker=alert.ticker,
@@ -498,6 +499,9 @@ async def _process_starter_buy_alert(
         entry_exit_profile=entry_exit_profile,
         max_loss_budget=settings.max_loss_per_trade,
         estimated_stop_loss_percent=estimated_stop_loss_percent,
+        source_reported_stop_price=source_card.get("reported_stop_price"),
+        source_reported_stop_percent=source_card.get("reported_stop_percent"),
+        source_reported_break_even_stop=bool(source_card.get("reported_break_even_stop")),
     )
 
     # Place with broker, store as "pending", start fill monitor.
@@ -588,6 +592,9 @@ async def _process_starter_buy_alert(
                     entry_exit_profile=entry_exit_profile,
                     max_loss_budget=settings.max_loss_per_trade,
                     estimated_stop_loss_percent=estimated_stop_loss_percent,
+                    source_reported_stop_price=trade.source_reported_stop_price,
+                    source_reported_stop_percent=trade.source_reported_stop_percent,
+                    source_reported_break_even_stop=trade.source_reported_break_even_stop,
                 ),
                 broker_client=broker_client,
                 db=db_obj,
@@ -1146,6 +1153,7 @@ async def process_exit_alert(
 
         trade = Trade(
             alert_id=alert.id,
+            position_id=position.id,
             ticker=position.ticker,
             strike=position.strike,
             option_type=position.option_type,
@@ -1551,6 +1559,9 @@ def _pending_trade_order_context(trade: dict) -> OrderContext | None:
         entry_risk_profile=str(trade.get("entry_risk_profile") or "normal"),
         max_loss_budget=trade.get("max_loss_budget"),
         estimated_stop_loss_percent=trade.get("estimated_stop_loss_percent"),
+        source_reported_stop_price=trade.get("source_reported_stop_price"),
+        source_reported_stop_percent=trade.get("source_reported_stop_percent"),
+        source_reported_break_even_stop=bool(trade.get("source_reported_break_even_stop")),
         update_alert_status=trade_owns_alert_status(trade),
     )
 

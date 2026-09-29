@@ -26,9 +26,10 @@ test('exposes the five approved trading test presets', () => {
   );
 });
 
-test('every preset preserves analyst exits and mandatory 0DTE liquidation', () => {
+test('every preset preserves analyst exits and mandatory 0DTE liquidation without overriding the trim choice', () => {
   for (const preset of TRADING_TEST_PRESETS) {
     assert.equal(preset.payload.sell_alert_listening_enabled, true, preset.id);
+    assert.equal(Object.hasOwn(preset.payload, 'trim_alert_listening_enabled'), false, preset.id);
     assert.equal(preset.payload.zero_dte_liquidation_enabled, true, preset.id);
     assert.equal(preset.payload.zero_dte_liquidation_time, '15:40', preset.id);
     assert.equal(preset.payload.core_runner_zero_dte_liquidation_enabled, true, preset.id);

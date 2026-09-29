@@ -151,6 +151,47 @@ class DiscordIngestionTests(unittest.TestCase):
         self.assertEqual(deps.alerts[0].skip_reason, "sell alert listening disabled")
         self.assertEqual(deps.alerts[0].trade_result, "skipped: sell alert listening disabled")
 
+    def test_trim_alert_listener_can_be_disabled_without_disabling_full_sell_alerts(self):
+        from discord_ingestion import handle_discord_message
+
+        deps = FakeDeps(
+            {
+                "auto_trading_enabled": True,
+                "sell_alert_listening_enabled": True,
+                "trim_alert_listening_enabled": False,
+                "source_overrides": {},
+            }
+        )
+
+        result = asyncio.run(
+            handle_discord_message(
+                message("TRIM SPY 500C 6/21 HERE AT 1.50"),
+                channel_ids=["123"],
+                deps=deps,
+                bot_user=types.SimpleNamespace(id="bot"),
+            )
+        )
+
+        self.assertEqual(result.parsed["alert_type"], "trim")
+        self.assertEqual(result.skip_reason, "trim alert listening disabled")
+        self.assertTrue(result.alert_inserted)
+        self.assertFalse(result.trade_requested)
+        self.assertEqual(deps.trades, [])
+
+        sell_result = asyncio.run(
+            handle_discord_message(
+                message("SELL ALL SPY 500C 6/21 HERE AT 1.45"),
+                channel_ids=["123"],
+                deps=deps,
+                bot_user=types.SimpleNamespace(id="bot"),
+            )
+        )
+
+        self.assertEqual(sell_result.parsed["alert_type"], "sell")
+        self.assertEqual(sell_result.skip_reason, "")
+        self.assertTrue(sell_result.trade_requested)
+        self.assertEqual(len(deps.trades), 1)
+
     def test_persisted_settings_not_bot_status_control_trading_request(self):
         from discord_ingestion import handle_discord_message
 

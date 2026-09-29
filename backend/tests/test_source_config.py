@@ -231,6 +231,32 @@ class SourceConfigTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "enabled must be a boolean"):
             normalize_source_overrides({"alerts": {"enabled": "sometimes"}})
 
+    def test_source_trim_policy_and_exit_profile_are_normalized(self):
+        from source_config import normalize_source_overrides
+
+        normalized = normalize_source_overrides(
+            {
+                "homebrew": {
+                    "trim_alert_listening_enabled": "false",
+                    "exit_profile": "swing",
+                },
+                "mike": {
+                    "trim_alert_listening_enabled": "inherit",
+                },
+            }
+        )
+
+        self.assertFalse(normalized["homebrew"]["trim_alert_listening_enabled"])
+        self.assertEqual(normalized["homebrew"]["exit_profile"], "swing")
+        self.assertIsNone(normalized["mike"]["trim_alert_listening_enabled"])
+        self.assertEqual(normalized["mike"]["exit_profile"], "standard")
+
+    def test_source_exit_profile_rejects_unknown_profile(self):
+        from source_config import normalize_source_overrides
+
+        with self.assertRaisesRegex(ValueError, "exit_profile must be standard or swing"):
+            normalize_source_overrides({"alerts": {"exit_profile": "lottery"}})
+
     def test_allowed_actions_block_unapproved_lifecycle_alerts(self):
         from source_config import resolve_source_config, source_skip_reason
 

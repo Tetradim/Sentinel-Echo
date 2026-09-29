@@ -27,14 +27,32 @@ Time
 08/31/2026 09:36 AM CST"""
 MONEY_GLITCH_ENTRY = """Money GlitchAPP2:00 PM
 
-**SPY $775C** 09-21 · Austin Filled **74× @ $0.34** (take, drift +0.0%, alert $0.34) Stop-only · stop **−20%** ($0.34) · target: **manual** (you)
+**SPY $775C** 09-21 · Austin Filled **74× @ $0.34** (take, drift +0.0%, alert $0.34) Stop-only · stop **−20%** ($0.27) · target: **manual** (you)
 
 ` exit    price    qty       pnl
 -------------------------------
-trim   $  0.37    37x   +107.30  +9%
-stop   $  0.34    37x     -3.70  +0%
+(no trims yet)
 -------------------------------
-peak   +10%   ·   net +103.60`"""
+open   74x · stop $0.27
+peak   +0%   ·   net +0.00`"""
+
+MONEY_GLITCH_TRIM = MONEY_GLITCH_ENTRY.replace(
+    "(no trims yet)\n-------------------------------\nopen   74x · stop $0.27\npeak   +0%   ·   net +0.00",
+    "trim   $  0.37    37x   +107.30  +9%\n"
+    "-------------------------------\nopen   37x · stop $0.34 (BE)\npeak   +10%   ·   net +107.30",
+)
+
+MONEY_GLITCH_CLOSE = MONEY_GLITCH_TRIM.replace(
+    "-------------------------------\nopen   37x · stop $0.34 (BE)\npeak   +10%   ·   net +107.30",
+    "close  $  0.42    37x   +292.30 +24%\n"
+    "-------------------------------\npeak   +26%   ·   net +399.60",
+)
+
+MONEY_GLITCH_STOP = MONEY_GLITCH_TRIM.replace(
+    "-------------------------------\nopen   37x · stop $0.34 (BE)\npeak   +10%   ·   net +107.30",
+    "stop   $  0.34    37x     -3.70  +0%\n"
+    "-------------------------------\npeak   +10%   ·   net +103.60",
+)
 
 
 class CardParserTests(unittest.TestCase):
@@ -107,7 +125,33 @@ class CardParserTests(unittest.TestCase):
         self.assertEqual(card.parsed['_card']['schema'], 'filled_position_v1')
         self.assertEqual(card.parsed['_card']['reported_quantity'], 74)
         self.assertEqual(card.parsed['_card']['reported_stop_percent'], -20)
+        self.assertEqual(card.parsed['_card']['reported_stop_price'], 0.27)
         self.assertEqual(card.parsed['_card']['target_mode'], 'manual')
+
+    def test_money_glitch_edit_emits_incremental_trim_and_break_even_stop(self):
+        parsed = parse_card(MONEY_GLITCH_TRIM).parsed
+
+        self.assertEqual(parsed['alert_type'], 'trim')
+        self.assertEqual(parsed['sell_percentage'], 50)
+        self.assertEqual(parsed['exit_trigger'], 'source_card_trim')
+        self.assertEqual(parsed['_card']['reported_exit_price'], 0.37)
+        self.assertEqual(parsed['_card']['reported_exit_quantity'], 37)
+        self.assertEqual(parsed['_card']['reported_open_quantity'], 37)
+        self.assertEqual(parsed['_card']['reported_stop_price'], 0.34)
+        self.assertTrue(parsed['_card']['reported_break_even_stop'])
+
+    def test_money_glitch_close_and_stop_edits_are_full_exits(self):
+        close = parse_card(MONEY_GLITCH_CLOSE).parsed
+        stop = parse_card(MONEY_GLITCH_STOP).parsed
+
+        self.assertEqual(close['alert_type'], 'close')
+        self.assertEqual(close['sell_percentage'], 100)
+        self.assertEqual(close['exit_trigger'], 'source_card_close')
+        self.assertEqual(close['_card']['reported_exit_price'], 0.42)
+        self.assertEqual(stop['alert_type'], 'close')
+        self.assertEqual(stop['sell_percentage'], 100)
+        self.assertEqual(stop['exit_trigger'], 'source_card_stop')
+        self.assertEqual(stop['_card']['reported_exit_price'], 0.34)
 
     def test_malformed_filled_card_is_blocked_instead_of_falling_through(self):
         card = parse_card('SPY $775C 09-21 · Austin Filled 74× at market')

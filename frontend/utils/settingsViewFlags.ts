@@ -11,6 +11,7 @@ export interface SettingsViewFlagsInput {
   stop_loss_enabled?: BooleanLike;
   trailing_stop_enabled?: BooleanLike;
   sell_alert_listening_enabled?: BooleanLike;
+  trim_alert_listening_enabled?: BooleanLike;
   auto_shutdown_enabled?: BooleanLike;
   sms_enabled?: BooleanLike;
 }
@@ -26,6 +27,7 @@ export interface SettingsViewFlags {
   stopLossEnabled: boolean;
   trailingStopEnabled: boolean;
   sellAlertListeningEnabled: boolean;
+  trimAlertListeningEnabled: boolean;
   autoShutdownEnabled: boolean;
   smsEnabled: boolean;
 }
@@ -43,6 +45,7 @@ export function parseSettingsViewFlags(settings?: SettingsViewFlagsInput | null)
     stopLossEnabled: parseBooleanFlag(source.stop_loss_enabled),
     trailingStopEnabled: parseBooleanFlag(source.trailing_stop_enabled),
     sellAlertListeningEnabled: parseBooleanFlag(source.sell_alert_listening_enabled),
+    trimAlertListeningEnabled: parseBooleanFlag(source.trim_alert_listening_enabled),
     autoShutdownEnabled: parseBooleanFlag(source.auto_shutdown_enabled),
     smsEnabled: parseBooleanFlag(source.sms_enabled),
   };

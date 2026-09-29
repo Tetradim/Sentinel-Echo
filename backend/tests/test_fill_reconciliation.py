@@ -191,6 +191,9 @@ class FillReconciliationTests(unittest.TestCase):
             entry_risk_profile="high_risk",
             max_loss_budget=500.0,
             estimated_stop_loss_percent=50.0,
+            source_reported_stop_price=3.60,
+            source_reported_stop_percent=-20.0,
+            source_reported_break_even_stop=False,
         )
 
         result = asyncio.run(
@@ -205,6 +208,9 @@ class FillReconciliationTests(unittest.TestCase):
         self.assertEqual(position["entry_risk_profile"], "high_risk")
         self.assertEqual(position["max_loss_budget"], 500.0)
         self.assertEqual(position["estimated_stop_loss_percent"], 50.0)
+        self.assertEqual(position["source_reported_stop_price"], 3.60)
+        self.assertEqual(position["source_reported_stop_percent"], -20.0)
+        self.assertFalse(position["source_reported_break_even_stop"])
         self.assertFalse(position["profit_stage_1_completed"])
         self.assertFalse(position["profit_floor_armed"])
 
@@ -400,6 +406,10 @@ class FillReconciliationTests(unittest.TestCase):
         self.assertEqual(result.position_status, "open")
         self.assertEqual(db.trade_updates[0][1]["quantity"], 2)
         self.assertEqual(db.trade_updates[0][1]["entry_price"], 1.35)
+        self.assertEqual(
+            db.trade_updates[0][1]["position_id"],
+            "position-alpaca-spy-260621-c-500",
+        )
         self.assertEqual(
             db.alert_updates,
             [
@@ -677,6 +687,10 @@ class FillReconciliationTests(unittest.TestCase):
         self.assertEqual(position["total_cost"], 420.0)
         self.assertEqual(position["average_down_count"], 0)
         self.assertEqual(position["trade_ids"], ["trade-entry"])
+        self.assertEqual(
+            db.trade_updates[0][1]["position_id"],
+            "position-alpaca-spy-260831-p-763",
+        )
         self.assertFalse(position["reconciled_from_broker_only"])
         self.assertTrue(position["broker_reconciled_entry_attached"])
         self.assertEqual(position["coordinated_loss_ladder_completed_steps"], [])

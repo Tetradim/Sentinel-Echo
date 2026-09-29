@@ -20,6 +20,7 @@ const FALLBACK_SETTINGS: Settings = {
   active_broker: 'IBKR',
   auto_trading_enabled: true,
   sell_alert_listening_enabled: true,
+  trim_alert_listening_enabled: true,
   default_quantity: 5,
   simulation_mode: false,
   max_position_size: 1000,
@@ -63,6 +64,7 @@ interface Settings {
   discord_token: string; discord_channel_ids: string[];
   active_broker: string; auto_trading_enabled: boolean;
   sell_alert_listening_enabled: boolean;
+  trim_alert_listening_enabled: boolean;
   default_quantity: number; simulation_mode: boolean; max_position_size: number;
   averaging_down_enabled: boolean; averaging_down_threshold: number;
   averaging_down_percentage: number; averaging_down_max_buys: number;
@@ -316,6 +318,7 @@ export default function SettingsScreen() {
         active_broker: settings.active_broker,
         auto_trading_enabled: settings.auto_trading_enabled,
         sell_alert_listening_enabled: settings.sell_alert_listening_enabled,
+        trim_alert_listening_enabled: settings.trim_alert_listening_enabled,
         default_quantity: settings.default_quantity,
         simulation_mode: settings.simulation_mode,
         max_position_size: settings.max_position_size,
@@ -499,7 +502,8 @@ export default function SettingsScreen() {
             <SectionTitle icon="settings-outline" label="Trading" color="#22c55e" sub="Core execution settings" />
 
             <SwitchRow label="Auto Trading" sub="Execute trades when Discord alerts arrive" value={settingsFlags.autoTradingEnabled} onChange={v => update('auto_trading_enabled', v)} accent="#22c55e" />
-            <SwitchRow label="Sell Alert Listening" sub="Let Discord sell and trim alerts close matching open positions" value={settingsFlags.sellAlertListeningEnabled} onChange={v => update('sell_alert_listening_enabled', v)} accent="#14b8a6" />
+            <SwitchRow label="Sell Alert Listening" sub="Let Discord sell and close alerts exit matching open positions" value={settingsFlags.sellAlertListeningEnabled} onChange={v => update('sell_alert_listening_enabled', v)} accent="#14b8a6" />
+            <SwitchRow label="Trim Alert Listening" sub="Let partial trim alerts reduce positions; automatic ladders keep working when this is off" value={settingsFlags.trimAlertListeningEnabled} onChange={v => update('trim_alert_listening_enabled', v)} accent="#f59e0b" />
             <View style={s.twoCol}>
               <View style={s.twoColItem}>
                 <FieldLabel label="Default Quantity" hint="Contracts per trade" />

@@ -1402,6 +1402,8 @@ class SourceOverrideRouteTests(unittest.TestCase):
                     "dedupe_by_channel_url": False,
                     "ignore_followup_messages": False,
                     "allow_fresh_entry_after_close": False,
+                    "trim_alert_listening_enabled": None,
+                    "exit_profile": "standard",
                 }
             },
         )

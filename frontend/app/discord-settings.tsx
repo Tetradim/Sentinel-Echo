@@ -45,6 +45,8 @@ type Community = {
   dedupeByChannelUrl: boolean;
   ignoreFollowupMessages: boolean;
   allowFreshEntryAfterClose: boolean;
+  trimAlertListeningEnabled: boolean;
+  exitProfile: 'standard' | 'swing';
 };
 
 type Patterns = {
@@ -122,6 +124,8 @@ const DEFAULT_BEHAVIORS = {
   dedupeByChannelUrl: false,
   ignoreFollowupMessages: false,
   allowFreshEntryAfterClose: false,
+  trimAlertListeningEnabled: true,
+  exitProfile: 'standard' as const,
 };
 
 const PRESET_IDS = new Set<PresetId>(['default', 'aggressive', 'swing', 'theta', 'momentum', 'custom']);
@@ -227,6 +231,13 @@ function normalizeCommunity(value: any, index: number): Community | null {
       value.allowFreshEntryAfterClose ?? value.allow_fresh_entry_after_close,
       DEFAULT_BEHAVIORS.allowFreshEntryAfterClose,
     ),
+    trimAlertListeningEnabled: parseBoolean(
+      value.trimAlertListeningEnabled ?? value.trim_alert_listening_enabled,
+      DEFAULT_BEHAVIORS.trimAlertListeningEnabled,
+    ),
+    exitProfile: String(value.exitProfile ?? value.exit_profile ?? 'standard').trim().toLowerCase() === 'swing'
+      ? 'swing'
+      : 'standard',
   };
 }
 
@@ -276,6 +287,13 @@ function communitiesFromSettings(settings: any): Community[] {
         source.allow_fresh_entry_after_close,
         DEFAULT_BEHAVIORS.allowFreshEntryAfterClose,
       ),
+      trimAlertListeningEnabled: parseBoolean(
+        source.trim_alert_listening_enabled,
+        DEFAULT_BEHAVIORS.trimAlertListeningEnabled,
+      ),
+      exitProfile: String(source.exit_profile || 'standard').trim().toLowerCase() === 'swing'
+        ? 'swing'
+        : 'standard',
     };
   });
 }
@@ -329,6 +347,8 @@ function buildSourceOverrides(communities: Community[], existing: any): Record<s
       dedupe_by_channel_url: community.dedupeByChannelUrl,
       ignore_followup_messages: community.ignoreFollowupMessages,
       allow_fresh_entry_after_close: community.allowFreshEntryAfterClose,
+      trim_alert_listening_enabled: community.trimAlertListeningEnabled,
+      exit_profile: community.exitProfile,
     };
   });
   return source_overrides;
@@ -1045,6 +1065,18 @@ export function DiscordSettingsPage() {
                   detail="Permit a new alert ID to reopen a contract closed earlier in the session. Reposts of the same alert remain blocked."
                   value={community.allowFreshEntryAfterClose}
                   onValueChange={(value) => updateCommunity(community.id, 'allowFreshEntryAfterClose', value)}
+                />
+                <ToggleRow
+                  title="Honor Trim Alerts"
+                  detail="Let this source reduce an open position when it publishes a trim. Disable this when Echo's own ladder should manage partial exits. Full close and stop alerts still apply."
+                  value={community.trimAlertListeningEnabled}
+                  onValueChange={(value) => updateCommunity(community.id, 'trimAlertListeningEnabled', value)}
+                />
+                <ToggleRow
+                  title="Swing Exit Profile"
+                  detail="Use wider, slower exit behavior for ordinary entries from this source. Explicit fast-scalp language still takes priority."
+                  value={community.exitProfile === 'swing'}
+                  onValueChange={(value) => updateCommunity(community.id, 'exitProfile', value ? 'swing' : 'standard')}
                 />
               </View>
             ))}

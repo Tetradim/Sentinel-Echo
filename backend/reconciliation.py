@@ -35,6 +35,9 @@ def _first_position_for_trade(positions: list[dict], trade_id: str | None) -> di
 
 
 def _attention_reason(alert: dict, trade: dict | None, position: dict | None) -> str:
+    deterministic_result = _clean_text(alert.get("trade_result")).lower()
+    if _clean_text(alert.get("skip_reason")) or deterministic_result.startswith(("blocked:", "skipped:")):
+        return ""
     if alert.get("processed") and not trade:
         return "processed alert has no trade"
     trade_status = str((trade or {}).get("status", "")).lower()

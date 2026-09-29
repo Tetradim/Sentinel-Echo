@@ -964,6 +964,7 @@ class LiveOrderSubmissionStatusTests(unittest.TestCase):
         self.assertTrue(processed)
         self.assertEqual(fake_db.inserted_trades[0]["status"], "pending")
         self.assertEqual(fake_db.inserted_trades[0]["order_id"], "live-order-1")
+        self.assertEqual(fake_db.inserted_trades[0]["position_id"], "pos-live")
 
     def test_exit_alert_without_matching_position_closes_reconciliation_client(self):
         from models import Alert, Settings

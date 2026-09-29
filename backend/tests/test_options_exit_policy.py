@@ -29,6 +29,26 @@ def position(**updates):
 
 
 class PremiumExitProfileTests(unittest.TestCase):
+    def test_swing_source_profile_uses_wider_configured_thresholds(self):
+        from options_exit_policy import select_premium_exit_profile
+
+        profile = select_premium_exit_profile(
+            position(entry_price=0.25, entry_exit_profile="swing"),
+            {
+                "coordinated_low_activation_percent": 15,
+                "coordinated_low_trailing_percent": 18,
+                "coordinated_low_break_even_activation_percent": 15,
+                "coordinated_swing_activation_percent": 30,
+                "coordinated_swing_trailing_percent": 25,
+                "coordinated_swing_break_even_activation_percent": 30,
+            },
+            now=NOW,
+        )
+
+        self.assertEqual(profile.activation_percent, 30)
+        self.assertEqual(profile.trailing_percent, 25)
+        self.assertEqual(profile.break_even_activation_percent, 30)
+
     def test_core_runner_settings_expose_customizable_defaults(self):
         from models import Settings
 
@@ -433,6 +453,113 @@ class CoordinatedExitDecisionTests(unittest.TestCase):
         self.assertEqual(decision["exit_trigger"], "loss_ladder_2")
         self.assertEqual(decision["quantity"], 2)
         self.assertEqual(decision["position_updates"]["coordinated_loss_ladder_pending_step"], 1)
+
+    def test_loss_ladder_gap_uses_one_cumulative_target_order(self):
+        from options_exit_policy import evaluate_coordinated_exit
+
+        decision = evaluate_coordinated_exit(
+            position(
+                option_bid=0.64,
+                current_price=0.64,
+                original_quantity=10,
+                remaining_quantity=10,
+            ),
+            {
+                "coordinated_loss_ladder_enabled": True,
+                "coordinated_loss_ladder": [
+                    {"loss_percent": 15, "quantity_mode": "percent_original", "quantity": 10, "confirmations": 1},
+                    {"loss_percent": 25, "quantity_mode": "percent_original", "quantity": 20, "confirmations": 1},
+                    {"loss_percent": 35, "quantity_mode": "percent_original", "quantity": 30, "confirmations": 1},
+                    {"loss_percent": 50, "quantity_mode": "percent_remaining", "quantity": 100, "confirmations": 1},
+                ],
+                "coordinated_normal_stop_loss_percent": 60,
+                "coordinated_emergency_stop_loss_percent": 80,
+            },
+            now=NOW,
+        )
+
+        self.assertEqual(decision["exit_trigger"], "loss_ladder_3")
+        self.assertEqual(decision["quantity"], 6)
+        self.assertEqual(decision["target_remaining_quantity"], 4)
+        self.assertEqual(decision["position_updates"]["coordinated_loss_ladder_pending_step"], 2)
+        self.assertEqual(decision["position_updates"]["coordinated_loss_ladder_target_quantity"], 6)
+
+    def test_single_contract_skips_fractional_loss_steps_until_terminal_step(self):
+        from options_exit_policy import evaluate_coordinated_exit
+
+        settings = {
+            "coordinated_loss_ladder_enabled": True,
+            "coordinated_loss_ladder": [
+                {"loss_percent": 15, "quantity_mode": "percent_original", "quantity": 10, "confirmations": 1},
+                {"loss_percent": 25, "quantity_mode": "percent_original", "quantity": 20, "confirmations": 1},
+                {"loss_percent": 35, "quantity_mode": "percent_original", "quantity": 30, "confirmations": 1},
+                {"loss_percent": 50, "quantity_mode": "percent_remaining", "quantity": 100, "confirmations": 1},
+            ],
+            "coordinated_normal_stop_loss_percent": 60,
+            "coordinated_emergency_stop_loss_percent": 80,
+        }
+
+        early = evaluate_coordinated_exit(
+            position(option_bid=0.84, current_price=0.84, original_quantity=1, remaining_quantity=1),
+            settings,
+            now=NOW,
+        )
+        terminal = evaluate_coordinated_exit(
+            position(option_bid=0.49, current_price=0.49, original_quantity=1, remaining_quantity=1),
+            settings,
+            now=NOW,
+        )
+
+        self.assertFalse(early["triggered"])
+        self.assertEqual(terminal["exit_trigger"], "loss_ladder_4")
+        self.assertEqual(terminal["quantity"], 1)
+
+    def test_source_reported_card_stop_exits_entire_position(self):
+        from options_exit_policy import evaluate_coordinated_exit
+
+        decision = evaluate_coordinated_exit(
+            position(
+                entry_price=0.34,
+                option_bid=0.27,
+                current_price=0.27,
+                original_quantity=4,
+                remaining_quantity=4,
+                source_reported_stop_price=0.27,
+                source_reported_stop_percent=-20.0,
+            ),
+            {
+                "coordinated_normal_stop_loss_percent": 50,
+                "coordinated_emergency_stop_loss_percent": 80,
+            },
+            now=NOW,
+        )
+
+        self.assertEqual(decision["exit_trigger"], "source_card_stop")
+        self.assertEqual(decision["quantity"], 4)
+        self.assertEqual(decision["exit_allocation_target"], "entire_position")
+
+    def test_swing_profile_defers_first_profit_stage_to_configured_target(self):
+        from options_exit_policy import evaluate_coordinated_exit
+
+        decision = evaluate_coordinated_exit(
+            position(
+                entry_price=1.00,
+                option_bid=1.30,
+                current_price=1.30,
+                highest_executable_bid=1.30,
+                entry_exit_profile="swing",
+            ),
+            {
+                "coordinated_swing_activation_percent": 40,
+                "coordinated_swing_break_even_activation_percent": 40,
+                "coordinated_swing_profit_stage_1_percent": 50,
+                "coordinated_swing_profit_stage_2_percent": 100,
+            },
+            now=NOW,
+        )
+
+        self.assertFalse(decision["triggered"])
+        self.assertNotEqual(decision.get("exit_trigger"), "profit_stage_1")
 
     def test_elastic_trail_widens_by_gain_step_but_never_lowers_floor(self):
         from options_exit_policy import evaluate_coordinated_exit

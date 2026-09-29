@@ -33,6 +33,9 @@ async def prepare_card(db, parsed: dict, channel_id: str, message_id: str, setti
         parsed['expiration'] = position['expiration']
         card['position_id'] = position['id']
         cycle = str(position['alert_id'])
+        risk_updates = _card_risk_updates(card)
+        if risk_updates:
+            await db.update_position(str(position['id']), {'$set': risk_updates})
     # Edits and separate update posts share identity; a later entry starts a new cycle.
     identity = [channel_id, cycle, parsed['ticker'], parsed['strike'], parsed['option_type'],
                 canonical_expiration_yyyymmdd(parsed['expiration']), parsed['alert_type'],
@@ -40,3 +43,20 @@ async def prepare_card(db, parsed: dict, channel_id: str, message_id: str, setti
     card['action_id'] = 'card-' + hashlib.sha256(json.dumps(identity, separators=(',', ':')).encode()).hexdigest()
     parsed['_card'] = card
     return parsed, ''
+
+
+def _card_risk_updates(card: dict) -> dict:
+    updates = {
+        'source_reported_card_state': dict(card),
+    }
+    stop_price = card.get('reported_stop_price')
+    if stop_price is not None:
+        updates['source_reported_stop_price'] = float(stop_price)
+        updates['source_reported_break_even_stop'] = bool(card.get('reported_break_even_stop'))
+    open_quantity = card.get('reported_open_quantity')
+    if open_quantity is not None:
+        updates['source_reported_open_quantity'] = int(open_quantity)
+    peak_percent = card.get('reported_peak_percent')
+    if peak_percent is not None:
+        updates['source_reported_peak_percent'] = float(peak_percent)
+    return updates

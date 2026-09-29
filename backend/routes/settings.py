@@ -33,6 +33,7 @@ db = None
 _BOOLEAN_SETTING_DEFAULTS = {
     "auto_trading_enabled": True,
     "sell_alert_listening_enabled": True,
+    "trim_alert_listening_enabled": True,
     "smart_sizing_enabled": True,
     "entry_slippage_sizing_enabled": True,
     "coordinated_loss_ladder_enabled": True,

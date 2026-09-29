@@ -73,6 +73,8 @@ class SQLiteSerializationTests(unittest.TestCase):
         self.assertTrue(settings["adaptive_trailing_enabled"])
         self.assertTrue(settings["zero_dte_liquidation_enabled"])
         self.assertTrue(settings["coordinated_exit_enabled"])
+        self.assertTrue(settings["post_exit_telemetry_enabled"])
+        self.assertEqual(settings["post_exit_telemetry_minutes"], 60)
         self.assertTrue(settings["risk_budget_sizing_enabled"])
         self.assertEqual(settings["max_loss_per_trade"], 100.0)
         self.assertEqual(settings["coordinated_normal_stop_loss_percent"], 35.0)
@@ -220,6 +222,44 @@ class SQLiteSerializationTests(unittest.TestCase):
         self.assertEqual(row["expiration"], "6/21/2026")
         self.assertEqual(row["remaining_quantity"], 2)
         self.assertEqual(row["broker"], "alpaca")
+
+    def test_concurrent_position_pushes_do_not_lose_trade_links(self):
+        async def run_case():
+            from database.abstraction import SQLiteDatabase
+
+            with tempfile.TemporaryDirectory() as temp_dir:
+                db_path = pathlib.Path(temp_dir) / "position-updates.sqlite3"
+                database = SQLiteDatabase(str(db_path))
+                position_id = "position-alpaca-tsla-260928-p-355"
+                await database.insert_position(
+                    {
+                        "id": position_id,
+                        "ticker": "TSLA",
+                        "strike": 355.0,
+                        "option_type": "PUT",
+                        "expiration": "9/28/2026",
+                        "remaining_quantity": 2,
+                        "status": "open",
+                        "trade_ids": [],
+                    }
+                )
+
+                trade_ids = [f"trade-{index}" for index in range(40)]
+                await asyncio.gather(
+                    *(
+                        database.update_position(
+                            position_id,
+                            {"$push": {"trade_ids": trade_id}},
+                        )
+                        for trade_id in trade_ids
+                    )
+                )
+                positions = await database.get_positions()
+                return next(position for position in positions if position["id"] == position_id)
+
+        position = asyncio.run(run_case())
+
+        self.assertCountEqual(position["trade_ids"], [f"trade-{index}" for index in range(40)])
 
 
 if __name__ == "__main__":

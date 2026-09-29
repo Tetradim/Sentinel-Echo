@@ -124,6 +124,19 @@ class FakeReconciliationDb:
         ]
 
 
+class ReconciliationAttentionTests(unittest.TestCase):
+    def test_deterministically_blocked_alert_without_trade_is_not_unresolved(self):
+        from reconciliation import _attention_reason
+
+        alert = {
+            "processed": True,
+            "trade_executed": False,
+            "trade_result": "blocked: contract already closed this session",
+        }
+
+        self.assertEqual(_attention_reason(alert, None, None), "")
+
+
 class FakeSerializedDecisionDb:
     async def get_alerts(self, limit=100):
         return []

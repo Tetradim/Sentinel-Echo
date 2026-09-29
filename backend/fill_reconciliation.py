@@ -34,6 +34,9 @@ class OrderContext:
     entry_exit_profile: str = "standard"
     max_loss_budget: Optional[float] = None
     estimated_stop_loss_percent: Optional[float] = None
+    source_reported_stop_price: Optional[float] = None
+    source_reported_stop_percent: Optional[float] = None
+    source_reported_break_even_stop: bool = False
     update_alert_status: bool = True
 
 
@@ -149,6 +152,7 @@ async def _apply_fill(
     executed_at = _now()
 
     if context.side.upper() == "BUY":
+        position_id = _entry_position_id(context)
         await db.update_trade(
             context.trade_id,
             {
@@ -158,10 +162,10 @@ async def _apply_fill(
                 "entry_price": fill_price,
                 "executed_at": executed_at,
                 "order_id": context.order_id,
+                "position_id": position_id,
                 "error_message": "",
             },
         )
-        position_id = _entry_position_id(context)
         existing_position = await _get_position_by_id(db, position_id)
         if existing_position:
             if context.trade_id not in (existing_position.get("trade_ids") or []):
@@ -363,8 +367,12 @@ async def _apply_fill(
                 for value in (position.get("coordinated_loss_ladder_completed_steps") or [])
                 if str(value).isdigit()
             }
-            completed_steps.add(completed_step)
+            completed_steps.update(range(completed_step + 1))
             set_update["coordinated_loss_ladder_completed_steps"] = sorted(completed_steps)
+            set_update["coordinated_loss_ladder_sold_quantity"] = min(
+                int(position.get("original_quantity") or new_remaining + exit_qty),
+                int(position.get("coordinated_loss_ladder_sold_quantity") or 0) + exit_qty,
+            )
             set_update["coordinated_loss_ladder_pending_step"] = None
     if new_remaining <= 0:
         set_update["closed_at"] = executed_at
@@ -441,6 +449,9 @@ def _entry_position(
         "entry_exit_profile": context.entry_exit_profile or "standard",
         "max_loss_budget": context.max_loss_budget,
         "estimated_stop_loss_percent": context.estimated_stop_loss_percent,
+        "source_reported_stop_price": context.source_reported_stop_price,
+        "source_reported_stop_percent": context.source_reported_stop_percent,
+        "source_reported_break_even_stop": context.source_reported_break_even_stop,
     }
     position.update(fresh_position_lifecycle_state(fill_price))
     oco_exit_plan = _build_fill_oco_exit_plan(settings, context, quantity, fill_price, position_id)

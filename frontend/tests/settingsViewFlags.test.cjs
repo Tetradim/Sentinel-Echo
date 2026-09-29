@@ -27,6 +27,7 @@ test('parses string booleans for settings screen switches and panels', () => {
     stop_loss_enabled: 'false',
     trailing_stop_enabled: 'false',
     sell_alert_listening_enabled: 'false',
+    trim_alert_listening_enabled: 'false',
     auto_shutdown_enabled: 'false',
     sms_enabled: 'false',
   });
@@ -42,6 +43,7 @@ test('parses string booleans for settings screen switches and panels', () => {
     stopLossEnabled: false,
     trailingStopEnabled: false,
     sellAlertListeningEnabled: false,
+    trimAlertListeningEnabled: false,
     autoShutdownEnabled: false,
     smsEnabled: false,
   });
@@ -59,6 +61,7 @@ test('defaults missing settings screen flags to false', () => {
     stopLossEnabled: false,
     trailingStopEnabled: false,
     sellAlertListeningEnabled: false,
+    trimAlertListeningEnabled: false,
     autoShutdownEnabled: false,
     smsEnabled: false,
   });

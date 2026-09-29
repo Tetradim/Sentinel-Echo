@@ -59,6 +59,15 @@ def alert_exit_profile(raw_text: Any) -> str:
     return "fast_scalp" if any(pattern.search(text) for pattern in _FAST_SCALP_PATTERNS) else "standard"
 
 
+def resolve_entry_exit_profile(raw_text: Any, source_config: dict[str, Any] | None = None) -> str:
+    """Select an alert-specific profile before falling back to the source default."""
+    alert_profile = alert_exit_profile(raw_text)
+    if alert_profile != "standard":
+        return alert_profile
+    source_profile = str((source_config or {}).get("exit_profile") or "standard").strip().lower()
+    return source_profile if source_profile in {"standard", "swing"} else "standard"
+
+
 def explicit_scale_in_allowed(raw_text: Any) -> bool:
     text = str(raw_text or "")
     if _NON_ACTIONABLE_AVERAGE_FILL.search(text):

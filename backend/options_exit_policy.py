@@ -32,7 +32,7 @@ def select_premium_exit_profile(
     entry_price = _positive_float(position.get("entry_price"))
 
     if zero_dte or entry_price < _setting(settings, "coordinated_low_premium_threshold", 0.30):
-        return PremiumExitProfile(
+        profile = PremiumExitProfile(
             tier="zero_dte" if zero_dte else "low",
             activation_percent=_setting(settings, "coordinated_low_activation_percent", 25.0),
             minimum_activation_cents=_setting(settings, "coordinated_low_min_activation_cents", 5.0),
@@ -42,8 +42,8 @@ def select_premium_exit_profile(
                 settings, "coordinated_low_break_even_activation_percent", 25.0
             ),
         )
-    if entry_price <= _setting(settings, "coordinated_medium_premium_threshold", 1.00):
-        return PremiumExitProfile(
+    elif entry_price <= _setting(settings, "coordinated_medium_premium_threshold", 1.00):
+        profile = PremiumExitProfile(
             tier="medium",
             activation_percent=_setting(settings, "coordinated_medium_activation_percent", 20.0),
             minimum_activation_cents=0.0,
@@ -53,14 +53,34 @@ def select_premium_exit_profile(
                 settings, "coordinated_medium_break_even_activation_percent", 20.0
             ),
         )
+    else:
+        profile = PremiumExitProfile(
+            tier="high",
+            activation_percent=_setting(settings, "coordinated_high_activation_percent", 12.0),
+            minimum_activation_cents=0.0,
+            trailing_percent=_setting(settings, "coordinated_high_trailing_percent", 10.0),
+            minimum_trailing_cents=0.0,
+            break_even_activation_percent=_setting(
+                settings, "coordinated_high_break_even_activation_percent", 12.0
+            ),
+        )
+    if str(position.get("entry_exit_profile") or "").strip().lower() != "swing":
+        return profile
     return PremiumExitProfile(
-        tier="high",
-        activation_percent=_setting(settings, "coordinated_high_activation_percent", 12.0),
-        minimum_activation_cents=0.0,
-        trailing_percent=_setting(settings, "coordinated_high_trailing_percent", 10.0),
-        minimum_trailing_cents=0.0,
-        break_even_activation_percent=_setting(
-            settings, "coordinated_high_break_even_activation_percent", 12.0
+        tier=f"{profile.tier}_swing",
+        activation_percent=max(
+            profile.activation_percent,
+            _setting(settings, "coordinated_swing_activation_percent", 30.0),
+        ),
+        minimum_activation_cents=profile.minimum_activation_cents,
+        trailing_percent=max(
+            profile.trailing_percent,
+            _setting(settings, "coordinated_swing_trailing_percent", 25.0),
+        ),
+        minimum_trailing_cents=profile.minimum_trailing_cents,
+        break_even_activation_percent=max(
+            profile.break_even_activation_percent,
+            _setting(settings, "coordinated_swing_break_even_activation_percent", 30.0),
         ),
     )
 
@@ -191,6 +211,18 @@ def evaluate_coordinated_exit(
             remaining,
             updates,
         ))
+
+    source_stop_price = _positive_float(position.get("source_reported_stop_price"))
+    if source_stop_price > 0 and bid <= source_stop_price:
+        decision = _exit(
+            "source_card_stop",
+            f"source-reported stop hit at ${source_stop_price:.2f}",
+            bid,
+            remaining,
+            updates,
+        )
+        decision["exit_allocation_target"] = "entire_position"
+        return finalize(decision)
 
     floor_hold: dict[str, Any] | None = None
     floor_armed = coerce_bool(position.get("profit_floor_armed"), default=False)
@@ -349,11 +381,19 @@ def evaluate_coordinated_exit(
             return finalize(hard_stop_decision)
         return floor_hold
 
-    fast_scalp = str(position.get("entry_exit_profile") or "").strip().lower() == "fast_scalp"
+    exit_profile = str(position.get("entry_exit_profile") or "").strip().lower()
+    fast_scalp = exit_profile == "fast_scalp"
+    swing = exit_profile == "swing"
     stage_one_target = _setting(
         settings,
-        "coordinated_fast_scalp_profit_stage_1_percent" if fast_scalp else "coordinated_profit_stage_1_percent",
-        10.0 if fast_scalp else 25.0,
+        (
+            "coordinated_fast_scalp_profit_stage_1_percent"
+            if fast_scalp
+            else "coordinated_swing_profit_stage_1_percent"
+            if swing
+            else "coordinated_profit_stage_1_percent"
+        ),
+        10.0 if fast_scalp else 50.0 if swing else 25.0,
     )
     if (
         not coerce_bool(position.get("profit_stage_1_completed"), default=False)
@@ -377,8 +417,14 @@ def evaluate_coordinated_exit(
 
     stage_two_target = _setting(
         settings,
-        "coordinated_fast_scalp_profit_stage_2_percent" if fast_scalp else "coordinated_profit_stage_2_percent",
-        20.0 if fast_scalp else 35.0,
+        (
+            "coordinated_fast_scalp_profit_stage_2_percent"
+            if fast_scalp
+            else "coordinated_swing_profit_stage_2_percent"
+            if swing
+            else "coordinated_profit_stage_2_percent"
+        ),
+        20.0 if fast_scalp else 100.0 if swing else 35.0,
     )
     if (
         (
@@ -603,7 +649,6 @@ def _evaluate_loss_ladder(
         loss_percent = _positive_float(raw_step.get("loss_percent"))
         if loss_percent > 0 and return_percent <= -loss_percent:
             selected = (index, raw_step)
-            break
     if selected is None:
         if position.get("coordinated_loss_ladder_confirmation_step") is not None:
             updates.update(
@@ -633,18 +678,17 @@ def _evaluate_loss_ladder(
             updates,
         )
 
-    quantity_value = _positive_float(step.get("quantity"))
-    mode = str(step.get("quantity_mode") or "percent_original").strip().lower()
-    if mode == "fixed":
-        quantity = max(1, int(quantity_value))
-    elif mode == "percent_remaining":
-        quantity = max(1, int(remaining * min(quantity_value, 100.0) / 100.0))
-    else:
-        quantity = max(1, int(original * min(quantity_value, 100.0) / 100.0))
-    quantity = min(remaining, quantity)
+    target_quantity = _loss_ladder_cumulative_target(raw_steps, index, original)
+    recorded_sold = _quantity(position.get("coordinated_loss_ladder_sold_quantity"))
+    if recorded_sold <= 0 and completed:
+        recorded_sold = _loss_ladder_cumulative_target(raw_steps, max(completed), original)
+    quantity = min(remaining, max(0, target_quantity - recorded_sold))
+    if quantity <= 0:
+        return None
     updates.update(
         {
             "coordinated_loss_ladder_pending_step": index,
+            "coordinated_loss_ladder_target_quantity": target_quantity,
             "coordinated_loss_ladder_confirmation_count": 0,
         }
     )
@@ -658,7 +702,32 @@ def _evaluate_loss_ladder(
     decision["exit_allocation_target"] = str(
         step.get("allocation_target") or "core_only"
     ).strip().lower()
+    decision["target_remaining_quantity"] = max(0, remaining - quantity)
     return decision
+
+
+def _loss_ladder_cumulative_target(
+    raw_steps: list[Any],
+    through_index: int,
+    original: int,
+) -> int:
+    target = 0
+    for raw_step in raw_steps[: through_index + 1]:
+        if not isinstance(raw_step, dict):
+            continue
+        quantity_value = _positive_float(raw_step.get("quantity"))
+        mode = str(raw_step.get("quantity_mode") or "percent_original").strip().lower()
+        if mode == "fixed":
+            target += int(quantity_value)
+        elif mode == "percent_remaining" and quantity_value >= 100:
+            target = original
+        else:
+            step_quantity = int(original * min(quantity_value, 100.0) / 100.0)
+            if original > 1 and quantity_value > 0:
+                step_quantity = max(1, step_quantity)
+            target += step_quantity
+        target = min(original, target)
+    return target
 
 
 def _evaluate_confirmed_hard_stop(

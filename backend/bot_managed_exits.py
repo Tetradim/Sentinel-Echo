@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import uuid
-from datetime import date, datetime, time, timezone
+from datetime import date, datetime, time, timedelta, timezone
 from typing import Any, Callable
 from zoneinfo import ZoneInfo
 
@@ -75,6 +75,12 @@ async def run_bot_managed_exit_cycle(
         settings,
         broker_positions=broker_positions,
         broker_positions_failed=broker_positions_failed,
+    )
+    await _refresh_recent_closed_position_telemetry(
+        db,
+        broker_client,
+        settings,
+        now=observed_at,
     )
     pending_sells = await _pending_sell_trades_by_position(db)
     terminal_sells = await _terminal_sell_position_ids(db)
@@ -202,6 +208,73 @@ async def run_bot_managed_exit_cycle(
             pending_sells[position_id] = trade
             submitted += 1
     return submitted
+
+
+async def _refresh_recent_closed_position_telemetry(
+    db,
+    broker_client,
+    settings: dict[str, Any],
+    *,
+    now: datetime | None = None,
+) -> int:
+    """Record bounded post-exit option quotes without creating broker orders."""
+    if not coerce_bool(settings.get("post_exit_telemetry_enabled"), default=True):
+        return 0
+    loader = getattr(broker_client, "get_option_market_context", None)
+    if loader is None:
+        return 0
+    observed_at = _eastern_now(now)
+    horizon_minutes = max(1.0, _positive_float(settings.get("post_exit_telemetry_minutes")) or 60.0)
+    try:
+        closed_positions = await db.get_positions("closed")
+    except Exception as exc:
+        logger.warning("Unable to load closed positions for post-exit telemetry: %s", exc)
+        return 0
+
+    refreshed = 0
+    for position in closed_positions or []:
+        position_id = str(position.get("id") or "").strip()
+        closed_at = _parsed_datetime(position.get("closed_at"))
+        if not position_id or closed_at is None:
+            continue
+        closed_at = closed_at.astimezone(EASTERN)
+        telemetry_until = closed_at + timedelta(minutes=horizon_minutes)
+        if observed_at < closed_at or observed_at > telemetry_until:
+            continue
+        if _active_broker(settings) and _position_broker(position) != _active_broker(settings):
+            continue
+        try:
+            context = await loader(
+                ticker=str(position.get("ticker") or "").upper(),
+                strike=float(position.get("strike") or 0.0),
+                option_type=str(position.get("option_type") or "").upper(),
+                expiration=str(position.get("expiration") or ""),
+            )
+        except Exception as exc:
+            logger.debug("Post-exit telemetry unavailable for %s: %s", position_id, exc)
+            continue
+        context = context if isinstance(context, dict) else {}
+        bid = _positive_float(context.get("option_bid"))
+        entry_price = _positive_float(position.get("entry_price"))
+        if bid <= 0 or entry_price <= 0:
+            continue
+        highest_bid = max(bid, _positive_float(position.get("post_exit_highest_bid")))
+        updates = {
+            "post_exit_last_bid": bid,
+            "post_exit_highest_bid": highest_bid,
+            "post_exit_highest_return_percent": round(
+                (highest_bid - entry_price) / entry_price * 100.0,
+                3,
+            ),
+            "post_exit_quote_observed_at": (
+                context.get("option_quote_observed_at") or observed_at.isoformat()
+            ),
+            "post_exit_telemetry_until": telemetry_until.isoformat(),
+        }
+        position.update(updates)
+        await db.update_position(position_id, {"$set": updates})
+        refreshed += 1
+    return refreshed
 
 
 def evaluate_position_exit(
@@ -1102,6 +1175,10 @@ async def reconcile_pending_exit_orders(
         trade_status = str(trade.get("status") or "").lower()
         if trade_status not in active_statuses and order_id not in reserved_order_ids:
             continue
+        recovered_position_id = _position_id_for_trade(trade, positions)
+        if recovered_position_id and not str(trade.get("position_id") or "").strip():
+            trade["position_id"] = recovered_position_id
+            await db.update_trade(str(trade.get("id") or ""), {"position_id": recovered_position_id})
         context = _trade_order_context(trade)
         if context is None:
             continue
@@ -1126,6 +1203,25 @@ async def reconcile_pending_exit_orders(
         )
         repaired += 1
     return repaired
+
+
+def _position_id_for_trade(
+    trade: dict[str, Any],
+    positions: list[dict[str, Any]],
+) -> str | None:
+    explicit_position_id = str(trade.get("position_id") or "").strip()
+    if explicit_position_id:
+        return explicit_position_id
+    order_id = str(trade.get("order_id") or "").strip()
+    if not order_id:
+        return None
+    matches = [
+        str(position.get("id") or "").strip()
+        for position in positions or []
+        if str(position.get("exit_order_id") or "").strip() == order_id
+        and str(position.get("id") or "").strip()
+    ]
+    return matches[0] if len(matches) == 1 else None
 
 
 def _maintained_target_decision(position: dict[str, Any]) -> dict[str, Any] | None:
@@ -1304,6 +1400,9 @@ def _trade_order_context(trade: dict[str, Any]) -> OrderContext | None:
         entry_risk_profile=str(trade.get("entry_risk_profile") or "normal"),
         max_loss_budget=trade.get("max_loss_budget"),
         estimated_stop_loss_percent=trade.get("estimated_stop_loss_percent"),
+        source_reported_stop_price=trade.get("source_reported_stop_price"),
+        source_reported_stop_percent=trade.get("source_reported_stop_percent"),
+        source_reported_break_even_stop=bool(trade.get("source_reported_break_even_stop")),
         update_alert_status=trade_owns_alert_status(trade),
     )
 

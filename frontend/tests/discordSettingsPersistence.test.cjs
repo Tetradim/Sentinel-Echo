@@ -33,4 +33,8 @@ test('Discord settings screen exposes behavior toggles', () => {
   assert.match(source, /dedupe_by_channel_url/);
   assert.match(source, /ignore_followup_messages/);
   assert.match(source, /allow_fresh_entry_after_close/);
+  assert.match(source, /trim_alert_listening_enabled/);
+  assert.match(source, /exit_profile/);
+  assert.match(source, /Honor Trim Alerts/);
+  assert.match(source, /Swing Exit Profile/);
 });

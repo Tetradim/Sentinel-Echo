@@ -52,6 +52,19 @@ class EntryControlsTests(unittest.TestCase):
         )
         self.assertEqual(alert_exit_profile("Regular swing entry"), "standard")
 
+    def test_source_exit_profile_applies_unless_alert_requests_fast_scalp(self):
+        from entry_controls import resolve_entry_exit_profile
+
+        self.assertEqual(
+            resolve_entry_exit_profile("Regular position", {"exit_profile": "swing"}),
+            "swing",
+        )
+        self.assertEqual(
+            resolve_entry_exit_profile("Looking for a sudden profit", {"exit_profile": "swing"}),
+            "fast_scalp",
+        )
+        self.assertEqual(resolve_entry_exit_profile("Regular position", {}), "standard")
+
     def test_plain_buy_is_blocked_when_same_contract_is_already_open(self):
         from entry_controls import existing_contract_entry_block_reason
 

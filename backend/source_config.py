@@ -27,6 +27,8 @@ DEFAULT_SOURCE_CONFIG = {
     "dedupe_by_channel_url": False,
     "ignore_followup_messages": False,
     "allow_fresh_entry_after_close": False,
+    "trim_alert_listening_enabled": None,
+    "exit_profile": "standard",
 }
 
 ALLOWED_ALERT_ACTIONS = {"buy", "sell", "trim", "close", "average_down"}
@@ -158,6 +160,14 @@ def normalize_source_config(source_config: Dict[str, Any]) -> Dict[str, Any]:
     )
     if config["trailing_context_exit_override_percent"] > 100:
         raise ValueError("trailing_context_exit_override_percent cannot exceed 100")
+    config["trim_alert_listening_enabled"] = _optional_bool_field(
+        config.get("trim_alert_listening_enabled"),
+        "trim_alert_listening_enabled",
+    )
+    exit_profile = str(config.get("exit_profile") or "standard").strip().lower()
+    if exit_profile not in {"standard", "swing"}:
+        raise ValueError("exit_profile must be standard or swing")
+    config["exit_profile"] = exit_profile
     if "managed_by" in source_config:
         config["managed_by"] = str(source_config.get("managed_by") or "").strip()
     if "enrollment_mode" in source_config:
@@ -375,6 +385,12 @@ def _normalize_strings(values: Any) -> list[str]:
 
 def _normalize_url(value: Any) -> str:
     return str(value or "").strip().rstrip("/")
+
+
+def _optional_bool_field(value: Any, field_name: str) -> bool | None:
+    if value is None or str(value).strip().lower() in {"", "inherit", "default"}:
+        return None
+    return _bool_field(value, field_name, default=False)
 
 
 def _normalize_parser_confidence(value: Any) -> str:

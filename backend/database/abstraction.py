@@ -81,6 +81,7 @@ def _default_settings() -> Dict[str, Any]:
         'broker_configs': {},
         'auto_trading_enabled': True,
         'sell_alert_listening_enabled': True,
+        'trim_alert_listening_enabled': True,
         'smart_sizing_enabled': True,
         'smart_sizing_agreement_percent': 100.0,
         'smart_sizing_mixed_percent': 50.0,
@@ -125,6 +126,8 @@ def _default_settings() -> Dict[str, Any]:
         'trailing_hours': 4.0,
         'coordinated_exit_enabled': True,
         'coordinated_exit_quote_max_age_seconds': 15.0,
+        'post_exit_telemetry_enabled': True,
+        'post_exit_telemetry_minutes': 60,
         'coordinated_normal_stop_loss_percent': 35.0,
         'coordinated_high_risk_stop_loss_percent': 50.0,
         'coordinated_high_risk_size_percent': 25.0,
@@ -136,6 +139,11 @@ def _default_settings() -> Dict[str, Any]:
         'coordinated_profit_stage_1_sell_percent': 50.0,
         'coordinated_profit_stage_2_percent': 35.0,
         'coordinated_profit_stage_2_sell_percent': 25.0,
+        'coordinated_swing_activation_percent': 30.0,
+        'coordinated_swing_trailing_percent': 25.0,
+        'coordinated_swing_break_even_activation_percent': 30.0,
+        'coordinated_swing_profit_stage_1_percent': 50.0,
+        'coordinated_swing_profit_stage_2_percent': 100.0,
         'coordinated_low_premium_threshold': 0.30,
         'coordinated_medium_premium_threshold': 1.00,
         'coordinated_low_activation_percent': 25.0,
@@ -680,6 +688,7 @@ class SQLiteDatabase(DatabaseInterface):
     def __init__(self, db_path: str | None = None):
         self.db_path = db_path or configured_database_path()
         self._settings_lock = asyncio.Lock()
+        self._position_lock = asyncio.Lock()
         self._init_lock = asyncio.Lock()
         self._initialised = False
 
@@ -1081,40 +1090,41 @@ class SQLiteDatabase(DatabaseInterface):
     async def update_position(self, position_id: str, updates: Dict[str, Any]):
         await self._ensure_ready()
         import aiosqlite
-        async with aiosqlite.connect(self.db_path, timeout=30) as conn:
-            conn.row_factory = aiosqlite.Row
-            async with conn.execute(
-                'SELECT data FROM positions WHERE id = ?', (position_id,)
-            ) as cur:
-                row = await cur.fetchone()
-            if row:
-                pos = json.loads(row['data'])
-                if '$set' in updates:
-                    pos.update(updates['$set'])
-                if '$push' in updates:
-                    for k, v in updates['$push'].items():
-                        pos.setdefault(k, []).append(v)
-                if '$set' not in updates and '$push' not in updates:
-                    pos.update(updates)
-                await conn.execute(
-                    '''UPDATE positions
-                       SET status = ?, ticker = ?, strike = ?, option_type = ?,
-                           expiration = ?, remaining_quantity = ?, broker = ?,
-                           unrealized_pnl = ?, data = ?
-                       WHERE id = ?''',
-                    (
-                        pos.get('status', 'open'),
-                        pos.get('ticker', ''),
-                        float(pos.get('strike', 0.0) or 0.0),
-                        pos.get('option_type', ''),
-                        pos.get('expiration', ''),
-                        int(pos.get('remaining_quantity') or pos.get('quantity') or 0),
-                        pos.get('broker', ''),
-                        float(pos.get('unrealized_pnl', 0.0)),
-                        json.dumps(pos, default=str), position_id,
+        async with self._position_lock:
+            async with aiosqlite.connect(self.db_path, timeout=30) as conn:
+                conn.row_factory = aiosqlite.Row
+                async with conn.execute(
+                    'SELECT data FROM positions WHERE id = ?', (position_id,)
+                ) as cur:
+                    row = await cur.fetchone()
+                if row:
+                    pos = json.loads(row['data'])
+                    if '$set' in updates:
+                        pos.update(updates['$set'])
+                    if '$push' in updates:
+                        for k, v in updates['$push'].items():
+                            pos.setdefault(k, []).append(v)
+                    if '$set' not in updates and '$push' not in updates:
+                        pos.update(updates)
+                    await conn.execute(
+                        '''UPDATE positions
+                           SET status = ?, ticker = ?, strike = ?, option_type = ?,
+                               expiration = ?, remaining_quantity = ?, broker = ?,
+                               unrealized_pnl = ?, data = ?
+                           WHERE id = ?''',
+                        (
+                            pos.get('status', 'open'),
+                            pos.get('ticker', ''),
+                            float(pos.get('strike', 0.0) or 0.0),
+                            pos.get('option_type', ''),
+                            pos.get('expiration', ''),
+                            int(pos.get('remaining_quantity') or pos.get('quantity') or 0),
+                            pos.get('broker', ''),
+                            float(pos.get('unrealized_pnl', 0.0)),
+                            json.dumps(pos, default=str), position_id,
+                        )
                     )
-                )
-                await conn.commit()
+                    await conn.commit()
 
     # -- Profiles ----------------------------------------------------------
 

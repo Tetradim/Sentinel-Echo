@@ -128,7 +128,87 @@ def _parse_filled_position_card(text: str) -> CardResult:
     headline_end = text.find('\n', headline_start)
     headline = text[headline_start:headline_end if headline_end >= 0 else len(text)]
     stop_match = re.search(r'\bSTOP\s*([+-]?\d+(?:\.\d+)?)\s*%', headline, re.I)
+    headline_stop_price_match = re.search(
+        r'\bSTOP\s*[+-]?\d+(?:\.\d+)?\s*%\s*\(\s*\$(\d+(?:\.\d+)?)\s*\)',
+        headline,
+        re.I,
+    )
     target_match = re.search(r'\bTARGET\s*:\s*([A-Z]+)', headline, re.I)
+    result_rows = []
+    for action, row_price, row_quantity in re.findall(
+        r'^\s*(TRIM|STOP|CLOSE|MANUAL)\s+\$\s*(\d+(?:\.\d+)?)\s+(\d+)\s*X\b',
+        text,
+        re.I | re.M,
+    ):
+        result_rows.append(
+            {
+                'action': action.lower(),
+                'price': float(row_price),
+                'quantity': int(row_quantity),
+            }
+        )
+    open_match = re.search(
+        r'^\s*OPEN\s+(\d+)\s*X\b[^\n]*?\bSTOP\s*\$\s*(\d+(?:\.\d+)?)\b([^\n]*)',
+        text,
+        re.I | re.M,
+    )
+    reported_open_quantity = int(open_match.group(1)) if open_match else None
+    reported_stop_price = (
+        float(open_match.group(2))
+        if open_match
+        else float(headline_stop_price_match.group(1))
+        if headline_stop_price_match
+        else None
+    )
+    reported_break_even_stop = bool(open_match and re.search(r'\(\s*BE\s*\)', open_match.group(3), re.I))
+    peak_match = re.search(r'\bPEAK\s*\+?(-?\d+(?:\.\d+)?)\s*%', text, re.I)
+    net_match = re.search(r'\bNET\s*([+-]?\d+(?:\.\d+)?)', text, re.I)
+    card = {
+        'schema': 'filled_position_v1',
+        'reported_exit_price': None,
+        'reported_exit_quantity': None,
+        'reported_exit_action': None,
+        'reported_quantity': quantity,
+        'reported_open_quantity': reported_open_quantity,
+        'reported_stop_percent': float(stop_match.group(1)) if stop_match else None,
+        'reported_stop_price': reported_stop_price,
+        'reported_break_even_stop': reported_break_even_stop,
+        'reported_peak_percent': float(peak_match.group(1)) if peak_match else None,
+        'reported_net': float(net_match.group(1)) if net_match else None,
+        'reported_exit_rows': result_rows,
+        'target_mode': target_match.group(1).lower() if target_match else None,
+    }
+    if result_rows:
+        latest = result_rows[-1]
+        card.update(
+            {
+                'reported_exit_price': latest['price'],
+                'reported_exit_quantity': latest['quantity'],
+                'reported_exit_action': latest['action'],
+            }
+        )
+        if latest['action'] == 'trim':
+            previously_sold = sum(row['quantity'] for row in result_rows[:-1])
+            available_before = max(1, quantity - previously_sold)
+            sell_percentage = min(100.0, 100.0 * latest['quantity'] / available_before)
+            alert_type = 'trim'
+            exit_trigger = 'source_card_trim'
+        else:
+            sell_percentage = 100.0
+            alert_type = 'close'
+            exit_trigger = f"source_card_{latest['action']}"
+        return CardResult(True, {
+            'alert_type': alert_type,
+            'ticker': match.group('ticker').upper(),
+            'strike': strike,
+            'option_type': 'CALL' if match.group('side').upper() == 'C' else 'PUT',
+            'expiration': expiration,
+            'entry_price': None,
+            'sell_percentage': sell_percentage,
+            'market_price': False,
+            'exit_trigger': exit_trigger,
+            '_card': card,
+        })
     return CardResult(True, {
         'alert_type': 'buy',
         'ticker': match.group('ticker').upper(),
@@ -138,13 +218,7 @@ def _parse_filled_position_card(text: str) -> CardResult:
         'entry_price': price,
         'sell_percentage': None,
         'market_price': False,
-        '_card': {
-            'schema': 'filled_position_v1',
-            'reported_exit_price': None,
-            'reported_quantity': quantity,
-            'reported_stop_percent': float(stop_match.group(1)) if stop_match else None,
-            'target_mode': target_match.group(1).lower() if target_match else None,
-        },
+        '_card': card,
     })
 
 

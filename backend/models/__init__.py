@@ -248,6 +248,7 @@ class Alert(BaseModel):
 class Trade(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     alert_id: Optional[str] = None
+    position_id: Optional[str] = None
     ticker: str = Field(min_length=1, max_length=10)
     strike: float = Field(gt=0)
     option_type: str
@@ -280,6 +281,9 @@ class Trade(BaseModel):
     entry_exit_profile: str = "standard"
     max_loss_budget: Optional[float] = None
     estimated_stop_loss_percent: Optional[float] = None
+    source_reported_stop_price: Optional[float] = None
+    source_reported_stop_percent: Optional[float] = None
+    source_reported_break_even_stop: bool = False
 
 
 class Position(BaseModel):
@@ -324,6 +328,13 @@ class Position(BaseModel):
     coordinated_trailing_floor: Optional[float] = None
     coordinated_break_even_armed: bool = False
     coordinated_break_even_floor: Optional[float] = None
+    coordinated_loss_ladder_completed_steps: List[int] = []
+    coordinated_loss_ladder_pending_step: Optional[int] = None
+    coordinated_loss_ladder_target_quantity: int = 0
+    coordinated_loss_ladder_sold_quantity: int = 0
+    source_reported_stop_price: Optional[float] = None
+    source_reported_stop_percent: Optional[float] = None
+    source_reported_break_even_stop: bool = False
     option_bid: Optional[float] = None
     option_ask: Optional[float] = None
     option_quote_observed_at: Optional[datetime] = None
@@ -333,6 +344,11 @@ class Position(BaseModel):
     exit_target_remaining_quantity: Optional[int] = None
     exit_target_trigger: Optional[str] = None
     exit_target_updated_at: Optional[datetime] = None
+    post_exit_last_bid: Optional[float] = None
+    post_exit_highest_bid: Optional[float] = None
+    post_exit_highest_return_percent: Optional[float] = None
+    post_exit_quote_observed_at: Optional[datetime] = None
+    post_exit_telemetry_until: Optional[datetime] = None
 
 
 class OperatorEvent(BaseModel):
@@ -358,6 +374,7 @@ class Settings(BaseModel):
     broker_configs: Dict[str, BrokerConfig] = {}
     auto_trading_enabled: bool = True
     sell_alert_listening_enabled: bool = True
+    trim_alert_listening_enabled: bool = True
     premium_buffer_enabled: bool = False
     premium_buffer_amount: float = 10.0  # Buffer in cents (e.g., 10 = $0.10)
     default_quantity: int = 1
@@ -403,6 +420,8 @@ class Settings(BaseModel):
     trailing_hours: float = 4.0
     coordinated_exit_enabled: bool = True
     coordinated_exit_quote_max_age_seconds: float = Field(default=15.0, gt=0)
+    post_exit_telemetry_enabled: bool = True
+    post_exit_telemetry_minutes: int = Field(default=60, ge=1, le=1440)
     coordinated_normal_stop_loss_percent: float = Field(default=35.0, gt=0, le=100)
     coordinated_high_risk_stop_loss_percent: float = Field(default=50.0, gt=0, le=100)
     coordinated_high_risk_size_percent: float = Field(default=25.0, gt=0, le=100)
@@ -419,6 +438,11 @@ class Settings(BaseModel):
     coordinated_profit_stage_2_sell_percent: float = Field(default=25.0, gt=0, le=100)
     coordinated_fast_scalp_profit_stage_1_percent: float = Field(default=10.0, gt=0)
     coordinated_fast_scalp_profit_stage_2_percent: float = Field(default=20.0, gt=0)
+    coordinated_swing_activation_percent: float = Field(default=30.0, gt=0)
+    coordinated_swing_trailing_percent: float = Field(default=25.0, gt=0, le=100)
+    coordinated_swing_break_even_activation_percent: float = Field(default=30.0, gt=0)
+    coordinated_swing_profit_stage_1_percent: float = Field(default=50.0, gt=0)
+    coordinated_swing_profit_stage_2_percent: float = Field(default=100.0, gt=0)
     coordinated_low_premium_threshold: float = Field(default=0.30, gt=0)
     coordinated_medium_premium_threshold: float = Field(default=1.00, gt=0)
     coordinated_low_activation_percent: float = Field(default=15.0, gt=0)
@@ -545,6 +569,7 @@ class SettingsUpdate(BaseModel):
     broker_configs: Optional[Dict[str, dict]] = None
     auto_trading_enabled: Optional[bool] = None
     sell_alert_listening_enabled: Optional[bool] = None
+    trim_alert_listening_enabled: Optional[bool] = None
     default_quantity: Optional[int] = Field(default=None, ge=1)
     smart_sizing_enabled: Optional[bool] = None
     smart_sizing_agreement_percent: Optional[float] = Field(default=None, gt=0, le=100)
@@ -587,6 +612,8 @@ class SettingsUpdate(BaseModel):
     trailing_hours: Optional[float] = Field(default=None, gt=0)
     coordinated_exit_enabled: Optional[bool] = None
     coordinated_exit_quote_max_age_seconds: Optional[float] = Field(default=None, gt=0)
+    post_exit_telemetry_enabled: Optional[bool] = None
+    post_exit_telemetry_minutes: Optional[int] = Field(default=None, ge=1, le=1440)
     coordinated_normal_stop_loss_percent: Optional[float] = Field(default=None, gt=0, le=100)
     coordinated_high_risk_stop_loss_percent: Optional[float] = Field(default=None, gt=0, le=100)
     coordinated_high_risk_size_percent: Optional[float] = Field(default=None, gt=0, le=100)
@@ -603,6 +630,11 @@ class SettingsUpdate(BaseModel):
     coordinated_profit_stage_2_sell_percent: Optional[float] = Field(default=None, gt=0, le=100)
     coordinated_fast_scalp_profit_stage_1_percent: Optional[float] = Field(default=None, gt=0)
     coordinated_fast_scalp_profit_stage_2_percent: Optional[float] = Field(default=None, gt=0)
+    coordinated_swing_activation_percent: Optional[float] = Field(default=None, gt=0)
+    coordinated_swing_trailing_percent: Optional[float] = Field(default=None, gt=0, le=100)
+    coordinated_swing_break_even_activation_percent: Optional[float] = Field(default=None, gt=0)
+    coordinated_swing_profit_stage_1_percent: Optional[float] = Field(default=None, gt=0)
+    coordinated_swing_profit_stage_2_percent: Optional[float] = Field(default=None, gt=0)
     coordinated_low_premium_threshold: Optional[float] = Field(default=None, gt=0)
     coordinated_medium_premium_threshold: Optional[float] = Field(default=None, gt=0)
     coordinated_low_activation_percent: Optional[float] = Field(default=None, gt=0)
