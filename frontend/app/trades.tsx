@@ -107,6 +107,9 @@ export default function TradesScreen() {
   const [selected, setSelected]   = useState<Trade | null>(null);
   const [showClose, setShowClose] = useState(false);
   const [showUpdate, setShowUpdate] = useState(false);
+  const [showCleanSlate, setShowCleanSlate] = useState(false);
+  const [cleanSlateStage, setCleanSlateStage] = useState<'confirm' | 'working' | 'success' | 'error'>('confirm');
+  const [cleanSlateMessage, setCleanSlateMessage] = useState('');
   const [exitPrice, setExitPrice] = useState('');
   const [currPrice, setCurrPrice] = useState('');
   const [submitting, setSubmitting] = useState(false);
@@ -197,34 +200,28 @@ export default function TradesScreen() {
       Alert.alert('Demo Mode', 'Clean slate is only available when Echo is connected to the live backend.');
       return;
     }
-    Alert.alert(
-      'Clean Slate',
-      'Back up current trades, positions, alerts, and counters, then reset trades and PnL to zero? This cannot be undone from the app.',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Clean Slate',
-          style: 'destructive',
-          onPress: async () => {
-            setSubmitting(true);
-            try {
-              const response = await cleanSlateTrades();
-              await fetchTrades();
-              const backupId = response.data?.backup_id || 'backup saved';
-              const backupPath = response.data?.backup_path;
-              Alert.alert(
-                'Clean Slate Complete',
-                backupPath ? `${backupId}\n${backupPath}` : String(backupId),
-              );
-            } catch (e: any) {
-              Alert.alert('Error', e.response?.data?.detail || 'Failed to reset trading state');
-            } finally {
-              setSubmitting(false);
-            }
-          },
-        },
-      ],
-    );
+    setCleanSlateStage('confirm');
+    setCleanSlateMessage('');
+    setShowCleanSlate(true);
+  };
+
+  const executeCleanSlate = async () => {
+    setSubmitting(true);
+    setCleanSlateStage('working');
+    setCleanSlateMessage('Backing up trading history and resetting local trading state.');
+    try {
+      const response = await cleanSlateTrades();
+      await fetchTrades();
+      const backupId = response.data?.backup_id || 'Backup saved';
+      const backupPath = response.data?.backup_path;
+      setCleanSlateMessage(backupPath ? `${backupId}\n${backupPath}` : String(backupId));
+      setCleanSlateStage('success');
+    } catch (e: any) {
+      setCleanSlateMessage(e.response?.data?.detail || 'Failed to reset trading state');
+      setCleanSlateStage('error');
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   const renderItem = ({ item: t }: { item: Trade }) => {
@@ -405,6 +402,54 @@ export default function TradesScreen() {
         />
       )}
 
+      {/* Clean Slate Modal */}
+      <Modal
+        visible={showCleanSlate}
+        transparent
+        animationType="fade"
+        onRequestClose={() => { if (!submitting) setShowCleanSlate(false); }}
+      >
+        <View style={s.overlay}>
+          <View style={s.modal}>
+            <Text style={s.modalTitle}>
+              {cleanSlateStage === 'success' ? 'Clean Slate Complete' :
+               cleanSlateStage === 'error' ? 'Clean Slate Failed' : 'Clean Slate'}
+            </Text>
+            {cleanSlateStage === 'confirm' ? (
+              <Text style={s.cleanSlateModalBody}>
+                Back up current trades, positions, alerts, and counters, then reset trades and PnL to zero? This cannot be undone from the app.
+              </Text>
+            ) : (
+              <Text style={[
+                s.cleanSlateModalBody,
+                cleanSlateStage === 'error' && s.cleanSlateModalError,
+              ]}>
+                {cleanSlateMessage}
+              </Text>
+            )}
+            {cleanSlateStage === 'working' ? (
+              <View style={s.cleanSlateWorking}>
+                <ActivityIndicator size="small" color="#f43f5e" />
+                <Text style={s.cleanSlateWorkingText}>Resetting</Text>
+              </View>
+            ) : cleanSlateStage === 'confirm' ? (
+              <View style={s.modalBtns}>
+                <TouchableOpacity style={s.modalCancel} onPress={() => setShowCleanSlate(false)}>
+                  <Text style={s.modalCancelText}>Cancel</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={s.modalConfirm} onPress={executeCleanSlate}>
+                  <Text style={s.modalConfirmText}>Clean Slate</Text>
+                </TouchableOpacity>
+              </View>
+            ) : (
+              <TouchableOpacity style={s.modalCancel} onPress={() => setShowCleanSlate(false)}>
+                <Text style={s.modalCancelText}>Close</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+        </View>
+      </Modal>
+
       {/* Close Modal */}
       <Modal visible={showClose} transparent animationType="fade">
         <View style={s.overlay}>
@@ -535,6 +580,10 @@ const s = StyleSheet.create({
   modal:      { backgroundColor: 'rgba(16, 9, 28, 0.82)', borderRadius: 16, padding: 24, width: '100%', maxWidth: 380, borderWidth: 1, borderColor: '#29213a' },
   modalTitle: { fontSize: 18, fontWeight: '800', color: '#edf3ff', marginBottom: 4 },
   modalSub:   { fontSize: 13, color: '#68779b', marginBottom: 20 },
+  cleanSlateModalBody: { fontSize: 13, color: '#aec0e5', lineHeight: 20, marginTop: 8, marginBottom: 20 },
+  cleanSlateModalError: { color: '#fca5a5' },
+  cleanSlateWorking: { minHeight: 44, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 9 },
+  cleanSlateWorkingText: { color: '#aec0e5', fontSize: 13, fontWeight: '700' },
   modalLabel: { fontSize: 12, color: '#68779b', fontWeight: '600', marginBottom: 8 },
   modalInput: { backgroundColor: 'rgba(21, 16, 33, 0.72)', borderRadius: 9, padding: 14, color: '#edf3ff', fontSize: 18, fontWeight: '700', borderWidth: 1, borderColor: '#29213a', marginBottom: 20 },
   modalBtns:  { flexDirection: 'row', gap: 10 },
