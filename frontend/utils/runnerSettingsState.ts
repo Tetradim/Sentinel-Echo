@@ -54,7 +54,7 @@ export const DEFAULT_RUNNER_SETTINGS: RunnerSettingsState = {
   minContracts: 1,
   maxContracts: 2,
   allowSingleContract: false,
-  activationMfePercent: 100,
+  activationMfePercent: 25,
   reserveCandidatesFromProfit: true,
   lossLadderConsumesCandidates: true,
   protectLossLadder: true,

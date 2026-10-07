@@ -6,6 +6,7 @@ import tempfile
 import types
 import unittest
 from datetime import datetime, timedelta, timezone
+from unittest.mock import AsyncMock, patch
 
 
 BACKEND_DIR = pathlib.Path(__file__).resolve().parents[1]
@@ -21,6 +22,7 @@ class FakeChromeBridgeDb:
         self.patterns = {}
         self.positions = []
         self.position_updates = []
+        self.trades = []
 
     async def get_settings(self):
         return dict(self.settings)
@@ -54,6 +56,9 @@ class FakeChromeBridgeDb:
 
     async def get_alerts(self, limit=50):
         return list(reversed(self.alerts))[:limit]
+
+    async def get_trades(self, limit=50):
+        return list(reversed(self.trades))[:limit]
 
     async def update_position(self, position_id, updates):
         self.position_updates.append((position_id, updates))
@@ -104,6 +109,130 @@ class ChromeBridgeRouteTests(unittest.TestCase):
         else:
             os.environ["CHROME_BRIDGE_MAX_MESSAGE_AGE_MINUTES"] = self.old_bridge_age_minutes
         self.temp_dir.cleanup()
+
+    def test_corrected_buy_contract_change_ignores_wording_and_price_only_edits(self):
+        from routes import discord as discord_route
+
+        original = {"alert_type": "buy", "ticker": "SPY", "strike": 682, "option_type": "CALL", "expiration": "10/06/26", "entry_price": 0.07}
+        corrected = {**original, "strike": 782}
+        self.assertTrue(discord_route._corrected_buy_contract_changed(original, corrected))
+        self.assertFalse(discord_route._corrected_buy_contract_changed(original, {**original, "entry_price": 0.08}))
+        self.assertFalse(discord_route._corrected_buy_contract_changed(original, {**original, "expiration": "10/6/2026"}))
+        self.assertFalse(discord_route._corrected_buy_contract_changed(original, dict(original)))
+
+    def test_corrected_buy_preflight_requires_terminal_order_no_position_and_capped_fresh_ask(self):
+        from routes import discord as discord_route
+
+        class Broker:
+            order_status = {"status": "cancelled", "filled_qty": 0}
+            positions = []
+            open_orders = []
+            ask = 0.08
+            quote_time = datetime.now(timezone.utc).isoformat()
+            last_positions_error = ""
+
+            async def get_order_status(self, order_id):
+                return self.order_status
+
+            async def list_positions(self):
+                return self.positions
+
+            async def list_open_orders(self):
+                return self.open_orders
+
+            async def get_option_market_context(self, **kwargs):
+                return {"option_symbol": "SPY261006C00782000", "option_ask": self.ask, "option_quote_observed_at": self.quote_time}
+
+        fake_db = FakeChromeBridgeDb({})
+        fake_db.trades = [{"alert_id": "original", "side": "BUY", "status": "failed", "order_id": "old-order"}]
+        discord_route.set_db(fake_db)
+        parsed = {"alert_type": "buy", "ticker": "SPY", "strike": 782, "option_type": "CALL", "expiration": "10/06/26", "entry_price": 0.07}
+        broker = Broker()
+
+        def check():
+            return asyncio.run(discord_route._corrected_buy_preflight("original", parsed, {"corrected_buy_max_ask_drift_percent": 20}, broker))
+
+        self.assertEqual(check()["limit_price"], 0.08)
+        broker.order_status = {"status": "new", "filled_qty": 0}
+        self.assertIn("original order", check()["reason"])
+        broker.order_status = {"status": "cancelled", "filled_qty": 1}
+        self.assertIn("filled", check()["reason"])
+        broker.order_status = {"status": "cancelled", "filled_qty": 0}
+        fake_db.trades[0]["order_id"] = None
+        fake_db.trades[0]["error_message"] = "Connection timeout after submit"
+        self.assertIn("status unavailable", check()["reason"])
+        fake_db.trades[0]["error_message"] = "asset not found"
+        self.assertEqual(check()["limit_price"], 0.08)
+        fake_db.trades[0]["order_id"] = "old-order"
+        broker.positions = [{"symbol": "SPY261006C00782000", "quantity": 1}]
+        self.assertIn("position", check()["reason"])
+        broker.positions = []
+        broker.open_orders = [{"symbol": "SPY261006C00782000"}]
+        self.assertIn("open order", check()["reason"])
+        broker.open_orders = []
+        broker.ask = 0.10
+        self.assertIn("cap", check()["reason"])
+        broker.ask = 0.08
+        broker.quote_time = "2026-10-06T13:00:00Z"
+        self.assertIn("stale", check()["reason"])
+
+    def test_corrected_contract_edit_creates_one_capped_buy(self):
+        from routes import discord as discord_route
+
+        fake_db = FakeChromeBridgeDb({
+            "auto_trading_enabled": True,
+            "active_broker": "alpaca",
+            "corrected_buy_max_ask_drift_percent": 20,
+            "source_overrides": {"chrome-alerts": {"process_actionable_edits": True}},
+        })
+        discord_route.set_db(fake_db)
+        request = types.SimpleNamespace(client=types.SimpleNamespace(host="127.0.0.1"))
+        base = dict(event_id="corrected-contract", channel_id="chrome-alerts", channel_name="chrome-alerts",
+                    author_name="Analyst", url="https://discord.com/channels/1/chrome-alerts/corrected-contract")
+        original = discord_route.ChromeBridgeMessage(**base, content="$SPY $682 CALLS EXPIRATION 10/6/2026 $.07 Entry")
+        corrected = discord_route.ChromeBridgeMessage(**base, event_type="updated", revision_hash="abcd1234",
+                                                       content="$SPY $782 CALLS EXPIRATION 10/6/2026 $.07 Entry")
+        wording_only = discord_route.ChromeBridgeMessage(**base, event_type="updated", revision_hash="abcd1235",
+                                                          content="$SPY $782 CALLS EXPIRATION 10/6/2026 $.07 Entry - watch closely")
+        submitted = []
+
+        async def process_trade(_alert, parsed):
+            submitted.append(dict(parsed))
+
+        class Broker:
+            last_positions_error = ""
+
+            async def get_order_status(self, _order_id):
+                return {"status": "cancelled", "filled_qty": 0}
+
+            async def list_positions(self):
+                return []
+
+            async def list_open_orders(self):
+                return []
+
+            async def get_option_market_context(self, **_kwargs):
+                return {"option_symbol": "SPY261006C00782000", "option_ask": 0.08,
+                        "option_quote_observed_at": datetime.now(timezone.utc).isoformat()}
+
+        with patch("server.process_trade", new=process_trade), \
+             patch("order_execution.get_configured_broker_client", return_value=Broker()), \
+             patch("order_execution.close_broker_client", new=AsyncMock()):
+            first = asyncio.run(discord_route.ingest_chrome_bridge_message(original, request))
+            fake_db.trades.append({"alert_id": first["alert_id"], "side": "BUY", "status": "failed", "order_id": "old-order"})
+            second = asyncio.run(discord_route.ingest_chrome_bridge_message(corrected, request))
+            repeated = asyncio.run(discord_route.ingest_chrome_bridge_message(corrected, request))
+            wording = asyncio.run(discord_route.ingest_chrome_bridge_message(wording_only, request))
+
+        self.assertEqual(second["status"], "accepted")
+        self.assertTrue(second["trade_requested"])
+        self.assertEqual(submitted[-1]["strike"], 782)
+        self.assertEqual(submitted[-1]["_corrected_edit_limit_price"], 0.08)
+        self.assertNotEqual(first["alert_id"], second["alert_id"])
+        self.assertEqual(repeated["status"], "duplicate")
+        self.assertEqual(wording["status"], "updated")
+        self.assertFalse(wording["trade_requested"])
+        self.assertEqual(len(submitted), 2)
 
     def test_chrome_bridge_message_flows_through_discord_ingestion(self):
         from routes import discord as discord_route

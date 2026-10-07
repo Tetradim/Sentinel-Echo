@@ -16,6 +16,7 @@ const OPERATOR_LABELS: Record<string, string> = {
   index: 'Dashboard',
   alerts: 'Alerts',
   trades: 'Trades',
+  'trade-audit': 'Trade Audit',
   positions: 'Positions',
   'operator-lab': 'Operator Lab',
   'strike-selection': 'Strike Selection',
@@ -479,6 +480,7 @@ export default function RootLayout() {
       <Stack.Screen name="index" />
       <Stack.Screen name="alerts" />
       <Stack.Screen name="trades" />
+      <Stack.Screen name="trade-audit" />
       <Stack.Screen name="positions" />
       <Stack.Screen name="operator-lab" />
       <Stack.Screen name="risk-settings" />

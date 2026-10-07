@@ -54,6 +54,8 @@ async def handle_discord_message(
         return DiscordIngestionResult(skip_reason="channel not monitored")
 
     alert_text = build_discord_alert_text(message)
+    if alert_text.lstrip().lower().startswith("[link-edited:display-only]"):
+        return DiscordIngestionResult(skip_reason="edited Link repost is display only")
     settings = deps.load_settings() or {}
     source_config = resolve_source_config(
         settings,

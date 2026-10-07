@@ -74,6 +74,29 @@ function Import-LauncherEnvFile {
     Write-Status "Loaded local environment overrides: $Path"
 }
 
+function Import-WindowsUserBrokerCredentials {
+    $apiKey = [Environment]::GetEnvironmentVariable("APCA_API_KEY_ID", "User")
+    $apiSecret = [Environment]::GetEnvironmentVariable("APCA_API_SECRET_KEY", "User")
+
+    if ([string]::IsNullOrWhiteSpace($apiKey) -or [string]::IsNullOrWhiteSpace($apiSecret)) {
+        Write-Status "Windows user Alpaca credentials are not configured; retaining local broker configuration" "WARN"
+        return
+    }
+
+    foreach ($name in @("APCA_API_KEY_ID", "ALPACA_API_KEY")) {
+        [Environment]::SetEnvironmentVariable($name, $apiKey, "Process")
+    }
+    foreach ($name in @("APCA_API_SECRET_KEY", "ALPACA_API_SECRET", "ALPACA_SECRET_KEY")) {
+        [Environment]::SetEnvironmentVariable($name, $apiSecret, "Process")
+    }
+
+    [Environment]::SetEnvironmentVariable("ALPACA_ENDPOINT", "https://paper-api.alpaca.markets/v2", "Process")
+    [Environment]::SetEnvironmentVariable("APCA_API_BASE_URL", "https://paper-api.alpaca.markets/v2", "Process")
+    [Environment]::SetEnvironmentVariable("ALPACA_PAPER", "true", "Process")
+    [Environment]::SetEnvironmentVariable("APCA_API_PAPER", "true", "Process")
+    Write-Status "Loaded current Alpaca credentials from the Windows user environment" "OK"
+}
+
 function Set-DefaultEnvValue {
     param([string]$Name, [string]$Value)
     $current = [Environment]::GetEnvironmentVariable($Name, "Process")
@@ -734,6 +757,7 @@ try {
     Write-Status "Project root: $ProjectRoot"
     Write-Status "Launcher log: $LogFile"
     Import-LauncherEnvFile -Path (Join-Path $ProjectRoot ".env.local")
+    Import-WindowsUserBrokerCredentials
 
     $installedExe = Join-Path $ProjectRoot "SentinelEcho.exe"
     if (Test-Path -LiteralPath $installedExe) {

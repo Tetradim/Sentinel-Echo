@@ -74,6 +74,31 @@ test('no downside stop preserves upside management without a price loss exit', (
   assert.equal(payload.coordinated_profit_stage_2_percent, 50);
 });
 
+test('runner capture reproduces the profitable-session configuration', () => {
+  const payload = getTradingTestPreset('runner_capture').payload;
+
+  assert.equal(payload.default_quantity, 15);
+  assert.equal(payload.smart_sizing_enabled, false);
+  assert.equal(payload.risk_budget_sizing_enabled, false);
+  assert.equal(payload.coordinated_profit_stage_1_percent, 25);
+  assert.equal(payload.coordinated_profit_stage_1_sell_percent, 50);
+  assert.equal(payload.coordinated_profit_stage_2_percent, 50);
+  assert.equal(payload.coordinated_profit_stage_2_sell_percent, 25);
+  assert.equal(payload.coordinated_trailing_mode, 'elastic');
+  assert.equal(payload.coordinated_normal_stop_loss_percent, 50);
+  assert.equal(payload.coordinated_high_risk_stop_loss_percent, 65);
+  assert.equal(payload.coordinated_emergency_stop_loss_percent, 75);
+  assert.equal(payload.coordinated_loss_ladder_enabled, false);
+  assert.equal(payload.core_runner_allocation_mode, 'fixed');
+  assert.equal(payload.core_runner_fixed_contracts, 3);
+  assert.equal(payload.core_runner_min_contracts, 3);
+  assert.equal(payload.core_runner_max_contracts, 3);
+  assert.equal(payload.core_runner_activation_mfe_percent, 25);
+  assert.equal(payload.coordinated_runner_reserve_quantity, 3);
+  assert.equal(payload.exit_reprice_interval_seconds, 2);
+  assert.equal(payload.profit_exit_reprice_interval_seconds, 3);
+});
+
 test('applying and diffing a preset clones nested settings without mutating definitions', () => {
   const current = {
     coordinated_loss_ladder: [{ loss_percent: 5, quantity: 100 }],

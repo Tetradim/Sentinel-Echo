@@ -44,6 +44,18 @@ def message(content, *, channel_id="123", channel_name="alerts", author_name="Mi
 
 
 class DiscordIngestionTests(unittest.TestCase):
+    def test_edited_link_repost_is_display_only(self):
+        from discord_ingestion import handle_discord_message
+
+        deps = FakeDeps({"auto_trading_enabled": True, "source_overrides": {}})
+        result = asyncio.run(handle_discord_message(
+            message("[link-edited:display-only] [copied-alert]\nSource: https://discord.com/channels/1/2\n$SPY $782 CALLS EXPIRATION 10/6/2026 $.07 Entry"),
+            channel_ids=["123"], deps=deps,
+        ))
+        self.assertEqual(result.skip_reason, "edited Link repost is display only")
+        self.assertFalse(result.trade_requested)
+        self.assertEqual(deps.trades, [])
+
     def test_parsed_alert_is_inserted_and_traded_when_settings_enable_autotrading(self):
         from discord_ingestion import handle_discord_message
 

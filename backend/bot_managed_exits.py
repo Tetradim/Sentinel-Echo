@@ -21,6 +21,7 @@ from position_identity import (
     contract_position_id,
     parse_alpaca_option_symbol,
     same_option_contract,
+    trade_cycle_position_id,
 )
 from settings_flags import coerce_bool
 from market_exit_intelligence import MarketExitDecision, evaluate_market_exit_intelligence
@@ -735,7 +736,20 @@ async def reconcile_broker_positions(
         if historical_position and _recently_closed_position(historical_position):
             continue
         if historical_position:
-            await db.update_position(position["id"], {"$set": position})
+            previous_cycle_id = position["id"]
+            position["id"] = trade_cycle_position_id(
+                position.get("broker"),
+                position.get("ticker"),
+                position.get("strike"),
+                position.get("option_type"),
+                position.get("expiration"),
+                f"broker-reconcile-{uuid.uuid4()}",
+            )
+            position["trade_cycle_id"] = position["id"]
+            position["contract_key"] = previous_cycle_id
+            position["reentry_of_position_id"] = previous_cycle_id
+            position["cycle_origin"] = "broker_reconciliation"
+            await db.insert_position(position)
             existing.append(position)
             inserted += 1
             continue
@@ -829,7 +843,7 @@ def _recently_closed_position(position: dict[str, Any]) -> bool:
 def _exit_worker_interval_seconds(
     settings: dict[str, Any],
     *,
-    default_interval: float = 5.0,
+    default_interval: float = 2.0,
 ) -> float:
     intervals = [max(1.0, float(default_interval))]
     for key in ("exit_reprice_interval_seconds", "profit_exit_reprice_interval_seconds"):
@@ -963,6 +977,7 @@ async def _submit_exit_order(
     await db.update_position(position_id, {"$set": {"exit_order_id": order_id}})
     position["exit_order_id"] = order_id
 
+    decision_audit = _exit_decision_audit(position, decision, settings, price)
     trade = {
         "id": trade_id,
         "alert_id": position.get("alert_id", ""),
@@ -984,6 +999,7 @@ async def _submit_exit_order(
         "created_at": _now(),
         "simulated": False,
         "alert_status_owned": False,
+        "exit_decision_audit": decision_audit,
     }
     await db.insert_trade(trade)
     try:
@@ -1005,6 +1021,7 @@ async def _submit_exit_order(
                 "executable_bid": _positive_float(position.get("option_bid")),
                 "highest_executable_bid": _positive_float(position.get("highest_executable_bid")),
                 "premium_tier": position.get("coordinated_exit_tier"),
+                "decision_audit": decision_audit,
             },
         )
     except Exception as exc:
@@ -1038,6 +1055,44 @@ async def _submit_exit_order(
     if asyncio.iscoroutine(result):
         await result
     return trade
+
+
+def _exit_decision_audit(
+    position: dict[str, Any],
+    decision: dict[str, Any],
+    settings: dict[str, Any],
+    submitted_limit_price: float,
+) -> dict[str, Any]:
+    entry_price = _positive_float(position.get("entry_price"))
+    decision_bid = (
+        _positive_float(position.get("option_bid"))
+        or _positive_float(decision.get("exit_price"))
+        or _positive_float(position.get("current_price"))
+    )
+    audit = dict(decision.get("audit") or {})
+    audit.update(
+        {
+            "exit_trigger": str(decision.get("exit_trigger") or "bot_managed_exit"),
+            "reason": decision.get("reason"),
+            "entry_price": round(entry_price, 4),
+            "decision_bid": round(decision_bid, 4),
+            "decision_ask": round(_positive_float(position.get("option_ask")), 4) or None,
+            "return_percent": round(((decision_bid - entry_price) / entry_price) * 100.0, 3)
+            if entry_price > 0 and decision_bid > 0 else None,
+            "quote_observed_at": position.get("option_quote_observed_at"),
+            "submitted_limit_price": round(submitted_limit_price, 4),
+            "remaining_quantity_before": _remaining_quantity(position),
+            "quantity_submitted": _int_quantity(decision.get("quantity")),
+            "target_remaining_quantity": decision.get("target_remaining_quantity"),
+            "completed_loss_ladder_steps": list(
+                position.get("coordinated_loss_ladder_completed_steps") or []
+            ),
+            "pending_loss_ladder_step": position.get("coordinated_loss_ladder_pending_step"),
+            "strategy_profile": position.get("entry_exit_profile"),
+            "active_profile": settings.get("active_profile"),
+        }
+    )
+    return audit
 
 
 def _default_schedule_monitor(**kwargs) -> None:
@@ -1305,7 +1360,7 @@ def _pending_exit_requires_replacement(
         if pending_trigger in patient_triggers
         else "exit_reprice_interval_seconds"
     )
-    default_interval = 12 if pending_trigger in patient_triggers else 5
+    default_interval = 3 if pending_trigger in patient_triggers else 2
     timeout_seconds = max(1, _int_quantity(settings.get(interval_key) or default_interval))
     return created_at is not None and (now.astimezone(timezone.utc) - created_at).total_seconds() >= timeout_seconds
 
@@ -1449,6 +1504,9 @@ def _normalize_broker_position(raw_position: dict[str, Any], active_broker: str)
     position_id = contract_position_id(broker, ticker, strike, option_type, expiration)
     position = {
         "id": position_id,
+        "trade_cycle_id": position_id,
+        "contract_key": position_id,
+        "cycle_origin": "broker_reconciliation",
         "ticker": ticker,
         "strike": strike,
         "option_type": option_type,

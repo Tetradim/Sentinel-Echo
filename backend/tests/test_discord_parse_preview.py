@@ -812,6 +812,25 @@ class DiscordParsePreviewTests(unittest.TestCase):
             result["warnings"],
         )
 
+    def test_unlinked_update_requires_explicit_entry_language(self):
+        from routes import discord as discord_route
+
+        blocked, blocked_metadata = discord_route._parse_alert_for_preview(
+            "UPDATE: SPY 772 CALLS EXPIRATION 10/2/2026 $.30",
+            {},
+        )
+        allowed, allowed_metadata = discord_route._parse_alert_for_preview(
+            "UPDATE: ENTRY SPY 772 CALLS EXPIRATION 10/2/2026 $.30",
+            {},
+        )
+
+        self.assertIsNone(blocked)
+        self.assertTrue(blocked_metadata["ignored"])
+        self.assertEqual(blocked_metadata["matched_pattern_type"], "unlinked_update")
+        self.assertIsNotNone(allowed)
+        self.assertEqual(allowed["alert_type"], "buy")
+        self.assertTrue(allowed_metadata["explicit_action"])
+
     def test_parse_preview_warns_when_auto_trading_disabled(self):
         from routes import discord as discord_route
 

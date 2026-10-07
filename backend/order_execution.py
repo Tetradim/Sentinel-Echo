@@ -52,6 +52,7 @@ def calculate_option_buy_limit_price(
     premium_buffer_amount: Any = 0.0,
     live_ask: Any = None,
     marketable_entry_enabled: Any = False,
+    corrected_edit_limit_price: Any = None,
 ) -> float:
     """Return the max buy limit allowed for an option alert.
 
@@ -62,6 +63,10 @@ def calculate_option_buy_limit_price(
     entry = _positive_float(alert_price)
     if entry is None:
         return 0.01
+
+    corrected_limit = _positive_float(corrected_edit_limit_price)
+    if corrected_limit is not None:
+        return round(corrected_limit, 2)
 
     limit_price = entry
     if coerce_bool(premium_buffer_enabled, default=False):

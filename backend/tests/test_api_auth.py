@@ -5,6 +5,7 @@ import unittest
 
 from starlette.requests import Request
 from starlette.responses import JSONResponse
+from starlette.testclient import TestClient
 
 
 BACKEND_DIR = pathlib.Path(__file__).resolve().parents[1]
@@ -122,6 +123,25 @@ class ApiAuthMiddlewareTests(unittest.TestCase):
         )
 
         self.assertTrue(result["authless_desktop_mode"])
+
+    def test_chrome_extension_can_preflight_authenticated_bridge_requests(self):
+        import server
+
+        extension_origin = "chrome-extension://abcdefghijklmnopabcdefghijklmnop"
+        with TestClient(server.app) as client:
+            response = client.options(
+                "/api/discord/chrome-bridge/heartbeat",
+                headers={
+                    "Origin": extension_origin,
+                    "Access-Control-Request-Method": "POST",
+                    "Access-Control-Request-Headers": "content-type,x-api-key",
+                },
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.headers.get("access-control-allow-origin"), extension_origin
+        )
 
 
 if __name__ == "__main__":

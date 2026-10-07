@@ -57,7 +57,7 @@ class PremiumExitProfileTests(unittest.TestCase):
         self.assertFalse(settings.core_runner_enabled)
         self.assertEqual(settings.core_runner_allocation_mode, "greater_of")
         self.assertEqual(settings.core_runner_allocation_percent, 20.0)
-        self.assertEqual(settings.core_runner_activation_mfe_percent, 100.0)
+        self.assertEqual(settings.core_runner_activation_mfe_percent, 25.0)
         self.assertEqual(settings.core_runner_catastrophic_stop_percent, 65.0)
         self.assertEqual(
             settings.core_runner_trailing_tiers[-1],
@@ -82,7 +82,7 @@ class PremiumExitProfileTests(unittest.TestCase):
             [12.0, 18.0, 25.0, 35.0],
         )
         self.assertEqual(settings.coordinated_trailing_mode, "tightening")
-        self.assertEqual(settings.exit_reprice_interval_seconds, 5)
+        self.assertEqual(settings.exit_reprice_interval_seconds, 2)
         self.assertEqual(settings.profit_exit_reprice_interval_seconds, 3)
         self.assertEqual(settings.coordinated_break_even_required_confirmations, 2)
         self.assertTrue(settings.coordinated_break_even_preserve_runner)
@@ -287,6 +287,42 @@ class CoordinatedExitDecisionTests(unittest.TestCase):
         self.assertEqual(decision["target_remaining_quantity"], 1)
         self.assertEqual(decision["position_updates"]["core_runner_candidate_quantity"], 1)
 
+    def test_profitable_session_profile_stages_seven_and_dedicates_three_runners(self):
+        from options_exit_policy import evaluate_coordinated_exit
+
+        decision = evaluate_coordinated_exit(
+            position(
+                option_bid=1.25,
+                current_price=1.25,
+                highest_executable_bid=1.25,
+                original_quantity=15,
+                remaining_quantity=15,
+            ),
+            {
+                "coordinated_exit_enabled": True,
+                "coordinated_profit_stage_1_percent": 25,
+                "coordinated_profit_stage_1_sell_percent": 50,
+                "core_runner_enabled": True,
+                "core_runner_allocation_mode": "fixed",
+                "core_runner_fixed_contracts": 3,
+                "core_runner_min_contracts": 3,
+                "core_runner_max_contracts": 3,
+                "core_runner_activation_mfe_percent": 25,
+                "core_runner_reserve_candidates_from_profit": True,
+                "core_runner_protect_profit_stages": True,
+                "coordinated_runner_reserve_quantity": 3,
+            },
+            now=NOW,
+        )
+
+        self.assertTrue(decision["triggered"])
+        self.assertEqual(decision["exit_trigger"], "profit_stage_1")
+        self.assertEqual(decision["quantity"], 7)
+        self.assertEqual(decision["target_remaining_quantity"], 8)
+        self.assertTrue(decision["position_updates"]["core_runner_activated"])
+        self.assertEqual(decision["position_updates"]["core_runner_dedicated_quantity"], 3)
+        self.assertEqual(decision["position_updates"]["core_runner_core_quantity"], 12)
+
     def test_activated_runner_is_excluded_from_core_loss_ladder_exit(self):
         from options_exit_policy import evaluate_coordinated_exit
 
@@ -482,6 +518,11 @@ class CoordinatedExitDecisionTests(unittest.TestCase):
         self.assertEqual(decision["quantity"], 6)
         self.assertEqual(decision["target_remaining_quantity"], 4)
         self.assertEqual(decision["position_updates"]["coordinated_loss_ladder_pending_step"], 2)
+        self.assertEqual(decision["audit"]["selected_step"], 3)
+        self.assertEqual(decision["audit"]["completed_steps_before"], [])
+        self.assertEqual(decision["audit"]["decision_bid"], 0.64)
+        self.assertEqual(decision["audit"]["return_percent"], -36.0)
+        self.assertEqual(decision["audit"]["confirmations_required"], 1)
         self.assertEqual(decision["position_updates"]["coordinated_loss_ladder_target_quantity"], 6)
 
     def test_single_contract_skips_fractional_loss_steps_until_terminal_step(self):

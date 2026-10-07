@@ -57,7 +57,7 @@ def update_runner_state(
         previous_candidate if allocation_initialized else desired,
     )
     was_activated = coerce_bool(position.get("core_runner_activated"), default=False)
-    activation_threshold = _non_negative(settings.get("core_runner_activation_mfe_percent"), 100.0)
+    activation_threshold = _non_negative(settings.get("core_runner_activation_mfe_percent"), 25.0)
     minimum_seconds = _quantity(settings.get("core_runner_minimum_activation_seconds"))
     opened_at = _parse_datetime(position.get("opened_at"))
     old_enough = not opened_at or (observed_at - opened_at).total_seconds() >= minimum_seconds
@@ -311,7 +311,7 @@ def _desired_runner_quantity(original: int, settings: dict[str, Any]) -> int:
 
 def _selected_trailing_tier(mfe_percent: float, settings: dict[str, Any]) -> tuple[float, float] | None:
     mode = str(settings.get("core_runner_trailing_mode") or "tiered").strip().lower()
-    activation = _non_negative(settings.get("core_runner_activation_mfe_percent"), 100.0)
+    activation = _non_negative(settings.get("core_runner_activation_mfe_percent"), 25.0)
     if mfe_percent < activation:
         return None
     if mode == "fixed":

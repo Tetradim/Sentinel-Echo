@@ -722,6 +722,7 @@ class AlpacaClient(BaseBrokerClient):
             }
 
     async def list_open_orders(self) -> list[dict]:
+        self.last_open_orders_error = ""
         try:
             session = await self._get_session()
             async with session.get(
@@ -729,9 +730,11 @@ class AlpacaClient(BaseBrokerClient):
                 headers=self._get_headers(),
             ) as resp:
                 if resp.status != 200:
+                    self.last_open_orders_error = f"Alpaca open order listing failed: {resp.status}"
                     return []
                 return _normalize_open_order_list(await resp.json())
         except Exception as e:
+            self.last_open_orders_error = str(e) or e.__class__.__name__
             logger.error(f"Alpaca open order listing failed: {e}")
             return []
 

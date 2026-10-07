@@ -301,6 +301,7 @@ async def _process_starter_buy_alert(
     *,
     pending_trade_result: str | None = None,
     log_context: str = "process_trade",
+    corrected_edit_limit_price: float | None = None,
 ) -> tuple[bool, str | None]:
     """Submit a starter BUY using the standard entry path."""
     from models import Trade
@@ -516,6 +517,7 @@ async def _process_starter_buy_alert(
         premium_buffer_amount=settings.premium_buffer_amount,
         live_ask=alignment.option_ask,
         marketable_entry_enabled=settings.marketable_entry_enabled,
+        corrected_edit_limit_price=corrected_edit_limit_price,
     )
     if settings.premium_buffer_enabled:
         buffer_applied = limit_price - alert.entry_price
@@ -634,6 +636,7 @@ async def process_trade(alert: Alert, parsed: dict):
             settings,
             settings_raw,
             source_config=parsed.get("_source_config") or {},
+            corrected_edit_limit_price=parsed.get("_corrected_edit_limit_price"),
         )
     elif parsed["alert_type"] == "average_down":
         average_down_result = await process_average_down_alert(
@@ -1863,9 +1866,14 @@ ALLOWED_ORIGINS = [
     ).split(",")
     if origin.strip()
 ]
+ALLOWED_ORIGIN_REGEX = os.environ.get(
+    "ALLOWED_ORIGIN_REGEX",
+    r"^chrome-extension://[a-p]{32}$",
+).strip() or None
 app.add_middleware(
     CORSMiddleware,
     allow_origins=ALLOWED_ORIGINS,
+    allow_origin_regex=ALLOWED_ORIGIN_REGEX,
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE"],
     allow_headers=["Content-Type", "Authorization", "X-API-Key"],

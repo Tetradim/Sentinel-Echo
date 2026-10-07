@@ -25,6 +25,7 @@ from readiness_status import readiness_ready_for_live, status_flag
 from reconciliation import build_alert_chain_report, build_reconciliation_rows, summarize_reconciliation_rows
 from settings_flags import coerce_bool
 from trailing_stop_engine import evaluate_trailing_stop as build_trailing_stop_decision
+from trade_cycle_audit import build_trade_cycle_audit
 from utils import normalize_expiration_for_order
 
 router = APIRouter(tags=["Operator"])
@@ -516,6 +517,16 @@ async def _live_readiness_payload():
 async def get_operator_events(limit: int = Query(default=100, ge=1, le=500)):
     """Return recent operator-visible events."""
     return await db.get_operator_events(limit)
+
+
+@router.get("/operator/trade-cycles")
+async def get_trade_cycles(limit: int = Query(default=500, ge=1, le=2000)):
+    """Return broker-fill-oriented trade cycles and their decision evidence."""
+    positions = await db.get_positions()
+    trades = await db.get_trades(limit=limit)
+    alerts = await db.get_alerts(limit=limit)
+    events = await db.get_operator_events(limit=limit)
+    return build_trade_cycle_audit(positions, trades, alerts, events)
 
 
 @router.get("/operator/readiness-gates")

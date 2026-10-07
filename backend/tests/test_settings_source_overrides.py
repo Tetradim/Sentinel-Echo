@@ -121,7 +121,7 @@ class SourceOverrideRouteTests(unittest.TestCase):
         self.assertEqual(response["entry_slippage_mode"], "tiered")
         self.assertEqual(response["coordinated_trailing_mode"], "tightening")
         self.assertTrue(response["coordinated_loss_ladder_enabled"])
-        self.assertEqual(response["exit_reprice_interval_seconds"], 5)
+        self.assertEqual(response["exit_reprice_interval_seconds"], 2)
         self.assertEqual(response["profit_exit_reprice_interval_seconds"], 3)
         self.assertTrue(response["adaptive_trailing_enabled"])
         self.assertEqual(response["adaptive_trailing_max_percent"], 35.0)

@@ -703,6 +703,22 @@ def _evaluate_loss_ladder(
         step.get("allocation_target") or "core_only"
     ).strip().lower()
     decision["target_remaining_quantity"] = max(0, remaining - quantity)
+    decision["audit"] = {
+        "policy": "coordinated_loss_ladder",
+        "selected_step": index + 1,
+        "selected_step_index": index,
+        "completed_steps_before": sorted(completed),
+        "decision_bid": round(bid, 4),
+        "entry_price": round(entry_price, 4),
+        "return_percent": round(return_percent, 3),
+        "confirmations_required": required,
+        "confirmations_observed": count,
+        "quote_observed_at": quote_marker,
+        "target_quantity": target_quantity,
+        "recorded_sold_quantity": recorded_sold,
+        "quantity_submitted": quantity,
+        "remaining_quantity_before": remaining,
+    }
     return decision
 
 

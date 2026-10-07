@@ -209,6 +209,7 @@ class OperatorRouteContractTests(unittest.TestCase):
         self.assertIn(("POST", "/api/broker/switch/{broker_id}"), routes)
         self.assertIn(("POST", "/api/broker/check/{broker_id}"), routes)
         self.assertIn(("GET", "/api/operator/events"), routes)
+        self.assertIn(("GET", "/api/operator/trade-cycles"), routes)
         self.assertIn(("POST", "/api/operator/test-alert"), routes)
         self.assertIn(("POST", "/api/operator/simulate-exit"), routes)
         self.assertIn(("GET", "/api/operator/live-readiness"), routes)

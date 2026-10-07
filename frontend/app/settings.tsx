@@ -49,6 +49,7 @@ const FALLBACK_SETTINGS: Settings = {
   max_daily_loss_amount: 500,
   premium_buffer_enabled: true,
   premium_buffer_amount: 2,
+  corrected_buy_max_ask_drift_percent: 20,
   fill_confirmation_timeout_seconds: 180,
   fill_background_poll_interval_seconds: 15,
   max_positions_per_ticker: 3,
@@ -79,6 +80,7 @@ interface Settings {
   auto_shutdown_enabled: boolean; max_consecutive_losses: number;
   max_daily_losses: number; max_daily_loss_amount: number;
   premium_buffer_enabled: boolean; premium_buffer_amount: number;
+  corrected_buy_max_ask_drift_percent: number;
   fill_confirmation_timeout_seconds: number; fill_background_poll_interval_seconds: number;
   max_positions_per_ticker: number;
   sms_enabled: boolean; sms_phone_number: string;
@@ -533,6 +535,10 @@ export default function SettingsScreen() {
                 <Input value={String(settings?.premium_buffer_amount ?? 10)} onChange={v => update('premium_buffer_amount', parseFloat(v) || 10)} placeholder="Custom ¢" numeric />
               </>
             )}
+            <View style={s.divider} />
+            <FieldLabel label="Corrected Alert Price Cap" hint="Maximum fresh ask above an edited alert's entry price" />
+            <QuickSelect values={[5, 10, 20, 30]} current={settings?.corrected_buy_max_ask_drift_percent ?? 20} onChange={v => update('corrected_buy_max_ask_drift_percent', v)} suffix="%" />
+            <Input value={String(settings?.corrected_buy_max_ask_drift_percent ?? 20)} onChange={v => update('corrected_buy_max_ask_drift_percent', Math.min(100, Math.max(0, parseFloat(v) || 0)))} placeholder="Custom %" numeric />
           </SectionCard>
 
           {/* ═══ AVERAGING DOWN ═══ */}

@@ -2,6 +2,7 @@ export type OperatorRouteName =
   | 'index'
   | 'alerts'
   | 'trades'
+  | 'trade-audit'
   | 'positions'
   | 'operator-lab'
   | 'strike-selection'
@@ -24,6 +25,7 @@ export const OPERATOR_TABS: OperatorTab[] = [
   { name: 'index', label: 'Dashboard', icon: 'pulse-outline', iconActive: 'pulse' },
   { name: 'alerts', label: 'Alerts', icon: 'notifications-outline', iconActive: 'notifications' },
   { name: 'trades', label: 'Trades', icon: 'receipt-outline', iconActive: 'receipt' },
+  { name: 'trade-audit', label: 'Audit', icon: 'search-outline', iconActive: 'search' },
   { name: 'positions', label: 'Positions', icon: 'briefcase-outline', iconActive: 'briefcase' },
   { name: 'operator-lab', label: 'Lab', icon: 'flask-outline', iconActive: 'flask' },
   { name: 'strike-selection', label: 'Strikes', icon: 'trending-up-outline', iconActive: 'trending-up' },

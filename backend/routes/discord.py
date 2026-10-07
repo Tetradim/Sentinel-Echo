@@ -1171,6 +1171,7 @@ async def _chrome_bridge_updated_response(
         actionable_result = await _process_chrome_bridge_actionable_edit(
             payload,
             raw_text,
+            existing_alert_id=alert_id,
             previous_raw_text=str(existing_alert.get("raw_text") or ""),
             settings=settings,
             patterns=patterns,
@@ -1235,10 +1236,116 @@ async def _chrome_bridge_updated_response(
     }
 
 
+def _corrected_buy_contract_changed(previous: dict | None, current: dict | None) -> bool:
+    from position_identity import canonical_expiration_yyyymmdd
+
+    if str((previous or {}).get("alert_type") or "").lower() != "buy":
+        return False
+    if str((current or {}).get("alert_type") or "").lower() != "buy":
+        return False
+    def identity(parsed: dict | None) -> tuple:
+        value = parsed or {}
+        return (
+            str(value.get("ticker") or "").strip().upper(),
+            _safe_float(value.get("strike")),
+            str(value.get("option_type") or "").strip().upper(),
+            canonical_expiration_yyyymmdd(value.get("expiration")),
+        )
+
+    old = identity(previous)
+    new = identity(current)
+    return bool(all(old) and all(new) and old != new)
+
+
+async def _corrected_buy_preflight(
+    original_alert_id: str,
+    parsed: dict,
+    settings: dict,
+    broker: Any,
+) -> dict:
+    from broker_clients import _alpaca_option_symbol
+    from position_identity import canonical_expiration_yyyymmdd
+
+    if str(settings.get("active_broker") or "alpaca").lower() != "alpaca":
+        return {"reason": "corrected buy preflight requires Alpaca broker"}
+
+    trades = await db.get_trades(limit=1000)
+    original_buys = [
+        trade for trade in trades or []
+        if str(trade.get("alert_id") or "") == original_alert_id
+        and str(trade.get("side") or "").upper() == "BUY"
+    ]
+    if not original_buys:
+        return {"reason": "original order history unavailable"}
+    for trade in original_buys:
+        order_id = str(trade.get("order_id") or "").strip()
+        if order_id:
+            status = await broker.get_order_status(order_id)
+            if int(status.get("filled_qty") or 0) > 0:
+                return {"reason": "original order filled or partially filled"}
+            if str(status.get("status") or "").lower() not in {"cancelled", "canceled", "expired", "rejected", "failed"}:
+                return {"reason": "original order is not terminal and unfilled"}
+        else:
+            error = str(trade.get("error_message") or "").lower()
+            definitive_rejection = (
+                error.startswith("validation failed:")
+                or bool(re.search(r"\basset\b.*\bnot found\b", error))
+            )
+            if str(trade.get("status") or "").lower() != "failed" or not definitive_rejection:
+                return {"reason": "original order status unavailable"}
+
+    symbol = _alpaca_option_symbol(
+        parsed["ticker"], parsed["expiration"], parsed["option_type"], parsed["strike"]
+    )
+    positions = await broker.list_positions()
+    if str(getattr(broker, "last_positions_error", "") or ""):
+        return {"reason": "broker position check unavailable"}
+    if any(str(position.get("symbol") or "") == symbol for position in positions or []):
+        return {"reason": "corrected contract already has a broker position"}
+    local_positions = (await db.get_positions("open")) + (await db.get_positions("partial"))
+    if any(
+        str(position.get("ticker") or "").upper() == str(parsed["ticker"]).upper()
+        and float(position.get("strike") or 0) == float(parsed["strike"])
+        and str(position.get("option_type") or "").upper() == str(parsed["option_type"]).upper()
+        and canonical_expiration_yyyymmdd(position.get("expiration")) == canonical_expiration_yyyymmdd(parsed["expiration"])
+        for position in local_positions
+    ):
+        return {"reason": "corrected contract already has a local position"}
+    open_orders = await broker.list_open_orders()
+    if str(getattr(broker, "last_open_orders_error", "") or ""):
+        return {"reason": "broker open order check unavailable"}
+    if any(str(order.get("symbol") or "") == symbol for order in open_orders or []):
+        return {"reason": "corrected contract already has an open order"}
+
+    quote = await broker.get_option_market_context(
+        ticker=parsed["ticker"], strike=parsed["strike"],
+        option_type=parsed["option_type"], expiration=parsed["expiration"],
+    )
+    if str(quote.get("option_symbol") or "") != symbol:
+        return {"reason": "corrected contract validation failed"}
+    observed = str(quote.get("option_quote_observed_at") or "").replace("Z", "+00:00")
+    try:
+        age = (datetime.now(timezone.utc) - datetime.fromisoformat(observed)).total_seconds()
+    except (TypeError, ValueError):
+        return {"reason": "corrected contract quote unavailable"}
+    if age < -5 or age > 15:
+        return {"reason": "corrected contract quote is stale"}
+    ask = _safe_float(quote.get("option_ask"))
+    alert_price = _safe_float(parsed.get("entry_price"))
+    if ask <= 0 or alert_price <= 0:
+        return {"reason": "corrected contract has no valid ask or alert price"}
+    max_drift = max(0.0, min(100.0, _safe_float(settings.get("corrected_buy_max_ask_drift_percent", 20))))
+    cap = round(alert_price * (1 + max_drift / 100), 2)
+    if ask > cap + 0.0001:
+        return {"reason": f"corrected contract ask exceeds {max_drift:g}% cap"}
+    return {"limit_price": round(ask, 2), "reason": ""}
+
+
 async def _process_chrome_bridge_actionable_edit(
     payload: ChromeBridgeMessage,
     raw_text: str,
     *,
+    existing_alert_id: str,
     previous_raw_text: str,
     settings: Dict[str, Any],
     patterns: Dict[str, Any],
@@ -1246,10 +1353,37 @@ async def _process_chrome_bridge_actionable_edit(
     source_override_matched: bool,
 ) -> dict | None:
     parsed_preview, parser_metadata = _parse_alert_for_preview(raw_text, patterns)
-    if not _is_actionable_edit_alert(parsed_preview):
-        return None
     previous_parsed, _ = _parse_alert_for_preview(previous_raw_text, patterns)
-    if _actionable_alert_key(previous_parsed) == _actionable_alert_key(parsed_preview):
+    corrected_buy = _corrected_buy_contract_changed(previous_parsed, parsed_preview)
+    if corrected_buy:
+        from order_execution import close_broker_client, get_configured_broker_client
+
+        broker = None
+        try:
+            broker = get_configured_broker_client(settings, settings.get("active_broker"), require_order_status=True)
+            preflight = await _corrected_buy_preflight(
+                existing_alert_id,
+                parsed_preview,
+                settings,
+                broker,
+            )
+        except Exception as exc:
+            logger.warning("Corrected buy broker preflight unavailable: %s", exc.__class__.__name__)
+            preflight = {"reason": "broker preflight unavailable"}
+        finally:
+            if broker is not None:
+                await close_broker_client(broker)
+        if preflight.get("reason"):
+            await record_operator_event(
+                db, "alert_ingestion", "bridge_corrected_buy_skipped",
+                "Corrected buy edit did not pass broker preflight.", severity="warning",
+                details={"event_id": payload.event_id, "revision_hash": payload.revision_hash, "reason": preflight["reason"]},
+            )
+            return None
+        parsed_preview["_corrected_edit_limit_price"] = preflight["limit_price"]
+    elif not _is_actionable_edit_alert(parsed_preview):
+        return None
+    elif _actionable_alert_key(previous_parsed) == _actionable_alert_key(parsed_preview):
         return None
 
     preflight_skip_reason = _chrome_bridge_preflight_skip_reason(
@@ -2157,6 +2291,22 @@ def _parse_alert_for_preview(
             break
 
     parsed = raw_parsed if canonical_text == raw_text else normalize_parsed_alert(parse_alert(canonical_text))
+    if (
+        parsed
+        and str(parsed.get("alert_type") or "").strip().lower() == "buy"
+        and not explicit_action
+        and re.search(r"\b(?:POSITION\s+)?UPDATE\b", raw_text, re.IGNORECASE)
+    ):
+        metadata.update(
+            {
+                "matched_pattern": "UPDATE",
+                "matched_pattern_type": "unlinked_update",
+                "pattern_source": "builtin",
+                "ignored": True,
+                "confidence": "high",
+            }
+        )
+        return None, metadata
     ticker_pattern = patterns.get("ticker_pattern")
     ticker_override = _extract_ticker_with_pattern(
         raw_text,

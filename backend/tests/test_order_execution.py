@@ -125,6 +125,18 @@ class OrderExecutionTests(unittest.TestCase):
             0.34,
         )
 
+    def test_corrected_buy_uses_validated_limit_even_with_other_entry_modes(self):
+        from order_execution import calculate_option_buy_limit_price
+
+        self.assertEqual(
+            calculate_option_buy_limit_price(
+                0.07, premium_buffer_enabled=True, premium_buffer_amount=5,
+                live_ask=0.12, marketable_entry_enabled=True,
+                corrected_edit_limit_price=0.08,
+            ),
+            0.08,
+        )
+
     def test_resolve_broker_config_decrypts_stored_credentials(self):
         from order_execution import resolve_broker_config
 

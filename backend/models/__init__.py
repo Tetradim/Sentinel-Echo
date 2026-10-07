@@ -284,10 +284,15 @@ class Trade(BaseModel):
     source_reported_stop_price: Optional[float] = None
     source_reported_stop_percent: Optional[float] = None
     source_reported_break_even_stop: bool = False
+    exit_decision_audit: Dict[str, object] = Field(default_factory=dict)
 
 
 class Position(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    trade_cycle_id: Optional[str] = None
+    contract_key: Optional[str] = None
+    reentry_of_position_id: Optional[str] = None
+    cycle_origin: str = "entry"
     ticker: str = Field(min_length=1, max_length=10)
     strike: float = Field(gt=0)
     option_type: str
@@ -330,8 +335,12 @@ class Position(BaseModel):
     coordinated_break_even_floor: Optional[float] = None
     coordinated_loss_ladder_completed_steps: List[int] = []
     coordinated_loss_ladder_pending_step: Optional[int] = None
+    coordinated_loss_ladder_confirmation_step: Optional[int] = None
+    coordinated_loss_ladder_confirmation_count: int = 0
+    coordinated_loss_ladder_last_quote_observed_at: Optional[datetime] = None
     coordinated_loss_ladder_target_quantity: int = 0
     coordinated_loss_ladder_sold_quantity: int = 0
+    entry_strategy_snapshot: Dict[str, object] = Field(default_factory=dict)
     source_reported_stop_price: Optional[float] = None
     source_reported_stop_percent: Optional[float] = None
     source_reported_break_even_stop: bool = False
@@ -389,6 +398,7 @@ class Settings(BaseModel):
     entry_slippage_warning_size_percent: float = Field(default=50.0, gt=0, le=100)
     entry_slippage_severe_size_percent: float = Field(default=25.0, gt=0, le=100)
     marketable_entry_enabled: bool = True
+    corrected_buy_max_ask_drift_percent: float = Field(default=20.0, ge=0, le=100)
     simulation_mode: bool = False
     max_position_size: float = 1000.0
     risk_per_trade: float = 1.0
@@ -485,7 +495,7 @@ class Settings(BaseModel):
     core_runner_min_contracts: int = Field(default=1, ge=0, le=1000)
     core_runner_max_contracts: int = Field(default=2, ge=0, le=1000)
     core_runner_allow_single_contract: bool = False
-    core_runner_activation_mfe_percent: float = Field(default=100.0, ge=0)
+    core_runner_activation_mfe_percent: float = Field(default=25.0, ge=0)
     core_runner_reserve_candidates_from_profit: bool = True
     core_runner_loss_ladder_consumes_candidates: bool = True
     core_runner_protect_loss_ladder: bool = True
@@ -539,7 +549,7 @@ class Settings(BaseModel):
     )
     fill_confirmation_timeout_seconds: int = Field(default=180, ge=30, le=3600)
     fill_background_poll_interval_seconds: int = Field(default=15, ge=5, le=300)
-    exit_reprice_interval_seconds: int = Field(default=5, ge=1, le=60)
+    exit_reprice_interval_seconds: int = Field(default=2, ge=1, le=60)
     profit_exit_reprice_interval_seconds: int = Field(default=3, ge=1, le=120)
     profit_exit_marketable_offset_cents: float = Field(default=1.0, ge=0, le=25)
     # Auto shutdown settings
@@ -582,6 +592,7 @@ class SettingsUpdate(BaseModel):
     entry_slippage_warning_size_percent: Optional[float] = Field(default=None, gt=0, le=100)
     entry_slippage_severe_size_percent: Optional[float] = Field(default=None, gt=0, le=100)
     marketable_entry_enabled: Optional[bool] = None
+    corrected_buy_max_ask_drift_percent: Optional[float] = Field(default=None, ge=0, le=100)
     simulation_mode: Optional[bool] = None
     max_position_size: Optional[float] = Field(default=None, gt=0)
     risk_per_trade: Optional[float] = Field(default=None, gt=0)

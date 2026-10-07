@@ -554,7 +554,7 @@ class FillReconciliationTests(unittest.TestCase):
         self.assertEqual(position["total_cost"], 280.0)
         self.assertEqual(position["trade_ids"], ["trade-entry-1", "trade-entry-2"])
 
-    def test_filled_entry_reopens_closed_contract_with_fresh_cost_basis(self):
+    def test_filled_reentry_creates_unique_cycle_and_preserves_closed_cycle(self):
         from fill_reconciliation import BrokerOrderUpdate, OrderContext, reconcile_order_update
 
         db = FakeLifecycleDb()
@@ -579,6 +579,11 @@ class FillReconciliationTests(unittest.TestCase):
             "reversal_state": "confirmed",
             "reversal_conflict_count": 4,
             "reversal_warning_completed": True,
+            "coordinated_loss_ladder_confirmation_step": 1,
+            "coordinated_loss_ladder_confirmation_count": 2,
+            "coordinated_loss_ladder_last_quote_observed_at": "old-quote",
+            "coordinated_loss_ladder_target_quantity": 3,
+            "coordinated_loss_ladder_sold_quantity": 1,
             "broker": "alpaca",
         }
         context = OrderContext(
@@ -608,8 +613,13 @@ class FillReconciliationTests(unittest.TestCase):
             )
         )
 
-        position = db.positions[position_id]
-        self.assertEqual(result.position_id, position_id)
+        self.assertNotEqual(result.position_id, position_id)
+        self.assertEqual(db.positions[position_id]["status"], "closed")
+        self.assertEqual(db.positions[position_id]["realized_pnl"], -2290.0)
+        position = db.positions[result.position_id]
+        self.assertEqual(position["reentry_of_position_id"], position_id)
+        self.assertEqual(position["contract_key"], position_id)
+        self.assertEqual(position["trade_cycle_id"], result.position_id)
         self.assertEqual(position["status"], "open")
         self.assertEqual(position["entry_price"], 2.00)
         self.assertEqual(position["initial_entry_price"], 2.00)
@@ -620,6 +630,11 @@ class FillReconciliationTests(unittest.TestCase):
         self.assertEqual(position["average_down_count"], 0)
         self.assertEqual(position["realized_pnl"], 0.0)
         self.assertEqual(position["trade_ids"], ["new-buy"])
+        self.assertIsNone(position["coordinated_loss_ladder_confirmation_step"])
+        self.assertEqual(position["coordinated_loss_ladder_confirmation_count"], 0)
+        self.assertIsNone(position["coordinated_loss_ladder_last_quote_observed_at"])
+        self.assertEqual(position["coordinated_loss_ladder_target_quantity"], 0)
+        self.assertEqual(position["coordinated_loss_ladder_sold_quantity"], 0)
         self.assertIsNone(position["closed_at"])
         self.assertEqual(position["reversal_state"], "")
         self.assertEqual(position["reversal_conflict_count"], 0)

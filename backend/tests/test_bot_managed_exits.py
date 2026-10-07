@@ -1287,7 +1287,7 @@ class BotManagedExitTests(unittest.TestCase):
         self.assertEqual(position["current_price"], 1.30)
         self.assertTrue(position["reconciled_from_broker_only"])
 
-    def test_reconciliation_reactivates_closed_contract_instead_of_inserting_duplicate_id(self):
+    def test_reconciliation_creates_unique_cycle_without_overwriting_closed_contract(self):
         from bot_managed_exits import reconcile_broker_positions
 
         db = FakeExitDb()
@@ -1326,19 +1326,24 @@ class BotManagedExitTests(unittest.TestCase):
         count = asyncio.run(reconcile_broker_positions(db, broker, {"active_broker": "alpaca"}))
 
         self.assertEqual(count, 1)
-        self.assertEqual(db.inserted_positions, [])
-        self.assertEqual(len(db.positions), 1)
-        self.assertEqual(db.positions[0]["status"], "open")
-        self.assertEqual(db.positions[0]["remaining_quantity"], 10)
-        self.assertTrue(db.positions[0]["reconciled_from_broker_only"])
-        self.assertEqual(db.positions[0]["trade_ids"], [])
-        self.assertEqual(db.positions[0]["coordinated_loss_ladder_completed_steps"], [])
-        self.assertEqual(db.positions[0]["coordinated_stop_confirmation_count"], 0)
-        self.assertEqual(db.positions[0]["coordinated_break_even_confirmation_count"], 0)
-        self.assertEqual(db.positions[0]["counterfactual_stop_hits"], {})
-        self.assertEqual(db.positions[0]["premium_mark_history"], [])
-        self.assertIsNone(db.positions[0]["coordinated_trailing_floor"])
-        self.assertIsNone(db.positions[0]["exit_target_remaining_quantity"])
+        self.assertEqual(len(db.inserted_positions), 1)
+        self.assertEqual(len(db.positions), 2)
+        self.assertEqual(db.positions[0]["status"], "closed")
+        position = db.inserted_positions[0]
+        self.assertNotEqual(position["id"], db.positions[0]["id"])
+        self.assertEqual(position["reentry_of_position_id"], db.positions[0]["id"])
+        self.assertEqual(position["contract_key"], db.positions[0]["id"])
+        self.assertEqual(position["status"], "open")
+        self.assertEqual(position["remaining_quantity"], 10)
+        self.assertTrue(position["reconciled_from_broker_only"])
+        self.assertEqual(position["trade_ids"], [])
+        self.assertEqual(position["coordinated_loss_ladder_completed_steps"], [])
+        self.assertEqual(position["coordinated_stop_confirmation_count"], 0)
+        self.assertEqual(position["coordinated_break_even_confirmation_count"], 0)
+        self.assertEqual(position["counterfactual_stop_hits"], {})
+        self.assertEqual(position["premium_mark_history"], [])
+        self.assertIsNone(position["coordinated_trailing_floor"])
+        self.assertIsNone(position["exit_target_remaining_quantity"])
 
     def test_reconciliation_does_not_resurrect_just_closed_contract_from_stale_broker_snapshot(self):
         from bot_managed_exits import reconcile_broker_positions

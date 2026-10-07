@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 from typing import Any, Literal, Optional
 
 from order_execution import build_oco_exit_plan
-from position_identity import contract_position_id
+from position_identity import contract_position_id, trade_cycle_position_id
 
 
 OrderSide = Literal["BUY", "SELL"]
@@ -153,6 +153,23 @@ async def _apply_fill(
 
     if context.side.upper() == "BUY":
         position_id = _entry_position_id(context)
+        existing_position = await _get_position_by_id(db, position_id)
+        reentry_of_position_id: str | None = None
+        if (
+            existing_position
+            and not context.position_id
+            and str(existing_position.get("status") or "").strip().lower() == "closed"
+        ):
+            reentry_of_position_id = position_id
+            position_id = trade_cycle_position_id(
+                context.broker,
+                context.ticker,
+                context.strike,
+                context.option_type,
+                context.expiration,
+                context.trade_id,
+            )
+            existing_position = await _get_position_by_id(db, position_id)
         await db.update_trade(
             context.trade_id,
             {
@@ -166,7 +183,6 @@ async def _apply_fill(
                 "error_message": "",
             },
         )
-        existing_position = await _get_position_by_id(db, position_id)
         if existing_position:
             if context.trade_id not in (existing_position.get("trade_ids") or []):
                 if str(existing_position.get("status") or "").strip().lower() == "closed":
@@ -242,6 +258,9 @@ async def _apply_fill(
             )
 
         position = _entry_position(context, filled_qty, fill_price, position_id, settings=settings)
+        if reentry_of_position_id:
+            position["reentry_of_position_id"] = reentry_of_position_id
+            position["cycle_origin"] = "reentry"
         position_id = await db.insert_position(position)
         await _update_alert_status(
             db,
@@ -424,8 +443,18 @@ def _entry_position(
     *,
     settings: dict[str, Any] | None = None,
 ) -> dict:
+    contract_key = contract_position_id(
+        context.broker,
+        context.ticker,
+        context.strike,
+        context.option_type,
+        context.expiration,
+    )
     position = {
         "id": position_id,
+        "trade_cycle_id": position_id,
+        "contract_key": contract_key,
+        "cycle_origin": "entry",
         "alert_id": context.alert_id,
         "ticker": context.ticker,
         "strike": context.strike,
@@ -452,6 +481,7 @@ def _entry_position(
         "source_reported_stop_price": context.source_reported_stop_price,
         "source_reported_stop_percent": context.source_reported_stop_percent,
         "source_reported_break_even_stop": context.source_reported_break_even_stop,
+        "entry_strategy_snapshot": _entry_strategy_snapshot(settings),
     }
     position.update(fresh_position_lifecycle_state(fill_price))
     oco_exit_plan = _build_fill_oco_exit_plan(settings, context, quantity, fill_price, position_id)
@@ -460,6 +490,35 @@ def _entry_position(
         position["oco_exit_status"] = "metadata_only"
         position["oco_exit_protected"] = False
     return position
+
+
+def _entry_strategy_snapshot(settings: dict[str, Any] | None) -> dict[str, Any]:
+    if not isinstance(settings, dict):
+        return {}
+    keys = (
+        "active_profile",
+        "fixed_contract_quantity",
+        "default_quantity",
+        "coordinated_exit_enabled",
+        "coordinated_loss_ladder_enabled",
+        "coordinated_loss_ladder",
+        "coordinated_trailing_enabled",
+        "coordinated_trailing_activation_percent",
+        "coordinated_trailing_percent",
+        "coordinated_break_even_enabled",
+        "coordinated_break_even_activation_percent",
+        "core_runner_enabled",
+        "core_runner_quantity",
+        "core_runner_activation_percent",
+        "core_runner_catastrophic_stop_percent",
+        "take_profit_enabled",
+        "take_profit_percentage",
+        "stop_loss_enabled",
+        "stop_loss_percentage",
+        "trailing_stop_enabled",
+        "trailing_stop_percent",
+    )
+    return {key: settings[key] for key in keys if key in settings}
 
 
 def fresh_position_lifecycle_state(fill_price: float) -> dict[str, Any]:
@@ -508,7 +567,11 @@ def fresh_position_lifecycle_state(fill_price: float) -> dict[str, Any]:
         "coordinated_stop_last_confirmation_at": None,
         "coordinated_loss_ladder_completed_steps": [],
         "coordinated_loss_ladder_pending_step": None,
+        "coordinated_loss_ladder_confirmation_step": None,
         "coordinated_loss_ladder_confirmation_count": 0,
+        "coordinated_loss_ladder_last_quote_observed_at": None,
+        "coordinated_loss_ladder_target_quantity": 0,
+        "coordinated_loss_ladder_sold_quantity": 0,
         "core_runner_allocation_initialized": False,
         "core_runner_original_quantity": None,
         "core_runner_candidate_quantity": 0,

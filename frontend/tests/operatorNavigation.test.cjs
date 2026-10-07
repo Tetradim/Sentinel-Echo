@@ -28,6 +28,7 @@ test('exposes the primary operator workflows in bottom navigation order', () => 
       ['index', 'Dashboard'],
       ['alerts', 'Alerts'],
       ['trades', 'Trades'],
+      ['trade-audit', 'Audit'],
       ['positions', 'Positions'],
       ['operator-lab', 'Lab'],
       ['strike-selection', 'Strikes'],
@@ -45,6 +46,7 @@ test('exposes the primary operator workflows in bottom navigation order', () => 
 test('maps tab names to Expo route paths', () => {
   assert.equal(getOperatorRoutePath('index'), '/');
   assert.equal(getOperatorRoutePath('operator-lab'), '/operator-lab');
+  assert.equal(getOperatorRoutePath('trade-audit'), '/trade-audit');
   assert.equal(getOperatorRoutePath('broker-config'), '/broker-config');
   assert.equal(getOperatorRoutePath('profiles'), '/profiles');
   assert.equal(getOperatorRoutePath('runner-settings'), '/runner-settings');
@@ -53,6 +55,7 @@ test('maps tab names to Expo route paths', () => {
 test('normalizes the current route into the active tab name', () => {
   assert.equal(getActiveOperatorTab('/'), 'index');
   assert.equal(getActiveOperatorTab('/operator-lab'), 'operator-lab');
+  assert.equal(getActiveOperatorTab('/trade-audit'), 'trade-audit');
   assert.equal(getActiveOperatorTab('/strike-selection'), 'strike-selection');
   assert.equal(getActiveOperatorTab('/broker-config'), 'broker-config');
   assert.equal(getActiveOperatorTab('/unknown'), null);

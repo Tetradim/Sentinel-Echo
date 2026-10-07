@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 from datetime import date
 from typing import Any
+from uuid import NAMESPACE_URL, uuid5
 
 from utils import normalize_expiration_for_order
 
@@ -54,6 +55,20 @@ def contract_position_id(
     option_token = "c" if str(option_type or "").upper().startswith("C") else "p"
     strike_token = _strike_token(strike)
     return f"position-{broker_token}-{ticker_token}-{expiration_token}-{option_token}-{strike_token}"
+
+
+def trade_cycle_position_id(
+    broker: Any,
+    ticker: Any,
+    strike: Any,
+    option_type: Any,
+    expiration: Any,
+    cycle_key: Any,
+) -> str:
+    """Return a stable unique position id for one flat-to-open trade cycle."""
+    contract_key = contract_position_id(broker, ticker, strike, option_type, expiration)
+    stable_key = f"{contract_key}:{str(cycle_key or '').strip()}"
+    return f"{contract_key}-cycle-{uuid5(NAMESPACE_URL, stable_key)}"
 
 
 def same_option_contract(left: dict[str, Any], right: dict[str, Any]) -> bool:

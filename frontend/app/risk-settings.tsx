@@ -97,7 +97,7 @@ const DEFAULT_RISK_SETTINGS: RiskSettings = {
     { loss_percent: 35, quantity_mode: 'percent_remaining', quantity: 100, confirmations: 1 },
   ],
   fillConfirmationTimeoutSeconds: 180,
-  exitRepriceIntervalSeconds: 5,
+  exitRepriceIntervalSeconds: 2,
   profitExitRepriceIntervalSeconds: 3,
   reversalExitEnabled: true,
   reversalWarningConfirmations: 3,

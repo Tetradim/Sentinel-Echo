@@ -6,6 +6,7 @@ export const API_ROUTES = {
   positions: '/api/positions',
   tradesCleanSlate: '/api/trades/clean-slate',
   operatorEvents: '/api/operator/events',
+  tradeCycles: '/api/operator/trade-cycles',
   liveReadiness: '/api/operator/live-readiness',
   liveArm: '/api/operator/live-arm',
   liveDisarm: '/api/operator/live-disarm',
@@ -58,6 +59,10 @@ export function checkBroker(brokerId: string) {
 
 export function getOperatorEvents(limit = 100) {
   return api.get(`${API_ROUTES.operatorEvents}?limit=${limit}`);
+}
+
+export function getTradeCycles(limit = 500) {
+  return api.get(`${API_ROUTES.tradeCycles}?limit=${limit}`);
 }
 
 export function getLiveReadiness() {
